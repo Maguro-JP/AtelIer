@@ -381,4 +381,3 @@ class ReleaseAroundDrawTest(unittest.TestCase):
         with mock.patch.object(ctypes, "CDLL", Fake):
             engine.release_memory()
         self.assertEqual(got, [0])
-
