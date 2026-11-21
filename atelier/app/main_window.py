@@ -6107,6 +6107,7 @@ class Window(QMainWindow):
     def open_image(self):
         if self.tour_first("open", self.open_image):
             return
+        from atelier.files import project_file as project
         path, _ = QFileDialog.getOpenFileName(self, "開く", "", "作業ファイルと画像 (" + " ".join(f"*{x}" for x in project.READABLE) + " *.png *.jpg *.jpeg *.webp)")
         if path:
             self.open_path(path)
