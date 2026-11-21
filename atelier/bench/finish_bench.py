@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import subprocess
 import sys
 from pathlib import Path
@@ -93,7 +94,7 @@ def upscale_rows(path: str) -> list[dict]:
     import numpy as np
     rows, outs = [], {}
     for name in ("anime6b", "animevideov3"):
-        save = f"/tmp/up-{name}.png"
+        save = str(Path(tempfile.mkdtemp(prefix="atelier-bench-")) / f"up-{name}.png")
         r = subprocess.run([sys.executable, "-c", UPSCALE_CHILD, str(ROOT), name, path, save],
                            capture_output=True, text=True, cwd=str(ROOT))
         res = next((json.loads(x[7:]) for x in r.stdout.splitlines() if x.startswith("RESULT ")), {"error": r.stderr[-800:]})
@@ -122,7 +123,7 @@ def main():
     rows = []
     ref = None
     for side, dt in (("512", "fp32"), ("512", "bf16"), ("384", "fp32")):
-        save = f"/tmp/face-{side}-{dt}.npy"
+        save = str(Path(tempfile.mkdtemp(prefix="atelier-bench-")) / f"face-{side}-{dt}.npy")
         r = one(str(ROOT), f"seg:{side}:{dt}", path, 1, save)
         if "error" not in r:
             f = np.load(save)

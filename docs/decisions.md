@@ -29,3 +29,5 @@
 | 2026-11-21 | テストが読む見本の絵は `tests/fixtures/` に置く | 流用元は絵の資料の置き場（library/）を直に読んでいた。AtelIer に資料の置き場は作らない | `tests/fixtures/` | library/ を同じ形で持つ |
 | 2026-11-21 | 拡張は `name` と `attach(window)` を持つ物。窓のメソッドは拡張が窓の物に結び付け、窓のクラスには足さない | 外した拡張のメソッドがクラスに残らない。前からの呼び方（`w.chara_design` など）はそのまま使える | `atelier/extensions.py`、`atelier/chara/extension.py`、`atelier/chara/window_part.py` | 窓のクラスに mixin で足す。本体が拡張を読むことになる |
 | 2026-11-21 | 同梱の拡張は `atelier/extensions.py` の `BUNDLED` に文字で 1 行だけ持ち、`ATELIER_NO_BUNDLED_EXTENSIONS=1` で読まない | 切り離すまでの間も、前と同じ画面で起動する。本体だけで動くことをテストで確かめられる | `atelier/extensions.py`、`tests/test_extensions.py` | 起動の関数で直に import する。テストの窓に付かず、本体が拡張を読む行が増える |
+| 2026-11-21 | 一時停止の記録の読み込み（pickle）は検査の例外にする | 読むのはアプリが自分のデータの置き場に書いたファイルだけで、中身がモデルの途中の状態（テンソル）なので JSON にできない | `atelier/files/pause_keep.py` の `state` | safetensors に書き直す（状態の形を全部決め直すことになる） |
+| 2026-11-21 | コミットメッセージに ID・URL・メールを入れない | 出す前の検査（precheck）が止める。公開のリポジトリの履歴に残さない | コミットの書き方 | - |

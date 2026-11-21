@@ -6533,7 +6533,7 @@ class Window(QMainWindow):
         return act
 
     def _ready_painter(self):
-        """読める絵の模型。まだ無ければ知らせて None を返す"""
+        """読み込める絵のモデル。まだ無ければ知らせて None を返す"""
         painter = getattr(self.studio, "painter", None)
         if painter is None or not getattr(painter, "ready", lambda: False)():
             self.notify("絵の模型がまだありません", "info", "AI のメニューで模型を取ってください")

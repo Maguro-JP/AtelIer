@@ -96,7 +96,7 @@ class CharaExtension:
 
     @staticmethod
     def _give_character(window, studio) -> None:
-        """模型を替えて描く仕組みを作り直しても、開いている人物で描き続ける"""
+        """モデルを替えて描く仕組みを作り直しても、開いている人物で描き続ける"""
         from atelier.chara import chara_file as charafile
         if getattr(window, "chara_file", None):
             studio.character = charafile.for_studio(window.chara_file)

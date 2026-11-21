@@ -19,6 +19,7 @@
 import cdhome
 import argparse
 import json
+import tempfile
 import os
 import sys
 import time
@@ -219,7 +220,7 @@ def background(scene, seed, steps=28, size=SIZE, negative=BG_NEGATIVE, check=Non
 def has_person(im):
     """背景に人が混ざっていないか。部位分けで顔か腕か脚が一定以上あれば「混ざった」とする。"""
     import edit
-    tmp = Path("/tmp/_layers_bg_check.png")
+    tmp = Path(tempfile.mkdtemp(prefix="atelier-layers-")) / "bg_check.png"
     im.save(tmp)
     lab = np.asarray(edit.parts(tmp))
     return np.isin(lab, [11, 12, 13, 14, 15]).mean() > 0.004
@@ -562,7 +563,7 @@ def inspect_composite(final, bg, char_layer, reflect=None, hz=None, ground=None)
     out, reasons = {}, []
     # 手足: 人物を白の上に置いて部位分けし、両脚があるか数える（切り抜きや塗り直しで脚が消えた）
     import edit
-    tmp = Path("/tmp/_layers_inspect_char.png")
+    tmp = Path(tempfile.mkdtemp(prefix="atelier-layers-")) / "inspect_char.png"
     w = Image.new("RGB", SIZE, "white")
     w.paste(char_layer, (0, 0), char_layer)
     w.save(tmp)
@@ -656,7 +657,7 @@ def part_layers(char_layer):
     import edit
     rgb = Image.new("RGB", SIZE, "white")
     rgb.paste(char_layer, (0, 0), char_layer)
-    tmp = Path("/tmp/_layers_char.png")
+    tmp = Path(tempfile.mkdtemp(prefix="atelier-layers-")) / "char.png"
     rgb.save(tmp)
     lab = np.asarray(edit.parts(tmp))
     alpha = np.asarray(char_layer.getchannel("A")).copy()

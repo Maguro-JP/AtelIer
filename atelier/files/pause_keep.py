@@ -81,7 +81,8 @@ def state(k: str):
     """途中の状態。無い・読めない件は None（始めからやり直す）"""
     p = root() / f"{k}.pickle"
     try:
-        return pickle.loads(p.read_bytes()) if p.exists() else None
+        # 読むのはこのアプリが自分のデータの置き場に書いたファイルだけ。中身はモデルの途中の状態（テンソル）で、JSON にできない
+        return pickle.loads(p.read_bytes()) if p.exists() else None   # noqa: S301
     except Exception:   # noqa: BLE001  古い版の状態など。読めなければ始めから
         return None
 
