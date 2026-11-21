@@ -8,7 +8,7 @@ AtelIer は道具（ペイントソフト）の本体で、キャラクターデ
 | リポジトリ | 持つ物 | AtelIer との関係 |
 |---|---|---|
 | AtelIer | 描く・直す・加工する道具、AI で描く仕組み、作業ファイル、配布（Setup.exe） | 本体 |
-| CharacterDesigner | 設定資料、三面図、表情差分、キャラクターファイル（.chara） | AtelIer の拡張として載る |
+| CharacterDesigner | 設定資料、三面図、表情差分、キャラクターファイル（.chara）。拡張のパッケージ `character_designer` | AtelIer の拡張として載る（entry points の `atelier.extensions`） |
 | FashionDesigner | 服の輪郭の抽出、型紙の図面（SVG・JSON・OBJ）、服の画像生成の窓口 | 当面はファイルで受け渡す。あとで拡張として載せる |
 
 ## AtelIer が今できること（コードで確かめた物）
@@ -23,7 +23,7 @@ SVG・JSON・OBJ（FashionDesigner の出力）は、まだ開けない。
 
 ## 進め方
 
-1. CharacterDesigner: いまは `atelier/chara/` に置いた拡張で動く。CharacterDesigner のリポジトリへ移し、AtelIer を依存として読む形にする
+1. CharacterDesigner: 拡張は CharacterDesigner の `character_designer/` にあり、AtelIer を依存として読む。AtelIer を入れてから CharacterDesigner を入れ（`pip install -e .`）、`python -m atelier` で起動すると「キャラクターデザイン」のメニューが出る。AtelIer の側はキャラクターデザインの中身を持たない
 2. FashionDesigner: PNG を受け渡す（AtelIer で描いた絵を FashionDesigner で開き、輪郭を取る）。次に、FashionDesigner の SVG の輪郭を AtelIer のレイヤーとして開けるようにする
 3. 3 つで同じ作業ファイルを読めるようにする形（FashionDesigner の `fashiondesigner.project.v1` の案と、AtelIer の `.atelier`）は、それぞれの開発者で合わせて決める
 

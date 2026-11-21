@@ -127,19 +127,6 @@ class StampTest(unittest.TestCase):
             with zipfile.ZipFile(Path(d) / "out" / "chara-line.zip") as z:
                 self.assertEqual(len(z.namelist()), 5)
 
-    def test_expressions_from_bible(self):
-        with TemporaryDirectory() as d:
-            root = Path(d)
-            (root / "bible" / "characters").mkdir(parents=True)
-            (root / "img").mkdir()
-            for k in ("expr-smile", "expr-angry"):
-                mark().save(root / "img" / f"{k}.png")
-            (root / "bible" / "characters" / "a.json").write_text(json.dumps(
-                {"id": "a", "images": {"color": "img/c.png", "expr-smile": "img/expr-smile.png", "expr-angry": "img/expr-angry.png"}}))
-            from atelier.chara import chara_design as charadesign   # 表情差分の置き場を知っているのはキャラクターデザインの側
-            self.assertEqual([p.name for p in charadesign.expression_files("a", home=root)], ["expr-angry.png", "expr-smile.png"])
-
-
 class IconTest(unittest.TestCase):
     def test_make_ico(self):
         with TemporaryDirectory() as d:

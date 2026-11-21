@@ -1767,7 +1767,7 @@ class Studio:
         # 描き方。"auto" は、構図の模型・SDXL の模型・2 段の部品がそろっていれば 2 段で描く。"one" は 1 つの模型、"two" は必ず 2 段。
         # "phases" は 1 つの模型で、構図・体型と姿勢・線画・塗り・仕上げの工程に分けて描く（atelier/ai/phases.py）
         self.way = "auto"
-        # 開いたキャラクター（atelier/chara/chara_file.py の for_studio の形）。描く言葉の前に、利用者が書いたその人物の設定の言葉を置き、
+        # 開いたキャラクター（拡張が studio_hooks で渡す。CharacterDesigner の character_designer/chara_file.py の for_studio の形）。描く言葉の前に、利用者が書いたその人物の設定の言葉を置き、
         # 禁止ワード・参考画像・LoRA もその人物の物を使う。None なら何もしない
         self.character: dict | None = None
         self.plan = None   # 直前の担当編集者の記録（atelier/ai/director.py）

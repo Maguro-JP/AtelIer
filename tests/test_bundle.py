@@ -1,4 +1,4 @@
-"""Setup.exe に入れる中身だけで、アプリの機能（おまかせ・検品・独自の作画監督・仕上げ・キャラクターデザイン）が呼べるかを見る。
+"""Setup.exe に入れる中身だけで、アプリの機能（おまかせ・検品・独自の作画監督・仕上げ）が呼べるかを見る。
 
 手元のリポジトリには tools/gen が全部あるので、ほかの試験は配った版にしか無い欠け（入れ忘れた台本や設定）を見つけられなかった。
 ここでは packaging/bundle_list.py の一覧だけを一時の置き場に出し、リポジトリの外から python -I で、
@@ -81,7 +81,6 @@ from atelier.ai import omakase
 from atelier.qc import hand_check as handcheck
 from atelier.qc import original_qc as origqc
 from atelier.ai import finishers
-from atelier.chara import chara_design as charadesign
 p = call("omakase.plan", omakase.plan, "赤い髪の女の子", [])
 if p is not None:
     notes.append(f"omakase.plan finish={p.finish}")
@@ -100,13 +99,6 @@ for t in call("finishers.available", finishers.available) or []:
 for name in ("retouch", "inking", "atmosphere", "materials", "upscale", "detail", "edit", "measure", "normlearn",
              "faceform", "facecheck", "feet", "hands", "bible", "tagger"):
     call(f"finishers._gen {name}", finishers._gen, name)
-b = call("charadesign.bible", charadesign.bible, home=home)
-info = call("charadesign.save_character", charadesign.save_character, "test", "red hair girl", img, home=home)
-if info:
-    ident = info.get("id") or info.get("ident") or charadesign.characters(home=home)[0]["id"]
-    call("charadesign.turnaround_plan", charadesign.turnaround_plan, ident, home=home)
-    call("charadesign.write_sheet", charadesign.write_sheet, ident, home=home)
-call("charadesign.characters", charadesign.characters, home=home)
 json.dump({"fails": fails, "notes": notes}, open(out_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 '''
 

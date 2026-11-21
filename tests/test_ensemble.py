@@ -112,12 +112,6 @@ class TestDrawin(unittest.TestCase):
         self.assertEqual(neg, "bad hands, extra arms, solo")
         self.assertEqual(parts, ["red hair, red coat, night street", "blue hair, armor, night street"])
 
-    def test_bible_prompt_without_background(self):
-        import bible
-        pos, _ = bible.prompt("knight", framing="", background=False)
-        self.assertNotIn("white background", pos)
-        self.assertIn("white background", bible.prompt("knight")[0])
-
     def test_gate_stops_before_model(self):
         called = []
         with tempfile.TemporaryDirectory() as d:

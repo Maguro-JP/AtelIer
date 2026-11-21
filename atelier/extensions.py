@@ -5,9 +5,8 @@
 `add_mode`、ライブラリーの欄の `tabs` と `refresh_hooks`）に自分の物を足す。
 依存の向きは「拡張 → 本体」だけにする。本体が拡張を読むと、拡張を別のリポジトリへ移せなくなる。
 
-拡張の入れ方は 2 つ。
-- 別のパッケージ: entry points の `atelier.extensions` の組に、拡張の物（かそのクラス）を書く
-- 同梱: `atelier/chara/extension.py`（キャラクターデザイン）。CharacterDesigner のリポジトリへ移すまでの仮置き
+拡張は別のパッケージに置き、entry points の `atelier.extensions` の組に拡張の物（かそのクラス）を書いて入れる。
+キャラクターデザインは CharacterDesigner のリポジトリの `character_designer` パッケージで、この形で入る。
 """
 from __future__ import annotations
 
@@ -18,9 +17,9 @@ from typing import Protocol, runtime_checkable
 
 GROUP = "atelier.extensions"                       # entry points の組の名前
 NO_BUNDLED_ENV = "ATELIER_NO_BUNDLED_EXTENSIONS"   # 1 にすると同梱の拡張を読まない（本体だけで動くかを確かめる）
-# 同梱の拡張。本体の中で拡張の名前を書くのはこの 1 行だけにする（tests/test_extensions.py が見張る）。
-# 文字で持ち、読むのは load_bundled の中だけ。atelier/chara/ が CharacterDesigner へ移ったら、この行ごと消して entry points に任せる
-BUNDLED = ("atelier.chara.extension",)
+# 同梱の拡張（モジュールの名前を文字で持つ）。いまは無い。キャラクターデザインは CharacterDesigner へ移り、entry points で入る。
+# 口は残す: 配る版に拡張を同梱したくなったとき、本体のほかの所を直さずに足せるようにするため
+BUNDLED: tuple[str, ...] = ()
 
 
 @runtime_checkable

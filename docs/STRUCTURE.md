@@ -24,7 +24,6 @@
 | `atelier/agent/` | AI が使う。チャット、言葉での操作、予約、音声 |
 | `atelier/bench/` | モデルを動かして確かめる台本（Actions から流す） |
 | `atelier/extensions.py` | 拡張の登録口。外の部品が、窓にメニュー・モード・欄・ファイルの種類を足す入口 |
-| `atelier/chara/` | キャラクターデザインの拡張（仮置き。このディレクトリごと CharacterDesigner へ切り離す） |
 | `atelier/assets/` | ロゴとアイコン（SVG） |
 | `tools/gen/`、`tools/engine/` | アプリが読む道具の台本（仕上げ、検品の測り方、3D）。置き場を `sys.path` に足して読む |
 | `styles/`、`casts/`、`config/` | 道具が読む基準と設定 |
@@ -37,10 +36,10 @@
 
 - AtelIer は道具の本体で、キャラクターデザインを知らない形にする
 - CharacterDesigner はキャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）だけを持ち、AtelIer の上に載る
-- 本体（`atelier/chara/` の外）は `atelier/chara/` を読まない。読んでいないことは `tests/test_extensions.py` が見張る。
-  例外は `atelier/extensions.py` の `BUNDLED` の 1 行で、同梱の拡張の名前を文字で持つ（切り離したら消す）
-- キャラクターデザインは拡張（`atelier/chara/extension.py`）として窓に付く。別のパッケージの拡張は entry points の `atelier.extensions` の組で入れる
-- いまは切り離す前で、`atelier/chara/` が同じリポジトリにある。`ATELIER_NO_BUNDLED_EXTENSIONS=1` で、本体だけの形で起動できる
+- 本体はキャラクターデザインのパッケージを読まない。読んでいないことは `tests/test_extensions.py` が見張る
+- キャラクターデザインは CharacterDesigner のリポジトリの `character_designer` パッケージにあり、拡張として窓に付く。CharacterDesigner の `pyproject.toml` が entry points の `atelier.extensions` の組に `character_designer.extension:EXTENSION` を書き、起動のときに `atelier/extensions.py` の `load_entry_points` が読む
+- 同梱の拡張（`BUNDLED`）はいまは無い。CharacterDesigner を入れていなければ、本体だけの形で起動する
+- キャラクターデザインの資料（`bible/`、`designs/`、`templates/`）とキャラクターデザインのテストも CharacterDesigner にある
 
 ### 拡張が使う窓の口
 
@@ -58,7 +57,8 @@
 ## まだ直していない所
 
 - `atelier/app/main_window.py` が約 7,300 行ある。役目ごとのファイルに分ける
-- `tools/gen/` は置き場に頼って読む平らな台本のまま。キャラクターデザイン専用の台本（bible、charsheet、design など）も、ほかの台本が読むので一緒に来ている
+- `tools/gen/` は置き場に頼って読む平らな台本のまま。キャラクターデザイン専用の台本（bible、charsheet、design など）も、ほかの台本と服飾の資料が読むので残している
+- `characters/`（ドット絵のキャラクターの部品）は `tools/build.py`・`tools/body.py`・`tools/faces.py` と `tests/test_build.py` が読むので残している
 - `atelier/app/migrate.py` は CharacterDesigner の前の版からの引っ越し用で、AtelIer では働かない
 - モデルの部品（torch、diffusers）を入れた環境では、テストを流していない（`tests/needs_models.txt`）
 
@@ -194,12 +194,7 @@
 | `e2e.py` | `bench/end_to_end.py` |
 | `windraw.py` | `bench/windows_draw.py` |
 | `draw_one.py` | `bench/draw_one.py` |
-| `charadesign.py` | `chara/chara_design.py` |
-| `charafile.py` | `chara/chara_file.py` |
-| `app.py` のキャラクターデザインの操作 | `chara/window_part.py`（拡張が窓に結び付ける） |
-| `batch.py` の `chara_jobs`、`run_charas` | `chara/chara_batch.py` |
-| `logo.py` の `expressions` | `chara/chara_design.py` の `expression_files` |
-| `library_panel.py` のキャラクターのタブ、`modes.py` の designer | `chara/extension.py` |
+| `charadesign.py`、`charafile.py`、`app.py` のキャラクターデザインの操作、`batch.py` の `chara_jobs` と `run_charas`、`logo.py` の `expressions`、`library_panel.py` のキャラクターのタブ、`modes.py` の designer | AtelIer には無い。CharacterDesigner の `character_designer/`（`chara_design.py`、`chara_file.py`、`window_part.py`、`chara_batch.py`、`extension.py`） |
 | `catalog.json` | `models/catalog.json` |
 | `fixrequests.json` | `ai/fixrequests.json` |
 | `help` | `ui/help` |

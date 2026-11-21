@@ -2,16 +2,16 @@
 
 2026-11-21 時点。流用元は CharacterDesigner の main（コミット 4a9e809）。AtelIer 側は PR #1 のブランチにあります。
 
-## 消す前に要ること
+## キャラクターデザインの分け方（2026-11-21 に済ませた）
 
-1. AtelIer の PR #1 が main に入っていること
-2. CharacterDesigner が、下の「AtelIer に移した」ファイルを自分の中からではなく AtelIer から読む形になっていること（そうなるまでは、消すとキャラクターデザインが起動しません）
+- キャラクターデザインは CharacterDesigner の拡張 `character_designer/` になりました（AtelIer の `atelier/chara/` から移した 5 ファイル）。CharacterDesigner の `pyproject.toml` が AtelIer を依存に持ち、entry points の `atelier.extensions` で窓に付きます
+- CharacterDesigner の `chatdraw/` は AtelIer と重複するので消しました。キャラクターデザインのテスト（`test_charafile`、`test_modes` と `test_lora` と `test_original_finish` のキャラクターデザインの部分）も CharacterDesigner の `tests/` に移しました
+- AtelIer からは `atelier/chara/`、`bible/`、`designs/`、`templates/`、`tools/showcase.py` を消しました
 
-## CharacterDesigner に残す物（AtelIer に移していない）
+## CharacterDesigner に残す物
 
-- キャラクターデザインの本体: `chatdraw/charadesign.py`、`chatdraw/charafile.py`
-- `chatdraw/tests/test_qcbench.py`（絵の資料を正解として読む）
-- `bible/`、`characters/`、`library/`、`designs/`、`templates/`、`docs/`、`.github/`、`packaging/`、`tests/`（道具の試験）
+- キャラクターデザインの拡張: `character_designer/`
+- `bible/`、`characters/`、`library/`、`designs/`、`templates/`、`docs/`、`.github/`、`packaging/`、`tests/`（道具とキャラクターデザインの試験）
 - `tools/` と `casts/` と `styles/` と `config/` のうち、下の「両方にある」に無いファイル
 
 ## AtelIer に移した（146 ファイル。置き場の対応は docs/STRUCTURE.md）
