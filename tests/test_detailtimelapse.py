@@ -22,7 +22,7 @@ from tests.test_uifix import app, spin  # noqa: E402
 from tests.test_works import menu_action, window  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE = ROOT / "library" / "daily" / "2026-10-13" / "05-yukionna.png"
+SAMPLE = ROOT / "tests" / "fixtures" / "yukionna.png"
 
 
 def sample(side=192) -> Image.Image:

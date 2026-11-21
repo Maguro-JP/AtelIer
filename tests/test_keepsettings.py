@@ -67,8 +67,8 @@ class KeepSettings(unittest.TestCase):
             self.assertEqual(paths.data_home(), before)
             self.assertEqual(Path(cdhome.HOME), before / "cd")
             self.assertTrue(ratings.is_favorite("a/b"))
-        for name in ("handcheck.py", "requestcheck.py"):
-            self.assertNotIn('os.environ["CD_HOME"]', (ROOT / "chatdraw" / name).read_text(encoding="utf-8"))
+        for name in ("hand_check.py", "request_check.py"):
+            self.assertNotIn('os.environ["CD_HOME"]', (ROOT / "atelier" / "qc" / name).read_text(encoding="utf-8"))
 
     def test_adopts_stray_settings(self):
         """前の版が cd の下にずらして書いた印を、本来の置き場へ合わせる。元からある印も残す"""
@@ -106,7 +106,7 @@ class KeepSettings(unittest.TestCase):
 
     def test_installer_keeps_user_data(self):
         """アンインストールで QSettings（HKCU）を消さず、黙って消すときは ProgramData を消さず、設定のファイルを残す"""
-        nsi = (ROOT / "packaging" / "chatdraw" / "installer.nsi").read_text(encoding="utf-8")
+        nsi = (ROOT / "packaging" / "installer.nsi").read_text(encoding="utf-8")
         self.assertNotIn('DeleteRegKey HKCU "Software\\${APP}"', nsi)
         self.assertNotIn("/SD IDYES", nsi)
         for name in ("model_prefs.json", "favorites.json", "places.json", "learn", "trash"):

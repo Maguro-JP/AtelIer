@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 
 from atelier.ai import finishers  # noqa: E402
 
-SAMPLE = ROOT / "library" / "daily" / "2026-10-13" / "05-yukionna.png"
+SAMPLE = ROOT / "tests" / "fixtures" / "yukionna.png"
 HAVE = all(importlib.util.find_spec(m) is not None for m in ("PySide6", "numpy", "scipy", "skimage"))
 
 

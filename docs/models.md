@@ -86,7 +86,7 @@
 
 ## アプリで動かせる模型の一覧
 
-この一覧は `python3 -m chatdraw.modeldoc` で目録（`chatdraw/catalog.json`、`chatdraw/models.py`）から作っています。
+この一覧は `python3 -m atelier.models.model_doc` で目録（`atelier/models/catalog.json`、`atelier/models/catalog.py`）から作っています。
 点は実際に描かせて確かめた結果で、0 はまだ確かめていない模型です。推奨として選べるのは点の付いた模型だけです。
 
 ### 絵を描く模型

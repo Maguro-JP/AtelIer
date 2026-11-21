@@ -28,7 +28,7 @@ class SettingsHasNoModelsTest(unittest.TestCase):
             self.assertEqual(st.get("words_model"), "")   # 値は残っていて読める
 
     def test_settings_menu_has_no_model_manager(self):
-        src = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py").read_text(encoding="utf-8")
         self.assertNotIn("模型の管理（入れ替え・更新）", src)
         self.assertNotIn("model_dir_changed", src)
 

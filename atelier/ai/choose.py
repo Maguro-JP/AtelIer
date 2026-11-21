@@ -68,7 +68,7 @@ def choose_image(text: str, prompt: str, words=None, have: list[ImageModel] | No
     seed を渡すと、頼みに同じだけ合う模型の中から種で選び直す（omakase.explore と同じ重み）。渡さないと毎回同じ物"""
     from atelier.models.ratings import is_hidden
     have = installed_images() if have is None else have
-    have = [m for m in have if not __import__("atelier.models.ratings").ratings.is_blocked(m.repo)]
+    have = [m for m in have if not __import__("atelier.models.ratings", fromlist=["is_blocked"]).is_blocked(m.repo)]
     have = [m for m in have if not is_hidden(m.repo)] or list(have)
     if not have:
         return None, "手元に絵の模型がありません"

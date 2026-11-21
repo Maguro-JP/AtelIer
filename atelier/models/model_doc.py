@@ -1,4 +1,4 @@
-"""アプリ（chatdraw）で動かせる模型の一覧を、目録（catalog.json と models.WORDS）から docs/models.md に書く。
+"""アプリで動かせる模型の一覧を、目録（catalog.json と models.WORDS）から docs/models.md に書く。
 
 一覧を手で書くと、模型を足したときに資料だけ古くなる。目録から作り、試験（test_modeldoc）で資料が目録と合っているかを見る。
     python3 -m atelier.models.model_doc        # docs/models.md の一覧を書き直す
@@ -20,7 +20,7 @@ def _yes(b: bool) -> str:
 
 def table() -> str:
     lines = [BEGIN, "", "## アプリで動かせる模型の一覧", "",
-             "この一覧は `python3 -m atelier.models.model_doc` で目録（`chatdraw/catalog.json`、`atelier/models/catalog.py`）から作っています。",
+             "この一覧は `python3 -m atelier.models.model_doc` で目録（`atelier/models/catalog.json`、`atelier/models/catalog.py`）から作っています。",
              "点は実際に描かせて確かめた結果で、0 はまだ確かめていない模型です。推奨として選べるのは点の付いた模型だけです。", "",
              "### 絵を描く模型", "",
              "| 模型 | 取る所（Hugging Face） | 世代 | 大きさ | 重さ（VRAM・メモリ） | 速さ（CPU で 1 枚） | 点 | 得意なこと | タグ | 商用 |",

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def good_picture(size=(256, 384)):
     """見本の絵。無ければ線と塗りのある絵を作る"""
-    fs = sorted(glob.glob(str(ROOT / "library/samples/people/*.png")) + glob.glob(str(ROOT / "library/samples/people/*.jpg")))
+    fs = sorted(glob.glob(str(ROOT / "tests/fixtures/people/*.png")) + glob.glob(str(ROOT / "tests/fixtures/people/*.jpg")))
     if fs:
         return Image.open(fs[0]).convert("RGB").resize(size)
     im = Image.new("RGB", size, "#f4efe6")

@@ -24,7 +24,7 @@ from PIL import Image  # noqa: E402
 
 from atelier.ai import finishers  # noqa: E402
 
-SAMPLE = ROOT / "library" / "daily" / "2026-10-13" / "05-yukionna.png"
+SAMPLE = ROOT / "tests" / "fixtures" / "yukionna.png"
 TINY = "hf-internal-testing/tiny-stable-diffusion-xl-pipe"
 
 
