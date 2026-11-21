@@ -166,4 +166,3 @@ def write_psd(snap: dict, path: str | Path):
 def autosave_path() -> Path:
     from atelier.files.paths import HOME
     return HOME / "autosave" / ("autosave" + SUFFIX)
-

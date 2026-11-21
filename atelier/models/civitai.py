@@ -137,4 +137,3 @@ def fetch(item: Item, key: str = "", progress=lambda got, total: None, note=lamb
                 words=item.words, images=item.images, creator=item.creator, commercial=item.commercial, page=item.page())
     dest.with_suffix(".civitai.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     return dest
-
