@@ -39,7 +39,7 @@ class FilterTest(unittest.TestCase):
     # 手元で ★ を付けると「小さい順」の先頭に大きい物が来て落ちた。試験は空の置き場で流す
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -122,7 +122,7 @@ class AddByNameTest(unittest.TestCase):
     def test_user_catalog_lives_in_data_dir_and_lists(self):
         api = {"siblings": [{"rfilename": "m.safetensors", "size": 2_100_000_000}]}
         e = probe("me/mine", get=fake(api, {"m.safetensors": header(["cond_stage_model.x"])}))
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             m = models.add_user_entry(e)
             self.assertTrue((Path(d) / "user_models.json").exists())
             self.assertEqual((m.repo, m.family, m.user), ("me/mine/m.safetensors", "sd15", True))

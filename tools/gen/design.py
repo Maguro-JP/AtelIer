@@ -37,12 +37,12 @@ if _LIB.exists() and str(_LIB) not in sys.path:
 def hub_defaults():
     """模型の置き場所（HF_HOME）と、取りに行かない既定（HF_HUB_OFFLINE）を決める。利用者が環境変数で決めた値は変えない。
     模型は既定で外から取りに行かない。呼んだ関数が手元に無い模型を指していると、数 GB を取りに行って
-    ディスクを埋めた（2026-10-14 に 2 回）。初めて取るときだけ CD_FETCH=1 を付けて動かす。
+    ディスクを埋めた（2026-10-14 に 2 回）。初めて取るときだけ ATELIER_FETCH=1 を付けて動かす。
     huggingface_hub は読み込んだ時の環境変数を定数に写すので、diffusers を先に読んだ呼び出し元（6周目の run.py）では
     環境変数を足しても効かず、模型を ~/.cache/huggingface へ取りに行った。読み込み済みなら定数も書き換え、読む順番に左右されなくする"""
     mine = {k: k not in os.environ for k in ("HF_HOME", "HF_HUB_OFFLINE")}
     home = os.environ.setdefault("HF_HOME", str(cdhome.HOME / "gen" / "hf"))
-    offline = os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("CD_FETCH") == "1" else "1") == "1"
+    offline = os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("ATELIER_FETCH") == "1" else "1") == "1"
     c = sys.modules.get("huggingface_hub.constants")
     if c is None:
         return

@@ -13,7 +13,7 @@ from pathlib import Path
 from atelier.files.paths import HOME, ROOT
 
 REPO = "maguro-jp/characterdesigner"
-URL = os.environ.get("CD_UPDATE_URL", f"https://api.github.com/repos/{REPO}/releases/latest")
+URL = os.environ.get("ATELIER_UPDATE_URL", f"https://api.github.com/repos/{REPO}/releases/latest")
 
 
 def current() -> str:
@@ -40,7 +40,7 @@ def check(url: str = URL, timeout: float = 8.0, quiet: bool = True) -> dict | No
     quiet=False なら、確かめられないときは例外のまま返す（自分で押した「更新を確かめる」で、
     ネットに届かないのに「今の版が最新です」と出していたのを避ける）"""
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "CharacterDesigner"})
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "AtelIer"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8"))
     except Exception:
@@ -61,7 +61,7 @@ def download(url: str, on_progress=None) -> Path:
     dest = HOME / "updates" / url.rsplit("/", 1)[-1]
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_suffix(dest.suffix + ".part")
-    req = urllib.request.Request(url, headers={"User-Agent": "CharacterDesigner"})
+    req = urllib.request.Request(url, headers={"User-Agent": "AtelIer"})
     with urllib.request.urlopen(req, timeout=30) as r, open(part, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         got = 0

@@ -72,7 +72,7 @@ def capture(canvas) -> dict:
     return {
         "layers": [Layer(l.name, l.image.copy(), l.visible, l.opacity, l.locked, getattr(l, "redpen", False)) for l in canvas.layers],
         "info": {
-            "version": VERSION, "app": "CharacterDesigner", "size": list(canvas.size_px()), "current": canvas.current,
+            "version": VERSION, "app": "AtelIer", "size": list(canvas.size_px()), "current": canvas.current,
             "layers": [{"name": l.name, "locked": l.locked, "redpen": getattr(l, "redpen", False)} for l in canvas.layers],
             "marks": [[[p.x(), p.y()] for p in pts] for pts in pen.marks], "notes": list(pen.texts), "hidden": list(pen.hidden),
             "shapes": [_path_rows(pen.shape_of(n)) for n in range(1, len(pen.marks) + 1)],

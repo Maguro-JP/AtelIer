@@ -16,7 +16,7 @@ FILES = ["model.onnx", "selected_tags.csv"]
 
 def _tagger(fetch: bool):
     from atelier.files.paths import use_tools_gen
-    use_tools_gen()   # CD_HOME を書き換えない。書き換えると利用者の設定（★・非表示など）の置き場がずれた
+    use_tools_gen()   # ATELIER_HOME を書き換えない。書き換えると利用者の設定（★・非表示など）の置き場がずれた
     import tagger
     from huggingface_hub import hf_hub_download
     from atelier.files.paths import HUB
@@ -47,8 +47,8 @@ def people(tags: str, got: dict) -> list[str]:
 
 def check(image, tags: str, fetch: bool = False) -> dict:
     """image（道か PIL）から読めなかった頼みのタグ（missing）。模型か部品が無ければ readable を False にして理由を返す"""
-    if os.environ.get("CD_CHECK") == "off":
-        return {"readable": False, "missing": [], "extra": [], "reason": "検品を止めています（CD_CHECK=off）"}
+    if os.environ.get("ATELIER_CHECK") == "off":
+        return {"readable": False, "missing": [], "extra": [], "reason": "検品を止めています（ATELIER_CHECK=off）"}
     try:
         import onnxruntime  # noqa: F401
         tg = _tagger(fetch)

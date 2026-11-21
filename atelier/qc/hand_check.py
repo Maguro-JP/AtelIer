@@ -18,9 +18,9 @@ TASK = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_lan
 
 
 def _hands():
-    """tools/gen/hands.py を読む。模型の置き場（CD_HOME）は、アプリのデータの置き場にする（Program Files は書けない）"""
+    """tools/gen/hands.py を読む。模型の置き場（ATELIER_HOME）は、アプリのデータの置き場にする（Program Files は書けない）"""
     from atelier.files.paths import use_tools_gen
-    use_tools_gen()   # CD_HOME を書き換えない。書き換えると利用者の設定（★・非表示など）の置き場がずれた
+    use_tools_gen()   # ATELIER_HOME を書き換えない。書き換えると利用者の設定（★・非表示など）の置き場がずれた
     import hands
     return hands
 
@@ -172,7 +172,7 @@ def _dw_hands(im):
 
 def ensure_feet_model(fetch: bool = True) -> bool:
     """足の点を読む模型（DWPose、約 134MB）が置き場にあるか。無ければ取る"""
-    _hands()   # CD_HOME と tools/gen の道を整える
+    _hands()   # ATELIER_HOME と tools/gen の道を整える
     import feet
     if feet.MODEL.exists():
         return True
@@ -242,8 +242,8 @@ def check(image, fetch: bool = True, asked: str = "", tags: dict | None = None) 
     """絵（PIL か道）の手を全部測る。bad に崩れの説明を並べる。readable が False なら手を読めなかった。
     顔の検品も通し、顔の崩れは bad の後ろに足し、顔の枠を faces に返す（asked は頼んだタグ。閉じた目を頼んだかを見る）"""
     from PIL import Image
-    if os.environ.get("CD_CHECK") == "off":   # 試験で、模型を取りに行かないようにする
-        return {"readable": False, "bad": [], "hands": [], "feet": [], "reason": "検品を止めています（CD_CHECK=off）"}
+    if os.environ.get("ATELIER_CHECK") == "off":   # 試験で、模型を取りに行かないようにする
+        return {"readable": False, "bad": [], "hands": [], "feet": [], "reason": "検品を止めています（ATELIER_CHECK=off）"}
     im = Image.open(image).convert("RGB") if isinstance(image, (str, Path)) else image.convert("RGB")
     try:
         hands = _hands()

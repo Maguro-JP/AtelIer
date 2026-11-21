@@ -38,7 +38,7 @@ class SizeTest(unittest.TestCase):
 class HiresTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -72,7 +72,7 @@ class HiresTest(unittest.TestCase):
 class TwoWayFavoritesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -102,7 +102,7 @@ class ManagerSetsWindowTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -149,7 +149,7 @@ class BodyRoleTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -182,7 +182,7 @@ class SetsMenuTest(unittest.TestCase):
 
     def test_sets_listed_in_model_choice_and_menu_is_separate(self):
         from tests.test_aitabs import window
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             w = window(d)
             favmodels.save_set("立ち絵", {"compose": "a/a"}, use=False)
             favmodels.save_set("背景", {"background": "b/b"}, use=False)

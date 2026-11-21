@@ -101,7 +101,7 @@ class MirrorFromWindowTest(unittest.TestCase):
 
     def test_inspect_menu_marks_mirror(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        os.environ.setdefault("CD_CHECK", "off")
+        os.environ.setdefault("ATELIER_CHECK", "off")
         from tempfile import TemporaryDirectory
         from PySide6.QtTest import QTest
         from atelier.app.main_window import Window

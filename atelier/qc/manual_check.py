@@ -35,8 +35,8 @@ def _tags(image, asked: str) -> tuple[dict | None, dict]:
     try:
         import os
         from atelier.qc import request_check as requestcheck
-        if os.environ.get("CD_CHECK") == "off":
-            raise RuntimeError("検品を止めています（CD_CHECK=off）")
+        if os.environ.get("ATELIER_CHECK") == "off":
+            raise RuntimeError("検品を止めています（ATELIER_CHECK=off）")
         tg = requestcheck._tagger(False)
         import tempfile
         from pathlib import Path

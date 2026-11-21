@@ -75,7 +75,7 @@ def apply(w, key: str):
         panel.fill_presets()
     for k, act in getattr(w, "mode_actions", {}).items():
         act.setChecked(k == key)
-    w.setWindowTitle(f"CharacterDesigner — {m['name']}")
+    w.setWindowTitle(f"AtelIer — {m['name']}")
 
 
 def tour(w, key: str) -> list[Step]:

@@ -24,7 +24,7 @@ SCAN_LIMIT = 5000   # 1 回に見るファイルの上限。大きなフォル�
 
 class Favorites:
     def __init__(self, store: QSettings | None = None):
-        self.store = store or QSettings("CharacterDesigner", "chatdraw-settings")
+        self.store = store or QSettings("AtelIer", "atelier-settings")
 
     def all(self) -> list[dict]:
         try:

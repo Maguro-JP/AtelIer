@@ -31,9 +31,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-# 設定資料集の置き場。CD_BIBLE で切り替えると、物語の人物と混ぜずに別の題材（服装の図鑑の人物 casts/fashion-zukan）を
+# 設定資料集の置き場。ATELIER_BIBLE で切り替えると、物語の人物と混ぜずに別の題材（服装の図鑑の人物 casts/fashion-zukan）を
 # 同じ描く流れ（tools/gen/pipeline.py）に通せる
-BIBLE = Path(os.environ["CD_BIBLE"]) if os.environ.get("CD_BIBLE") else ROOT / "bible"
+BIBLE = Path(os.environ["ATELIER_BIBLE"]) if os.environ.get("ATELIER_BIBLE") else ROOT / "bible"
 
 
 def _path(kind: str, ident: str) -> Path:

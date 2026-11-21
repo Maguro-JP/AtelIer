@@ -13,14 +13,14 @@ sys.path.insert(0, str(ROOT))
 
 def _env(d):
     from atelier.models import manager
-    return [mock.patch.dict(os.environ, {"CD_HOME": d}), mock.patch.object(manager, "HUB", Path(d) / "hub"),
+    return [mock.patch.dict(os.environ, {"ATELIER_HOME": d}), mock.patch.object(manager, "HUB", Path(d) / "hub"),
             mock.patch.object(manager, "GGUF", Path(d) / "g"), mock.patch.object(manager, "OWN_LLM", Path(d) / "none")]
 
 
 class BlockTest(unittest.TestCase):
     def test_block_includes_hide_and_unblock_keeps_old_hide(self):
         from atelier.models import ratings
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             self.assertFalse(ratings.is_blocked("a/a"))
             ratings.set_blocked("a/a", True)
             self.assertTrue(ratings.is_blocked("a/a"))
@@ -38,7 +38,7 @@ class BlockTest(unittest.TestCase):
         from atelier.models import ratings
         a = models.ImageModel("a/a", "A", "", "anime", 1, 20, 5, score=90)
         b = models.ImageModel("b/b", "B", "", "anime", 1, 20, 5, score=10)
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             ratings.set_blocked("a/a", True)
             self.assertEqual(choose.choose_image("女の子", "", have=[a, b])[0], b)
             self.assertIsNone(choose.choose_image("女の子", "", have=[a])[0])   # 非表示と違い、ほかに無くても選ばない
@@ -53,7 +53,7 @@ class BlockTest(unittest.TestCase):
         from atelier.models import first_setup as setup
         from atelier.models.catalog import ImageModel
         m = ImageModel("a/a", "A", "", "", 1, 20, 5)
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}), \
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}), \
                 mock.patch.object(setup, "ensure_shared"), mock.patch.object(setup, "engine_ready", return_value=True), \
                 mock.patch.object(setup.Fetcher, "_image") as got:
             ratings.set_blocked("a/a", True)

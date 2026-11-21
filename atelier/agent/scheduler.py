@@ -21,7 +21,7 @@ class Scheduler(QObject):
 
     def __init__(self, store: QSettings | None = None, parent=None, clock=time.time):
         super().__init__(parent)
-        self.store = store or QSettings("CharacterDesigner", "chatdraw-settings")
+        self.store = store or QSettings("AtelIer", "atelier-settings")
         self.clock = clock
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_MS)

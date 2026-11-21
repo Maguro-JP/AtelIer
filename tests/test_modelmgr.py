@@ -53,7 +53,7 @@ class ManagerTest(unittest.TestCase):
     def test_words_choice_lives_in_manager(self):
         from PySide6.QtWidgets import QLabel, QPushButton
         from atelier.models import manager
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             dlg, st, g = self._manager(d)
             self.assertFalse(manager.words_chosen(st))
             dlg.use_words(str(g / "mine.gguf"))
@@ -70,7 +70,7 @@ class ManagerTest(unittest.TestCase):
 
     def test_model_dir_moved_to_manager(self):
         from atelier.files import paths
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             dlg, _st, _g = self._manager(d)
             with mock.patch.object(paths, "set_model_dir") as setter, mock.patch.object(paths, "chosen_model_dir", return_value=""):
                 dlg.change_model_dir(str(Path(d) / "models"))
@@ -80,7 +80,7 @@ class ManagerTest(unittest.TestCase):
     def test_image_rows_are_short_and_tooltip_is_clean(self):
         from PySide6.QtWidgets import QLabel
         from atelier.models import catalog as models
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             dlg, _st, _g = self._manager(d)
             rows = [c for c in self._cards(dlg) if hasattr(c, "model")]
             self.assertEqual(len(rows), len(models.listed(models.IMAGES)))   # 推奨に届いた物と手元の物だけを出す
@@ -115,7 +115,7 @@ class AskWordsOnceTest(unittest.TestCase):
     def test_asks_once_and_remembers_none(self):
         from atelier.app.main_window import Window
         from atelier.models.manager import words_chosen
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             w = self._window(d)
             asked = []
             Window.ask_words_once(w, pick=lambda items: asked.append(items) or "使わない")
@@ -130,7 +130,7 @@ class AskWordsOnceTest(unittest.TestCase):
         from atelier.app.main_window import Window
         from atelier.models.catalog import offered_words
         from atelier.models import first_setup as setup
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}), \
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}), \
                 mock.patch.object(setup, "has_words", return_value=True):
             w = self._window(d)
             Window.ask_words_once(w, pick=lambda items: items[-2])   # いちばん後ろの模型
@@ -145,7 +145,7 @@ class AskWordsOnceTest(unittest.TestCase):
         from atelier.models.manager import choose_words
         from atelier.models.first_setup import SetupDialog
         QApplication.instance() or QApplication([])
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             st = _settings(d)
             choose_words(st, "")
             dlg = SetupDialog(st, first=False)

@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 from atelier.files.paths import HOME, HUB  # noqa: E402
-IMAGE_MODEL = os.environ.get("CD_IMAGE_MODEL", "Laxhar/noobai-XL-Vpred-1.0")
+IMAGE_MODEL = os.environ.get("ATELIER_IMAGE_MODEL", "Laxhar/noobai-XL-Vpred-1.0")
 # ラフ（線の下描き）の形に沿って描かせる部品。元の絵を描き直す img2img では、ラフの線がそのまま残って絵にならなかった
 SKETCH_ADAPTER = "TencentARC/t2i-adapter-sketch-sdxl-1.0"
 SKETCH_FILES = dict(allow_patterns=["*.json", "*.fp16.safetensors"])
@@ -48,7 +48,7 @@ def total_ram_gb() -> float:
 
 def free_ram_gb() -> float:
     """今すぐ使えるメモリ（GB）。分からなければ 0（0 のときは足りるものとして扱う）"""
-    assumed = os.environ.get("CD_ASSUME_FREE_RAM_GB")   # 試験の一式で、並べて流す機械の空きに結果を左右させないため
+    assumed = os.environ.get("ATELIER_ASSUME_FREE_RAM_GB")   # 試験の一式で、並べて流す機械の空きに結果を左右させないため
     if assumed:
         try:
             return float(assumed)
@@ -1761,7 +1761,7 @@ class Studio:
     def __init__(self, words: Words | None = None, painter: Painter | None = None, out: Path | None = None):
         self.words = words or Words()
         self.painter = painter or Painter()
-        self.out = out or Path(os.environ.get("CD_OUTPUT") or Path.home() / "Pictures" / "CharacterDesigner")
+        self.out = out or Path(os.environ.get("ATELIER_OUTPUT") or Path.home() / "Pictures" / "AtelIer")
         self.image_auto = False   # おまかせ: 頼みごとに、手元の絵の模型から合う物を選ぶ
         self.words_auto = False   # おまかせ: 頼みごとに、手元の言葉の模型から合う物を選ぶ
         # 描き方。"auto" は、構図の模型・SDXL の模型・2 段の部品がそろっていれば 2 段で描く。"one" は 1 つの模型、"two" は必ず 2 段。
@@ -2268,7 +2268,7 @@ class Studio:
         import os
         from atelier.models.catalog import family as fam, image_model
         self.hand_rounds = []
-        if os.environ.get("CD_CHECK") == "off" or not fam(image_model(getattr(self.painter, "model", "")).family).inpaint:
+        if os.environ.get("ATELIER_CHECK") == "off" or not fam(image_model(getattr(self.painter, "model", "")).family).inpaint:
             return image
         from PIL import Image, ImageDraw
         from atelier.qc import hand_check as handcheck

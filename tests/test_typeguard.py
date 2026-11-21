@@ -69,7 +69,7 @@ class WindowFieldsTest(unittest.TestCase):
         import os, sys
         from pathlib import Path
         from tempfile import TemporaryDirectory
-        os.environ.setdefault("CD_CHECK", "off")
+        os.environ.setdefault("ATELIER_CHECK", "off")
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
         from tests.test_chatdraw import FakePainter, FakeWords

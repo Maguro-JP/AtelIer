@@ -2,9 +2,9 @@
 
 ## 1. 入れる
 
-1. [Releases](https://github.com/Maguro-JP/CharacterDesigner/releases/latest) から `CharacterDesigner-Setup.exe` を取ります
+1. [Releases](https://github.com/Maguro-JP/AtelIer/releases/latest) から `AtelIer-Setup.exe` を取ります
 2. 開いて、案内に沿って入れます。管理者の権限を求められます
-3. デスクトップかスタートメニューの「CharacterDesigner」を開きます
+3. デスクトップかスタートメニューの「AtelIer」を開きます
 
 Python などをほかに入れる必要はありません。アプリは、利用者の Python や環境変数の設定を読まずに起動します。
 
@@ -58,17 +58,17 @@ Python などをほかに入れる必要はありません。アプリは、利�
 | `C:\LLM\huggingface` | 取った絵の模型と部品 |
 | `C:\LLM\gguf` | 取った言葉の模型 |
 | `C:\LLM\manual` | 手で置いた模型 |
-| `C:\ProgramData\CharacterDesigner` | 描く部品、設定の一部、記録（`chatdraw.log`、`setup.log`） |
-| ピクチャ\CharacterDesigner | 描いた絵 |
+| `C:\ProgramData\AtelIer` | 描く部品、設定の一部、記録（`atelier.log`、`setup.log`） |
+| ピクチャ\AtelIer | 描いた絵 |
 
 ## 4. 更新する
 
 - 「ヘルプ」メニューの「更新を確かめる」で、新しい版があれば取って入れます
-- 新しい `CharacterDesigner-Setup.exe` をそのまま入れても更新できます。描いた絵・模型・設定は残ります
+- 新しい `AtelIer-Setup.exe` をそのまま入れても更新できます。描いた絵・模型・設定は残ります
 
 ## 5. 消す
 
-Windows の「設定」の「アプリ」から CharacterDesigner をアンインストールします。
+Windows の「設定」の「アプリ」から AtelIer をアンインストールします。
 
 - アプリ本体、ショートカット、取った更新、自動保存の控えを消します
 - 描く部品（ProgramData）は、消すかどうかを聞きます
@@ -78,9 +78,9 @@ Windows の「設定」の「アプリ」から CharacterDesigner をアンイ�
 
 | 起きたこと | すること |
 |---|---|
-| 模型が取れない | 窓に出た理由を読みます。詳しい記録は `C:\ProgramData\CharacterDesigner\setup.log` にあります。回線を確かめ、模型の管理から取り直します |
+| 模型が取れない | 窓に出た理由を読みます。詳しい記録は `C:\ProgramData\AtelIer\setup.log` にあります。回線を確かめ、模型の管理から取り直します |
 | 進みが動かない | 進みの欄の文で、今している事を見ます。初めて模型を読むときは数分かかります |
 | 欄が見つからない・隠れた | Tab を押します（欄を出す・隠すが入れ替わります）。直らなければ「ウィンドウ」の「並びを初めの形に戻す」を押します |
 | ウィンドウが画面からはみ出す | 自動で画面の中に戻します。戻らなければ「並びを初めの形に戻す」を押します |
 | キーが効かない | 「設定」の「キーの設定…」で割り当てを見ます。「すべて既定に戻す」で初めの割り当てに戻せます |
-| 落ちた・おかしい | `C:\ProgramData\CharacterDesigner\chatdraw.log` に記録があります。「ヘルプ」の「記録の置き場を開く」で開けます |
+| 落ちた・おかしい | `C:\ProgramData\AtelIer\atelier.log` に記録があります。「ヘルプ」の「記録の置き場を開く」で開けます |

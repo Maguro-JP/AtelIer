@@ -1,6 +1,6 @@
 """chatdraw の試験。
 
-試験が開くウィンドウは、閉じるときに欄の配置・テーマ・済んだツアーを QSettings（~/.config/CharacterDesigner）に書く。
+試験が開くウィンドウは、閉じるときに欄の配置・テーマ・済んだツアーを QSettings（~/.config/AtelIer）に書く。
 利用者の設定と同じ場所に書いていたため、前の試験（前の回の一式も）で出した進みの欄が次のウィンドウで開いたままになり、
 進みのポップアップが「欄に出ているので二重に出さない」で出ず、順番によって試験が落ちた。
 試験の間は設定の置き場を一時の場所に替え、利用者の設定にも触らない"""
@@ -9,18 +9,18 @@ import os
 import shutil
 import tempfile
 
-_CONFIG = tempfile.mkdtemp(prefix="chatdraw-test-config-")
+_CONFIG = tempfile.mkdtemp(prefix="atelier-test-config-")
 os.environ["XDG_CONFIG_HOME"] = _CONFIG
 atexit.register(shutil.rmtree, _CONFIG, True)
 
 # 描いた記録（学び）と単語辞書も、試験の間は一時の場所に書く。開発の .cache に溜まった前の回の記録で、
 # 学びが頼みの並びを変え、順番によって試験が落ちた（AskedComesFirst）
-_DATA = tempfile.mkdtemp(prefix="chatdraw-test-data-")
+_DATA = tempfile.mkdtemp(prefix="atelier-test-data-")
 atexit.register(shutil.rmtree, _DATA, True)
 from pathlib import Path as _Path  # noqa: E402
 from atelier.words import learning as _wl
 from atelier.words import dictionary as _wd  # noqa: E402
-_home = lambda: _Path(os.environ.get("CD_HOME") or _DATA)   # 試験が CD_HOME を替えたときはそちらに従う
+_home = lambda: _Path(os.environ.get("ATELIER_HOME") or _DATA)   # 試験が ATELIER_HOME を替えたときはそちらに従う
 _wl.log_file = lambda: _home() / "draw_log.jsonl"
 _wd.dict_file = lambda: _home() / "words.json"
 

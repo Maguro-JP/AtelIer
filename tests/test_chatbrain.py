@@ -9,7 +9,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("CD_CHECK", "off")
+os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
@@ -216,8 +216,8 @@ class VoiceTest(Flow):
 
 class ShotTest(Flow):
     def test_window_shot(self):
-        """窓の写しを撮る（目で見えるか・幅が潰れていないかを確かめるため）。CD_SHOT に置き場を渡したときだけ残す"""
-        out = os.environ.get("CD_SHOT")
+        """窓の写しを撮る（目で見えるか・幅が潰れていないかを確かめるため）。ATELIER_SHOT に置き場を渡したときだけ残す"""
+        out = os.environ.get("ATELIER_SHOT")
         self.w.chat.resize(380, 620)
         self.w.studio.words = StreamWords(["光を足すと明るく見えます。顔のまわりから試しましょう。\n操作: 描く 光の差す少女"])
         with mock.patch.object(self.w, "send", lambda once=None: None):

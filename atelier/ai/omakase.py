@@ -203,7 +203,7 @@ def _default_check(image, prompt):
     asked = requestcheck.check(image, prompt)
     bad = list(res.get("bad", [])) + [f"描かれていない: {m}" for m in asked.get("missing", [])]
     bad += [f"人数が違う: {x}" for x in asked.get("people", [])]
-    # CharacterDesigner 独自の作画監督（tools/gen/measure.py の数字と、利用者の判定から学んだ基準）。顔の外れは顔の囲みを直す所にする
+    # AtelIer 独自の作画監督（tools/gen/measure.py の数字と、利用者の判定から学んだ基準）。顔の外れは顔の囲みを直す所にする
     own = origqc.check(image, prompt)
     bad += own["bad"]
     regions = handcheck.bad_regions(res) + [r for r in own["regions"] if r not in handcheck.bad_regions(res)]

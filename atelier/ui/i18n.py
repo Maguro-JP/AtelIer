@@ -115,7 +115,7 @@ _KEY = re.compile(r"^(.*?)[（(]([^（）()]*)[）)]$")   # 「元に戻す（Ct
 def current(store: QSettings | None = None) -> str:
     if store is None and _ACTIVE:
         return _ACTIVE[0]
-    store = store or QSettings("CharacterDesigner", "chatdraw-settings")
+    store = store or QSettings("AtelIer", "atelier-settings")
     v = str(store.value("language", LANGS[0]) or LANGS[0])
     return v if v in LANGS else LANGS[0]
 

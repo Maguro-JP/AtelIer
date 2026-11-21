@@ -1,4 +1,4 @@
-"""CharacterDesigner 独自の作画監督（数字の検品）と学習を、アプリのおまかせから呼ぶ入口。
+"""AtelIer 独自の作画監督（数字の検品）と学習を、アプリのおまかせから呼ぶ入口。
 
 測り方と基準は tools/gen の 1 か所だけに置き（measure.py、faceform.py、normlearn.py、styles/anime-norms.json）、
 ここは呼ぶだけにする。アプリの中に写しを作ると、片方だけ直って基準が食い違うため。
@@ -36,7 +36,7 @@ def _setup():
     from atelier.files.paths import data_home
     # 部位分けの模型（tools/gen/edit.py、約 190MB）は初めの 1 回だけ取る。取らない設定のままだと、測れずに全部の絵を落とした
     import os
-    os.environ.setdefault("CD_FETCH", "1")
+    os.environ.setdefault("ATELIER_FETCH", "1")
     if str(GEN) not in sys.path:
         sys.path.insert(0, str(GEN))
     import measure

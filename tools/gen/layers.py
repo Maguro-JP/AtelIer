@@ -30,8 +30,8 @@ from PIL import Image, ImageChops, ImageFilter
 ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault("HF_HOME", str(cdhome.HOME / "gen" / "hf"))
 # 模型は既定で外から取りに行かない。呼んだ関数が手元に無い模型を指していると、数 GB を取りに行って
-# ディスクを埋めた（2026-10-14 に 2 回）。初めて取るときだけ CD_FETCH=1 を付けて動かす
-os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("CD_FETCH") == "1" else "1")
+# ディスクを埋めた（2026-10-14 に 2 回）。初めて取るときだけ ATELIER_FETCH=1 を付けて動かす
+os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("ATELIER_FETCH") == "1" else "1")
 sys.path.insert(0, str(Path(__file__).parent))
 # 模型の置き場所（.cache/gen/hf）と取りに行かない既定を、diffusers・transformers を読む前に効かせる。
 # 関数の中で design を読んでいたため、先に transformers を読んだ呼び出しでは ~/.cache/huggingface へ取りに行った

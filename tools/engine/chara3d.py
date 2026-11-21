@@ -567,7 +567,7 @@ def write_gltf(out: Path, pos, nrm, tris, joints, j_idx, j_w, uv=None, tex_png: 
     mat = {"name": "toon", "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0,
                                                      "roughnessFactor": 1},
            "doubleSided": True}   # 縁の帯は向きをそろえていないので両面にする
-    g = {"asset": {"version": "2.0", "generator": "CharacterDesigner chara3d"},
+    g = {"asset": {"version": "2.0", "generator": "AtelIer chara3d"},
          "scene": 0, "scenes": [{"nodes": [0, first]}], "nodes": nodes,
          "meshes": [{"name": name, "primitives": [{"attributes": attrs, "indices": ind, "material": 0}]}],
          "skins": [{"joints": list(range(first, first + len(BONES))), "inverseBindMatrices": ibm_acc,
@@ -592,7 +592,7 @@ def write_gltf(out: Path, pos, nrm, tris, joints, j_idx, j_w, uv=None, tex_png: 
         g["extensionsUsed"] = ["VRMC_vrm", "VRMC_materials_mtoon"]
         g["extensions"] = {"VRMC_vrm": {
             "specVersion": "1.0",
-            "meta": {"name": name, "version": "1", "authors": ["CharacterDesigner"],
+            "meta": {"name": name, "version": "1", "authors": ["AtelIer"],
                      "licenseUrl": "https://vrm.dev/licenses/1.0/", "avatarPermission": "onlyAuthor",
                      "allowExcessivelyViolentUsage": False, "allowExcessivelySexualUsage": False,
                      "commercialUsage": "personalNonProfit", "allowPoliticalOrReligiousUsage": False,

@@ -1,6 +1,6 @@
 """利用者の設定（模型の ★・非表示・ブロック・点・タグ、絵の ★、模型の置き場、学んだ基準）を版をまたいで引き継ぐ試験。
 
-前の版は、手の検品か言葉の読み取りが一度動くと CD_HOME を data_home()/cd に書き換え、それ以降の読み書きが cd の下へずれた。
+前の版は、手の検品か言葉の読み取りが一度動くと ATELIER_HOME を data_home()/cd に書き換え、それ以降の読み書きが cd の下へずれた。
 そのため ★ や非表示がリセットされたように見え、ずれた所に付けた印は次の起動で消えた。
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ class KeepSettings(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.home = Path(self.tmp.name)
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": str(self.home)})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": str(self.home)})
         self.env.start()
 
     def tearDown(self):
@@ -55,20 +55,20 @@ class KeepSettings(unittest.TestCase):
 
     def test_checks_do_not_move_data_home(self):
         """手の検品と言葉の読み取りの準備で、データの置き場がずれない（前の版はここで ★ が消えた）"""
-        os.environ.pop("CD_HOME")
+        os.environ.pop("ATELIER_HOME")
         with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ProgramData": d}), \
                 mock.patch.object(paths, "WINDOWS", True):
             before = paths.data_home()
-            home = Path(d) / "CharacterDesigner"
+            home = Path(d) / "AtelIer"
             home.mkdir()
             (home / "model_prefs.json").write_text(json.dumps({"a/b": {"favorite": True}}), encoding="utf-8")
             cdhome = paths.use_tools_gen()
-            self.assertNotIn("CD_HOME", os.environ)
+            self.assertNotIn("ATELIER_HOME", os.environ)
             self.assertEqual(paths.data_home(), before)
             self.assertEqual(Path(cdhome.HOME), before / "cd")
             self.assertTrue(ratings.is_favorite("a/b"))
         for name in ("hand_check.py", "request_check.py"):
-            self.assertNotIn('os.environ["CD_HOME"]', (ROOT / "atelier" / "qc" / name).read_text(encoding="utf-8"))
+            self.assertNotIn('os.environ["ATELIER_HOME"]', (ROOT / "atelier" / "qc" / name).read_text(encoding="utf-8"))
 
     def test_adopts_stray_settings(self):
         """前の版が cd の下にずらして書いた印を、本来の置き場へ合わせる。元からある印も残す"""

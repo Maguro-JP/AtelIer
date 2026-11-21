@@ -52,7 +52,7 @@ FIELDS = [
     ("mem_mode", "メモリの使い方", "描き方", "choice:自動,優先して動かす,控えめに動かす", "自動",
      "自動: 空きの 8 割を目安に、足りなければ軽い設定に落として描く。優先して動かす: 空きをほぼ使い切って描く（ほかのアプリが重くなることがある）。"
      "控えめに動かす: 空きの 6 割までにとどめ、ほかのアプリに余裕を残す。どれでも危なくなったら途中の絵を残して止まり、アプリは落とさない"),
-    ("output_dir", "描いた絵の保存先", "保存", "dir", str(Path.home() / "Pictures" / "CharacterDesigner"), ""),
+    ("output_dir", "描いた絵の保存先", "保存", "dir", str(Path.home() / "Pictures" / "AtelIer"), ""),
     ("notify", "知らせ", "操作", "choice:デスクトップにも出す,画面の中だけ", "デスクトップにも出す",
      "ほかのウィンドウを見ている間に描き終わったら、デスクトップの通知とタスクバーの点滅で知らせる"),
     ("first_tool", "起動したときの道具", "操作", "choice:手,ペン", "手", "起動したときに持つ道具。手は絵を動かして見る。右ボタンのドラッグでは、どの道具でも絵を動かせる"),
@@ -80,7 +80,7 @@ def _open(path: str):
 
 class Settings:
     def __init__(self, store: QSettings | None = None):
-        self.store = store or QSettings("CharacterDesigner", "chatdraw-settings")
+        self.store = store or QSettings("AtelIer", "atelier-settings")
 
     def get(self, key: str):
         field = next(f for f in FIELDS + MODEL_FIELDS if f[0] == key)

@@ -13,7 +13,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("CD_CHECK", "off")
+os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
@@ -22,7 +22,7 @@ from PIL import Image  # noqa: E402
 from atelier.ai import engine  # noqa: E402
 from tests.test_drawbugs import fake_diffusers, fake_torch  # noqa: E402
 
-SHOTS = os.environ.get("CD_SHOTS")   # 写しを撮る置き場（自分で見るとき）
+SHOTS = os.environ.get("ATELIER_SHOTS")   # 写しを撮る置き場（自分で見るとき）
 
 
 class EnginePullTest(unittest.TestCase):

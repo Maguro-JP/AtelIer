@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[1]
-os.environ.setdefault("CD_CHECK", "off")
+os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT))
 
 from PIL import Image  # noqa: E402

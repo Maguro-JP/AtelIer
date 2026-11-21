@@ -1,6 +1,6 @@
 """描く処理をどこで回すか（GPU か CPU か）を1か所で決める。
 
-使う順: NVIDIA の GPU（cuda）→ Apple の GPU（mps）→ CPU。環境変数 CD_DEVICE（cuda / mps / cpu）で手で決められる。
+使う順: NVIDIA の GPU（cuda）→ Apple の GPU（mps）→ CPU。環境変数 ATELIER_DEVICE（cuda / mps / cpu）で手で決められる。
 CPU だけの環境では 1 枚 約 5 分かかる（外部の画像生成は数十秒）。GPU があれば使うのが、速さを詰める一番の手。
 
 - 数の型: GPU は float16。CPU は bfloat16（float32 では SDXL の 2 つの文章の読み手と合わせてメモリ 15GB に収まらなかった）
@@ -36,7 +36,7 @@ def name(torch=None) -> str:
         return _CHOSEN
     if torch is None:
         import torch
-    want = os.environ.get("CD_DEVICE", "").strip().lower()
+    want = os.environ.get("ATELIER_DEVICE", "").strip().lower()
     if want in ("cuda", "mps", "cpu"):
         ok = {"cuda": _has_cuda(torch), "mps": _has_mps(torch), "cpu": True}[want]
         _CHOSEN = want if ok else "cpu"

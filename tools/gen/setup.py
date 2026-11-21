@@ -1,7 +1,7 @@
 """描く処理の部品と小さな重みを .cache/gen と .cache/assets に入れる。Windows・Mac・Linux で同じ手順にするため Python で書く。
 
 入れるもの（どれも 1GB を超えるのでリポジトリには入れない）:
-  - torch（GPU に合わせて選ぶ。NVIDIA の GPU があれば CUDA 版、Mac は普通の版、それ以外は CPU 版。CD_TORCH=cpu|cuda|default で手で決める）
+  - torch（GPU に合わせて選ぶ。NVIDIA の GPU があれば CUDA 版、Mac は普通の版、それ以外は CPU 版。ATELIER_TORCH=cpu|cuda|default で手で決める）
   - diffusers など描く部品、rembg（人物の切り抜き）、psd-tools（PSD の書き出し）、scipy（検品の計算）
   - Real-ESRGAN のアニメ絵用の重み（BSD-3-Clause、約 18MB）、RTMPose の ONNX（Apache-2.0、約 54MB）
   - 頼んだ要素が描かれたかを読む模型 wd-vit-tagger-v3（Apache-2.0、約 380MB）。固定の制限の検品にも使うので必ず入れる
@@ -44,7 +44,7 @@ def say(text: str) -> None:
 
 
 def torch_kind() -> str:
-    want = os.environ.get("CD_TORCH", "")
+    want = os.environ.get("ATELIER_TORCH", "")
     if want:
         return want
     if platform.system() == "Darwin":

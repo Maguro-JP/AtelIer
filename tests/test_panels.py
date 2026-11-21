@@ -66,8 +66,8 @@ def lost(w) -> list:
 
 
 # 全部の欄 × 全部の組み合わせは 6 分ほどかかる。ふだんは組み合わせごとに欄を 3 つずつずらして回し（どの欄もどの操作も通る）、
-# CD_PANELS_FULL=1 のときだけ全部の欄で回す
-FULL = os.environ.get("CD_PANELS_FULL") == "1"
+# ATELIER_PANELS_FULL=1 のときだけ全部の欄で回す
+FULL = os.environ.get("ATELIER_PANELS_FULL") == "1"
 
 
 def some(keys: list, i: int) -> list:

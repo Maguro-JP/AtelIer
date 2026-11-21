@@ -42,7 +42,7 @@ class LogPainter:
 class RolesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -128,7 +128,7 @@ class RolesTest(unittest.TestCase):
 class EngineFlowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -173,7 +173,7 @@ class WindowTest(unittest.TestCase):
     def test_pick_roles_from_window(self):
         from tests.test_aitabs import app, window
         from atelier.panels import favorite_models_panel as favpanel
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             w = window(d)
             before = w.settings.get("image_model")
             self.addCleanup(lambda: w.settings.set("image_model", before))
@@ -195,7 +195,7 @@ class WindowTest(unittest.TestCase):
             w._show_model()
             self.assertEqual(w.model_label.text(), favmodels.label(favmodels.active()))
             self.assertIn("構図: h/hands", w.model_label.toolTip())
-            out = os.environ.get("CD_SNAP_DIR")
+            out = os.environ.get("ATELIER_SNAP_DIR")
             if out:   # 目で見るための写し
                 shown["grab"].save(str(Path(out) / "roles-dialog.png"))
                 w.resize(1400, 900)
@@ -212,7 +212,7 @@ class ManagerSetsAndFilterTest(unittest.TestCase):
         from tests.test_aitabs import app
         app()
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -259,7 +259,7 @@ class ManagerSetsAndFilterTest(unittest.TestCase):
         dlg.filter.setCurrentText("取得済み")
         app().processEvents()
         self.assertIn(have_real.name, " ".join(self.texts(dlg)))
-        out = os.environ.get("CD_SNAP_DIR")
+        out = os.environ.get("ATELIER_SNAP_DIR")
         if out:
             dlg.filter.setCurrentText("アニメ・イラスト")
             dlg.resize(560, 700)
@@ -303,7 +303,7 @@ class ManagerSetsAndFilterTest(unittest.TestCase):
         dlg.set_use.click()
         self.assertEqual(st.get("image_model"), favmodels.FAV)
         self.assertIn("構図: h/hands", dlg.set_summary.text())
-        out = os.environ.get("CD_SNAP_DIR")
+        out = os.environ.get("ATELIER_SNAP_DIR")
         if out:
             dlg.resize(560, 700)
             dlg.show()

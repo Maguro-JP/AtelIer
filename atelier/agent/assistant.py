@@ -17,7 +17,7 @@ CONTEXT_CHARS = 1600  # 渡す会話の字数の上限。n_ctx（4096）に指�
 MEMORY_CHARS = 240    # 窓から落ちた古い頼みを、短く「前に話したこと」として指示に残す字数
 MAX_TOKENS = 300
 
-SYSTEM = """あなたは絵を描くアプリ CharacterDesigner の案内役です。日本語だけで、短く（3 文まで）答えます。
+SYSTEM = """あなたは絵を描くアプリ AtelIer の案内役です。日本語だけで、短く（3 文まで）答えます。
 下に書いた機能だけを案内します。書いていない機能は作らず、「分かりません。ヘルプの手順書を見てください」と答えます。
 アプリの使い方:
 - 描く: 左の「AI」の欄の「描く内容」に描きたい絵を書き、「描く」を押す。描かない物は「禁止ワード」に書く。
@@ -45,7 +45,7 @@ NO_MODEL_HOW = ("言葉の模型の取り方: 「AI」のメニューの「模�
 _DRAW = re.compile(r"(を|に)?\s*(描いて|かいて|描く|描きたい|書いて)(ください|下さい)?[。！!]*\s*$")
 _PROPOSAL = re.compile(r"^\s*描く内容\s*[:：]\s*(.+?)\s*$", re.M)
 _QUESTION = re.compile(r"(\?|？|どう(やって|すれば|したら)|どこ|方法|使い方|とは|って何|ですか|ますか|には)[。]*\s*$")
-_LABEL = re.compile(r"^\s*(あなた|案内役|AI|CharacterDesigner|assistant)\s*[:：]\s*", re.M)
+_LABEL = re.compile(r"^\s*(あなた|案内役|AI|AtelIer|assistant)\s*[:：]\s*", re.M)
 
 
 def draw_request(text: str) -> str | None:

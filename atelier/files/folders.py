@@ -20,7 +20,7 @@ def folders(settings) -> list[tuple[str, Path, str]]:
         ("模型の置き場", paths.LLM_HOME, "絵と言葉の模型を置く所。ほかの自作アプリと共有します"),
         ("手で置く模型", paths.LLM_HOME / "manual", ".safetensors か、model_index.json のあるディレクトリを置くと一覧に出ます"),
         ("資料", paths.HOME / "library", "参考に集めた絵"),
-        ("設定と記録", paths.HOME, "設定、記録（chatdraw.log、setup.log）。困ったときに中を見たり渡したりします"),
+        ("設定と記録", paths.HOME, "設定、記録（atelier.log、setup.log）。困ったときに中を見たり渡したりします"),
     ]
 
 

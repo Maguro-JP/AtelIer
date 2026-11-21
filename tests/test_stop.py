@@ -194,7 +194,7 @@ class LayoutTest(unittest.TestCase):
     def tearDown(self):
         from PySide6.QtCore import QSettings
         from atelier.ui.tab_dock import ORDER_KEY, OUT_KEY
-        st = QSettings("CharacterDesigner", "chatdraw")
+        st = QSettings("AtelIer", "atelier")
         for k in (ORDER_KEY, OUT_KEY):
             st.remove(k)
 

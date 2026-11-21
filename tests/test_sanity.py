@@ -151,7 +151,7 @@ class RedrawTest(unittest.TestCase):
         self.assertIn("腕が多い（手首から離れた手 1 つ）", meta["redraws"][0]["bad"])
 
     def test_off_is_not_pass(self):
-        with mock.patch.dict(os.environ, {"CD_CHECK": "off"}):
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "off"}):
             r = sanity.check(Path(__file__), "1girl")
         self.assertFalse(r["readable"])
 

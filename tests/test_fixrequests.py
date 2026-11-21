@@ -2,7 +2,7 @@
 - 修正依頼を選ぶと、赤ペンの印の指示の欄に書いて確定し、1 回だけ直す。模型には用意した言葉と強さが渡る
 - 自分の指示を一覧に足すと、右クリックと AI の欄の両方に出る
 - 道具の結果は一番上の新しいレイヤーに置き、囲みの外は変えず、元に戻すで戻せる
-CD_SHOTS に置き場を書くと、窓の写しを撮る（見えるか・幅が潰れていないかを目で見るため）"""
+ATELIER_SHOTS に置き場を書くと、窓の写しを撮る（見えるか・幅が潰れていないかを目で見るため）"""
 import os
 import sys
 import unittest
@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("CD_CHECK", "off")
+os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
@@ -83,8 +83,8 @@ class FixRequestWindowTest(unittest.TestCase):
         self.qapp = app()
         self.tmp = TemporaryDirectory()
         self.d = Path(self.tmp.name)
-        self.old_home = os.environ.get("CD_HOME")
-        os.environ["CD_HOME"] = str(self.d / "home")   # 自分の指示は試験の置き場に書く
+        self.old_home = os.environ.get("ATELIER_HOME")
+        os.environ["ATELIER_HOME"] = str(self.d / "home")   # 自分の指示は試験の置き場に書く
         self.painter = FakePainter()
         self.w = Window(Studio(FakeWords(), self.painter, self.d))
         self.w.settings.set("output_dir", str(self.d / "out"))
@@ -100,9 +100,9 @@ class FixRequestWindowTest(unittest.TestCase):
         self.w.closing_checked = True
         self.w.close()
         if self.old_home is None:
-            os.environ.pop("CD_HOME", None)
+            os.environ.pop("ATELIER_HOME", None)
         else:
-            os.environ["CD_HOME"] = self.old_home
+            os.environ["ATELIER_HOME"] = self.old_home
         self.tmp.cleanup()
 
     def mark(self, dx=0):
@@ -117,7 +117,7 @@ class FixRequestWindowTest(unittest.TestCase):
         QTest.keyClick(self.w.note_edit, Qt.Key_Escape)   # 指示は欄に書かず、修正依頼から選ぶ
 
     def shot(self, name, widget=None):
-        out = os.environ.get("CD_SHOTS")
+        out = os.environ.get("ATELIER_SHOTS")
         if out:
             Path(out).mkdir(parents=True, exist_ok=True)
             (widget or self.w).grab().save(str(Path(out) / name))

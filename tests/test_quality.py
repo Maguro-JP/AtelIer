@@ -103,7 +103,7 @@ class FixKeepsBest(unittest.TestCase):
                 counts[key] = 2 if not counts else (5 if len(counts) == 1 else 3)
             return hand_result(counts[key])
         first = Image.new("RGB", (64, 64), (9, 9, 9))
-        with mock.patch.dict(os.environ, {"CD_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=check):
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=check):
             out = studio._fix_hands(first, "1girl", 1, lambda m: None)
         self.assertIs(out, first)
         self.assertEqual(studio.hand_rounds[-1]["bad"], hand_result(2)["bad"])
@@ -115,7 +115,7 @@ class FixKeepsBest(unittest.TestCase):
 
         def check(image, asked=""):
             return hand_result(0 if image.getpixel((0, 0))[1] >= 1 else 2)
-        with mock.patch.dict(os.environ, {"CD_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=check):
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=check):
             out = studio._fix_hands(Image.new("RGB", (64, 64)), "1girl", 1, lambda m: None)
         self.assertGreaterEqual(out.getpixel((0, 0))[1], 1)   # 直した絵（崩れ 0 のあとの細部の描き直しを含む）
         self.assertEqual(studio.hand_rounds[-1]["bad"], [])
@@ -305,8 +305,8 @@ def checker_ready() -> bool:
 class RealImages(unittest.TestCase):
     """library/ の実際の絵で、崩れを見つけるかを数で確かめる"""
 
-    def setUp(self):   # ほかの試験が止めた検品（CD_CHECK=off）を、この試験の間だけ動かす
-        p = mock.patch.dict(os.environ, {"CD_CHECK": "on"})
+    def setUp(self):   # ほかの試験が止めた検品（ATELIER_CHECK=off）を、この試験の間だけ動かす
+        p = mock.patch.dict(os.environ, {"ATELIER_CHECK": "on"})
         p.start()
         self.addCleanup(p.stop)
 

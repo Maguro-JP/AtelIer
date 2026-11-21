@@ -26,7 +26,7 @@ class AddError(Exception):
 
 
 def _get(url: str, start: int | None = None, end: int | None = None) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "CharacterDesigner"})
+    req = urllib.request.Request(url, headers={"User-Agent": "AtelIer"})
     if start is not None:
         req.add_header("Range", f"bytes={start}-{end}")
     with urllib.request.urlopen(req, timeout=30) as r:

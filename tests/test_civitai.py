@@ -1,6 +1,6 @@
 """Civitai から探して取る（atelier/models/civitai.py、atelier/panels/civitai_panel.py）の試験。
 
-回線を使わず、Civitai の返りの形をした偽の返りで見る。本物の API での確かめは CD_CIVITAI_LIVE=1 のときだけ流す
+回線を使わず、Civitai の返りの形をした偽の返りで見る。本物の API での確かめは ATELIER_CIVITAI_LIVE=1 のときだけ流す
 （小さな LoRA を 1 つ取る）。
 """
 import io
@@ -47,7 +47,7 @@ class Resp(io.BytesIO):
 class CivitaiTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
         self.llm = mock.patch("atelier.files.paths.LLM_HOME", Path(self.tmp.name))
         self.llm.start()
@@ -105,7 +105,7 @@ class CivitaiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             civitai.fetch(it, opener=lambda req, timeout=0: Resp(safetensors_bytes()))
 
-    @unittest.skipUnless(os.environ.get("CD_CIVITAI_LIVE"), "本物の Civitai に繋ぐのは CD_CIVITAI_LIVE=1 のときだけ")
+    @unittest.skipUnless(os.environ.get("ATELIER_CIVITAI_LIVE"), "本物の Civitai に繋ぐのは ATELIER_CIVITAI_LIVE=1 のときだけ")
     def test_live_search_and_small_lora(self):
         items = [i for i in civitai.search("lineart", "LORA", limit=20) if i.safe]
         self.assertTrue(items)
@@ -129,7 +129,7 @@ class DialogTest(unittest.TestCase):
         buf.open(QBuffer.WriteOnly)
         img.save(buf, "PNG")
         png = bytes(ba)
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}), \
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}), \
                 mock.patch("atelier.files.paths.LLM_HOME", Path(d)):
             items = civitai.parse({"items": [api_item(1), api_item(2, name="b.safetensors"), api_item(3, scan="Danger")]})
 
@@ -163,7 +163,7 @@ class DialogTest(unittest.TestCase):
                 __import__("time").sleep(0.02)
             self.assertEqual(dlg.got.name, "lineart.safetensors")
             self.assertEqual(store.value(civitaipanel.KEY), "k123")
-            out = os.environ.get("CD_SNAP_DIR")
+            out = os.environ.get("ATELIER_SNAP_DIR")
             if out:
                 dlg.list.setCurrentRow(0)
                 app().processEvents()

@@ -1,9 +1,9 @@
-"""前の版（%LOCALAPPDATA%\\Programs\\CharacterDesigner に入れた版）から、新しい置き場へ移す。インストーラーが 1 回だけ呼ぶ。
+"""前の版（%LOCALAPPDATA%\\Programs\\AtelIer に入れた版）から、新しい置き場へ移す。インストーラーが 1 回だけ呼ぶ。
 
 前の版は、プログラムも模型も描いた物も、入れた場所 1 か所に置いていた。新しい版はこう分ける。
 - 模型: C:\\LLM（自作アプリで共有。atelier/files/paths.py）
-- 描いた物・保存したキャラクター: ピクチャの CharacterDesigner\\previous-version
-- 部品と設定: C:\\ProgramData\\CharacterDesigner
+- 描いた物・保存したキャラクター: ピクチャの AtelIer\\previous-version
+- 部品と設定: C:\\ProgramData\\AtelIer
 移す物を移し終えてから、前の版の場所を丸ごと消す（残るのはプログラムと、取り直せる部品だけ）。
 1 つでも移せなかったら、前の版の場所は消さずに残し、理由を記録に書く。
 """
@@ -21,12 +21,12 @@ WORKS = ("library", "bible", "characters", "designs", "config", "out")
 
 def old_install() -> Path | None:
     base = os.environ.get("LOCALAPPDATA")
-    d = Path(base) / "Programs" / "CharacterDesigner" if base else None
+    d = Path(base) / "Programs" / "AtelIer" if base else None
     return d if d is not None and d.is_dir() else None
 
 
 def pictures() -> Path:
-    return Path.home() / "Pictures" / "CharacterDesigner"
+    return Path.home() / "Pictures" / "AtelIer"
 
 
 def _move(src: Path, dst: Path, log: list[str]) -> bool:

@@ -12,8 +12,8 @@
 - どのアプリも、ほかのアプリが置いた模型を消さない。消すのは利用者が選んだときだけ
 - LLM_HOME を書くと、共有の置き場をほかへ移せる
 
-模型でない物（設定、描いた絵の記録、動かす部品）はアプリごとに C:\\ProgramData\\CharacterDesigner に置く。
-アプリ本体は C:\\Program Files\\CharacterDesigner（インストーラーが置く。書き換えない）。
+模型でない物（設定、描いた絵の記録、動かす部品）はアプリごとに C:\\ProgramData\\AtelIer に置く。
+アプリ本体は C:\\Program Files\\AtelIer（インストーラーが置く。書き換えない）。
 """
 from __future__ import annotations
 
@@ -35,11 +35,11 @@ huggingface\\  絵の模型など、Hugging Face の形のままの模型
 
 
 def data_home() -> Path:
-    """模型以外（設定・部品・記録）の置き場。CD_HOME > Windows の ProgramData > 開発中の .cache の順に決める"""
-    if os.environ.get("CD_HOME"):
-        return Path(os.environ["CD_HOME"])
+    """模型以外（設定・部品・記録）の置き場。ATELIER_HOME > Windows の ProgramData > 開発中の .cache の順に決める"""
+    if os.environ.get("ATELIER_HOME"):
+        return Path(os.environ["ATELIER_HOME"])
     if WINDOWS:
-        return Path(os.environ.get("ProgramData") or "C:\\ProgramData") / "CharacterDesigner"
+        return Path(os.environ.get("ProgramData") or "C:\\ProgramData") / "AtelIer"
     return ROOT / ".cache"
 
 
@@ -131,7 +131,7 @@ def ensure_shared():
 
 
 # ---- 利用者の設定のファイル（model_prefs.json、favorites.json、places.json、learn）を版をまたいで守る ----
-# 置き場は data_home() の 1 か所。前の版は、手の検品と言葉の読み取りが CD_HOME を「data_home()/cd」に書き換えていたため、
+# 置き場は data_home() の 1 か所。前の版は、手の検品と言葉の読み取りが ATELIER_HOME を「data_home()/cd」に書き換えていたため、
 # それ以降の読み書きが cd の下へずれ、★・非表示・ブロック・点・タグ・絵の ★・模型の置き場・学んだ基準が消えたように見えた。
 # 部品（tools/gen）の置き場は cdhome.HOME を直接向け、環境変数は変えない。
 STRAY = "cd"   # 前の版がずれて書いた所（data_home() の下）
@@ -139,12 +139,12 @@ STRAY = "cd"   # 前の版がずれて書いた所（data_home() の下）
 
 def use_tools_gen():
     """tools/gen の部品を読めるようにし、その置き場（cdhome.HOME）をアプリのデータの置き場の cd に向ける。
-    環境変数 CD_HOME は書き換えない（書き換えると data_home() がずれ、利用者の設定が読めなくなる）"""
+    環境変数 ATELIER_HOME は書き換えない（書き換えると data_home() がずれ、利用者の設定が読めなくなる）"""
     gen = ROOT / "tools" / "gen"
     if str(gen) not in sys.path:
         sys.path.insert(0, str(gen))
     import cdhome
-    if not os.environ.get("CD_HOME"):
+    if not os.environ.get("ATELIER_HOME"):
         cdhome.HOME = data_home() / STRAY
     return cdhome
 

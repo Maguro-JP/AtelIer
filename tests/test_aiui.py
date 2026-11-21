@@ -260,7 +260,7 @@ class AiMenuFreshTest(unittest.TestCase):
         """AI のメニューの模型の一覧は、開くたびに数え直し、ブロックなどが変わると作り直す"""
         from unittest import mock
         from atelier.models import ratings
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):   # 利用者の model_prefs.json に触れない
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):   # 利用者の model_prefs.json に触れない
             w = window(d)
             w._have_images = {"stale/model"}
             w.ai_menu.aboutToShow.emit()

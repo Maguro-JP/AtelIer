@@ -151,14 +151,14 @@ def parse_source(text: str) -> tuple[str, dict]:
 
 def _get_json(url: str) -> dict:
     import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "CharacterDesigner"})
+    req = urllib.request.Request(url, headers={"User-Agent": "AtelIer"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
 def _download(url: str, dst: Path, say=lambda msg: None):
     import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "CharacterDesigner"})
+    req = urllib.request.Request(url, headers={"User-Agent": "AtelIer"})
     part = dst.with_suffix(dst.suffix + ".part")
     with urllib.request.urlopen(req, timeout=60) as r, open(part, "wb") as f:
         total, done = int(r.headers.get("Content-Length") or 0), 0

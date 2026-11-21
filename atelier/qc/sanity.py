@@ -270,8 +270,8 @@ def check(image, prompt: str = "", tags: dict | None = None) -> dict:
     """描いた絵（道か PIL）を検品する。bad は崩れの説明、avoid は次に描くときの打ち消しに足す言葉。
     部品が無ければ readable を False にして返す（見ていない絵を、通ったことにしない）"""
     from PIL import Image
-    if os.environ.get("CD_CHECK") == "off":
-        return {"readable": False, "bad": [], "avoid": [], "reason": "検品を止めています（CD_CHECK=off）"}
+    if os.environ.get("ATELIER_CHECK") == "off":
+        return {"readable": False, "bad": [], "avoid": [], "reason": "検品を止めています（ATELIER_CHECK=off）"}
     import tempfile
     im = Image.open(image).convert("RGB") if isinstance(image, (str, Path)) else image.convert("RGB")
     res: dict = {"readable": True, "bad": [], "avoid": [], "why": []}

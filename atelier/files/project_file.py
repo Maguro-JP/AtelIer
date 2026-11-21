@@ -1,4 +1,4 @@
-"""作業ファイル（.cdproj）の保存と読み込み、PSD の書き出し、自動保存。
+"""作業ファイル（.atelier）の保存と読み込み、PSD の書き出し、自動保存。
 
 作業ファイルは zip の中に、レイヤーごとの PNG と並び（manifest.json）を入れる。赤ペンの印と指示も残すので、
 直しの途中で閉じても続きから頼める。PSD は他の作画ソフトへ渡すための書き出しで、レイヤーの名前・表示・不透明度を保つ。
@@ -14,7 +14,12 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF
 from PySide6.QtGui import QImage
 
 VERSION = 1
-SUFFIX = ".cdproj"
+APP = "AtelIer"
+SUFFIX = ".atelier"
+# CharacterDesigner の作業ファイル（.cdproj）は中身の形が同じなので開ける。保存は .atelier だけ
+LEGACY_APPS = ("Character" + "Designer",)
+LEGACY_SUFFIXES = (".cd" + "proj",)
+READABLE = (SUFFIX, *LEGACY_SUFFIXES)
 
 
 def _png(img: QImage) -> bytes:
@@ -30,7 +35,7 @@ def snapshot(canvas, extra: dict | None = None) -> dict:
     PNG に縮めて書くのは write で、裏の糸で回せる"""
     w, h = canvas.size_px()
     pen = canvas.redpen
-    manifest = {"version": VERSION, "app": "CharacterDesigner", "size": [w, h], "current": canvas.current,
+    manifest = {"version": VERSION, "app": APP, "size": [w, h], "current": canvas.current,
                 "layers": [], "marks": [[[p.x(), p.y()] for p in pts] for pts in pen.marks], "notes": list(pen.texts),
                 **(extra or {})}
     images = []
@@ -61,8 +66,8 @@ def read(path: str | Path) -> tuple[dict, list]:
     """作業ファイルを読んで、manifest と（名前, 絵, 表示, 不透明度）の並びを返す。画面に触らないので裏の糸で回せる"""
     with zipfile.ZipFile(path) as z:
         manifest = json.loads(z.read("manifest.json"))
-        if manifest.get("app") != "CharacterDesigner":
-            raise ValueError("CharacterDesigner の作業ファイルではありません")
+        if manifest.get("app") not in (APP, *LEGACY_APPS):
+            raise ValueError("AtelIer の作業ファイルではありません")
         layers = []
         for info in manifest["layers"]:
             img = QImage.fromData(z.read(info["file"]), "PNG").convertToFormat(QImage.Format_ARGB32_Premultiplied)

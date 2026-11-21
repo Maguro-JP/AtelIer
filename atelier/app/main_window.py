@@ -1,4 +1,4 @@
-"""CharacterDesigner のウィンドウ。チャットで頼むと絵を描いて並べる。
+"""AtelIer のウィンドウ。チャットで頼むと絵を描いて並べる。
 
   python atelier/app/main_window.py
 """
@@ -16,7 +16,7 @@ from atelier.files.paths import HOME as DATA  # noqa: E402
 
 def attach_streams():
     """pythonw.exe で起動すると標準の出力が None になり、模型を取るときの進み表示（tqdm）が書き込めずに落ちた。
-    出力が無いときは記録のファイル（DATA/chatdraw.log）へ向ける"""
+    出力が無いときは記録のファイル（DATA/atelier.log）へ向ける"""
     for stream in (sys.stdout, sys.stderr):
         # Windows の窓（コンソール）の文字コードは cp1252 などで、日本語を書くと UnicodeEncodeError で落ちた。
         # 書けない文字は置き換えて書き続ける
@@ -30,7 +30,7 @@ def attach_streams():
         return
     try:
         DATA.mkdir(parents=True, exist_ok=True)
-        log = open(DATA / "chatdraw.log", "a", encoding="utf-8", errors="replace", buffering=1)
+        log = open(DATA / "atelier.log", "a", encoding="utf-8", errors="replace", buffering=1)
     except OSError:
         import os
         log = open(os.devnull, "w")
@@ -701,11 +701,11 @@ class Window(QMainWindow):
         self.settings = Settings()
         from atelier.ai import memory_budget as membudget
         membudget.set_mode(self.settings.get("mem_mode"))   # メモリの使い方（設定で選ぶ。既定は自動）
-        self.layout_store = QSettings("CharacterDesigner", "chatdraw")   # 配置・テーマ・AI プリセット・ツアーの済み
+        self.layout_store = QSettings("AtelIer", "atelier")   # 配置・テーマ・AI プリセット・ツアーの済み
         self.last_text = ""
         self._own_studio = studio is None
         self.studio = studio or self._studio_from_settings()
-        self.setWindowTitle("CharacterDesigner")
+        self.setWindowTitle("AtelIer")
         self.resize(1400, 900)
         self.images: list[str] = []
         self.thread: QThread | None = None
@@ -1888,7 +1888,7 @@ class Window(QMainWindow):
             self.set_theme(themes.DEFAULT)
         themes.remove_custom(self.layout_store, name)
 
-    def say(self, text: str, who: str = "CharacterDesigner"):
+    def say(self, text: str, who: str = "AtelIer"):
         """進み具合の知らせ（描いた・検品の結果・工程・取れなかった物など）を進み具合の欄に書く。
         前はチャットに吹き出しで出していて、チャットが進み具合の履歴になり、会話が埋もれて読み返せなかった。
         チャットは利用者と AI の会話だけにする（知らせは進み具合の欄の「知らせ」と下の帯で見る）"""
@@ -4631,7 +4631,7 @@ class Window(QMainWindow):
         HelpDialog(key, self).show()
 
     def open_logs(self):
-        """記録（chatdraw.log、setup.log）の置き場を開く。困ったときに中を見たり、渡したりするため"""
+        """記録（atelier.log、setup.log）の置き場を開く。困ったときに中を見たり、渡したりするため"""
         from atelier.files.folders import open_folder
         open_folder(DATA)
 
@@ -5846,7 +5846,7 @@ class Window(QMainWindow):
         # はじめのツアーは 5 枚まで。前は 15 枚が続き、閉じたあとに機能ごとの案内が続けて出て長かった。
         # 欄と帯の案内は「ヘルプ」の「機能ごとの案内」（atelier/ui/tours.py の tour_panels・tour_bars）に分けた
         return [
-            Step(lambda: None, "CharacterDesigner へようこそ", "AI に頼んで描かせ、自分でも描き足せます。主な所を 5 枚で案内します。"),
+            Step(lambda: None, "AtelIer へようこそ", "AI に頼んで描かせ、自分でも描き足せます。主な所を 5 枚で案内します。"),
             Step(lambda: p["chat"][0], "AI の欄", "「描く内容」に描きたい絵を、「禁止ワード」に描かない物を書いて「描く」を押します。\n"
                  "作風・模型・詳しい設定は見出しを押すと開きます。", show("chat")),
             Step(lambda: self.canvas, "キャンバス", "描いている途中の絵がここに出ます。\nホイールで拡大、Space を押しながらドラッグで動かせます。"),
@@ -6107,7 +6107,7 @@ class Window(QMainWindow):
     def open_image(self):
         if self.tour_first("open", self.open_image):
             return
-        path, _ = QFileDialog.getOpenFileName(self, "開く", "", "作業ファイルと画像 (*.cdproj *.png *.jpg *.jpeg *.webp)")
+        path, _ = QFileDialog.getOpenFileName(self, "開く", "", "作業ファイルと画像 (" + " ".join(f"*{x}" for x in project.READABLE) + " *.png *.jpg *.jpeg *.webp)")
         if path:
             self.open_path(path)
 
@@ -7351,8 +7351,9 @@ class Window(QMainWindow):
         self.work_save()
         self.inspect_prompt = ""   # 開いた絵は描いた言葉が分からない。前の絵の言葉で頼んだ物を検品しない
         self.work_key = None   # 作業ファイル・手元の絵は、そのファイルに保存する（絵ごとの作業の置き場は使わない）
-        self._fix_from = None if path.endswith(project.SUFFIX) else path   # 記録の無い絵は、直すときに絵からタグを読む
-        if path.endswith(project.SUFFIX):
+        is_project = path.lower().endswith(project.READABLE)   # 前の形（CharacterDesigner の作業ファイル）も開ける
+        self._fix_from = None if is_project else path   # 記録の無い絵は、直すときに絵からタグを読む
+        if is_project:
             # 読んで PNG を戻すのは裏の糸。置くのは画面の糸（レイヤーが多いと 0.1 秒を超えた）
             def done(got):
                 if isinstance(got, BaseException):
@@ -7360,7 +7361,8 @@ class Window(QMainWindow):
                     return
                 project.apply(self.canvas, got)
                 # 自動保存から戻したときは、自動保存の場所に上書き保存しない
-                self.project_path, self.dirty = (None, True) if restore else (path, False)
+                own = path.lower().endswith(project.SUFFIX)   # 前の形のファイルには上書きしない（保存のときに置き場を聞く）
+                self.project_path, self.dirty = (None, True) if restore else (path if own else None, False)
             self.run_io(lambda: project.read(path), done, "読み込み")
             return
         else:
@@ -7681,7 +7683,7 @@ class Window(QMainWindow):
 
     def show_progress(self, text: str, pct: int):
         """進みをウィンドウの外にも出す。タイトル（タスクバーに出る）、通知の領域のアイコン、終わったときの知らせ"""
-        base = "CharacterDesigner"
+        base = "AtelIer"
         if pct == -2:
             self.setWindowTitle(base)
         else:
@@ -7690,7 +7692,7 @@ class Window(QMainWindow):
         if tray is not None:
             tray.setToolTip(text if pct < 0 else f"{text}（{pct}%）")
         if pct == -2:
-            self.tell_outside("CharacterDesigner", text)
+            self.tell_outside("AtelIer", text)
 
     def _tray(self):
         from PySide6.QtWidgets import QSystemTrayIcon
@@ -7738,7 +7740,7 @@ THEME = _qss()   # 既定のテーマ（atelier/ui/themes.py）
 def dark(app: QApplication, name: str | None = None):
     """テーマの色を当てる。name が無ければ前に選んだテーマ（初めはナイト: 暗い灰色の地に赤とオレンジの差し色）"""
     from atelier.ui import themes
-    store = QSettings("CharacterDesigner", "chatdraw")
+    store = QSettings("AtelIer", "atelier")
     themes.load_custom(store)
     if name is None:
         name = store.value("theme", themes.DEFAULT)

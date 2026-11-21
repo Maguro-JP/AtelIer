@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("CD_CHECK", "off")   # 描くたびの検品は、模型を取りに行くので試験では止める（HandCheckTest で別に確かめる）
+os.environ.setdefault("ATELIER_CHECK", "off")   # 描くたびの検品は、模型を取りに行くので試験では止める（HandCheckTest で別に確かめる）
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
@@ -515,7 +515,7 @@ class UpgradeTest(unittest.TestCase):
 
 class MigrateTest(unittest.TestCase):
     def make_old(self, root: Path) -> Path:
-        old = root / "Programs" / "CharacterDesigner"
+        old = root / "Programs" / "AtelIer"
         (old / ".cache" / "gen" / "hf" / "hub" / "models--a--b" / "snapshots").mkdir(parents=True)
         (old / ".cache" / "gen" / "hf" / "hub" / "models--a--b" / "snapshots" / "w.bin").write_bytes(b"w")
         (old / ".cache" / "gen" / "lib").mkdir(parents=True)                 # 取り直せる部品
@@ -611,7 +611,7 @@ class ManagerTest(unittest.TestCase):
         from atelier.models import catalog as models
         from atelier.app.settings import Settings
         QApplication.instance() or QApplication([])
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}), \
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}), \
                 mock.patch.object(manager, "HUB", Path(d) / "hub"), mock.patch.object(manager, "GGUF", Path(d) / "g"), \
                 mock.patch.object(manager, "OWN_LLM", Path(d) / "none"):
             dlg = manager.ModelManager(Settings(QSettings(str(Path(d) / "s.ini"), QSettings.IniFormat)))
@@ -900,7 +900,7 @@ class VpredModelTest(unittest.TestCase):
         self.assertTrue(m.prefix.startswith("masterpiece, best quality"))
         self.assertTrue(m.commercial)
         self.assertEqual(windraw.MODEL, m.repo)
-        if not os.environ.get("CD_IMAGE_MODEL"):
+        if not os.environ.get("ATELIER_IMAGE_MODEL"):
             self.assertEqual(IMAGE_MODEL, m.repo)
         self.assertEqual(image_model("cagliostrolab/animagine-xl-4.0").score, 85)   # 古い模型も残す
         self.assertFalse(image_model("cagliostrolab/animagine-xl-4.0").vpred)
@@ -1446,10 +1446,10 @@ class NoConsoleTest(unittest.TestCase):
                     "for _ in tqdm(range(3)): pass\n"
                     "sys.stderr.write('written\\n'); sys.stderr.flush()\n")
             libs = os.pathsep.join(str(ROOT / ".cache" / n / "lib") for n in ("simple", "gen"))
-            env = dict(os.environ, CD_HOME=d, QT_QPA_PLATFORM="offscreen", PYTHONPATH=libs)
+            env = dict(os.environ, ATELIER_HOME=d, QT_QPA_PLATFORM="offscreen", PYTHONPATH=libs)
             r = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=120)
             self.assertEqual(r.returncode, 0, r.stderr[-800:])
-            self.assertIn("written", (Path(d) / "chatdraw.log").read_text(encoding="utf-8"))
+            self.assertIn("written", (Path(d) / "atelier.log").read_text(encoding="utf-8"))
 
 
 class SystemTest(unittest.TestCase):
@@ -1504,7 +1504,7 @@ class SystemTest(unittest.TestCase):
         p.end()
         self.w.canvas.layers[1].name = "赤"
         self.mark(50, 50, "直す")
-        path = self.dir / "a.cdproj"
+        path = self.dir / "a.atelier"
         project.save(self.w.canvas, path)
         self.w.canvas.new_canvas(50, 50)
         self.w.open_path(str(path))
@@ -1527,7 +1527,7 @@ class SystemTest(unittest.TestCase):
             self.assertEqual([l.name for l in layers], ["背景", "赤"])
             self.assertEqual(layers[1].topil().getpixel((15, 15))[:3], (255, 0, 0))
         from unittest import mock
-        auto = self.dir / "auto" / "autosave.cdproj"
+        auto = self.dir / "auto" / "autosave.atelier"
         with mock.patch("atelier.files.project_file.autosave_path", return_value=auto):
             self.w.dirty = True
             self.w.autosave()
@@ -1543,7 +1543,7 @@ class SystemTest(unittest.TestCase):
         self.assertFalse(updater.newer("0.1.0", "0.1.0"))
         feed = self.dir / "latest.json"
         feed.write_text(_json.dumps({"tag_name": "v99.0.0", "html_url": "x",
-                                     "assets": [{"name": "CharacterDesigner-Setup.exe", "browser_download_url": "https://e/s.exe"}]}))
+                                     "assets": [{"name": "AtelIer-Setup.exe", "browser_download_url": "https://e/s.exe"}]}))
         info = updater.check(feed.as_uri())
         self.assertEqual((info["version"], info["setup"]), ("99.0.0", "https://e/s.exe"))
         feed.write_text(_json.dumps({"tag_name": "v0.0.1"}))
@@ -1681,7 +1681,7 @@ class UsableTest(unittest.TestCase):
         v0 = a.bar.value()
         self.spin(0.3)
         self.assertNotEqual(a.bar.value(), v0)              # 工程の数が分かる前でも帯が動く
-        self.assertIn("CharacterDesigner", self.w.windowTitle())
+        self.assertIn("AtelIer", self.w.windowTitle())
         a.status("描いています 3/10", 3, 10)
         self.assertIn("30%", self.w.windowTitle())
         a.end("描きました", None, record=False)
@@ -1697,7 +1697,7 @@ class UsableTest(unittest.TestCase):
         self.assertGreater(p.y() + p.height(), g.bottom() - 80)     # 下の端に寄っている
         p.close_popup()
         self.assertFalse(p.isVisible())                             # × で閉じられる
-        self.assertEqual(self.w.windowTitle(), "CharacterDesigner")
+        self.assertEqual(self.w.windowTitle(), "AtelIer")
         self.assertEqual(seen[0], -1)
         self.assertEqual(seen[-1], -2)
 
@@ -1744,8 +1744,8 @@ class UsableTest(unittest.TestCase):
         import importlib
         import atelier.files.paths as paths
         with TemporaryDirectory() as home, TemporaryDirectory() as models:
-            old = os.environ.get("CD_HOME")
-            os.environ["CD_HOME"] = home
+            old = os.environ.get("ATELIER_HOME")
+            os.environ["ATELIER_HOME"] = home
             try:
                 paths.set_model_dir(models)
                 fresh = importlib.reload(paths)
@@ -1755,9 +1755,9 @@ class UsableTest(unittest.TestCase):
                 self.assertEqual(importlib.reload(paths).chosen_model_dir(), "")
             finally:
                 if old is None:
-                    os.environ.pop("CD_HOME", None)
+                    os.environ.pop("ATELIER_HOME", None)
                 else:
-                    os.environ["CD_HOME"] = old
+                    os.environ["ATELIER_HOME"] = old
                 importlib.reload(paths)
 
 
@@ -2223,7 +2223,7 @@ class HandCheckTest(unittest.TestCase):
         from atelier.qc import hand_check as handcheck
         self.assertIn("崩れ 1 件", handcheck.summary({"readable": True, "bad": ["手 1: 指が多い"], "hands": [{"seen": True}]}))
         self.assertIn("読めません", handcheck.summary({"readable": False, "bad": [], "hands": []}))
-        self.assertIn("止めて", handcheck.summary(handcheck.check(__file__)))   # CD_CHECK=off なら止めて理由を返す
+        self.assertIn("止めて", handcheck.summary(handcheck.check(__file__)))   # ATELIER_CHECK=off なら止めて理由を返す
 
     def test_six_fingers_found_with_real_models(self):
         from pathlib import Path
@@ -2237,7 +2237,7 @@ class HandCheckTest(unittest.TestCase):
             self.skipTest("ai-edge-litert が無い")
         from PIL import Image, ImageDraw
         from atelier.qc import hand_check as handcheck
-        with mock.patch.dict(os.environ, {"CD_CHECK": "on", "CD_HOME": str(root / ".cache")}):
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "on", "ATELIER_HOME": str(root / ".cache")}):
             res = handcheck.check(Image.new("RGB", (256, 256), "white"), fetch=False)
         self.assertFalse(res["readable"])                 # 手の無い絵は「読めない」（崩れにしない）
         self.assertEqual(res["bad"], [])
@@ -2260,7 +2260,7 @@ class HandRoundsTest(unittest.TestCase):
             {"readable": True, "bad": [], "hands": [{"box": [10, 10, 40, 40], "seen": True, "bad": []}]},   # 細部の描き直しのあと
         ])
         calls = []
-        with mock.patch.dict(os.environ, {"CD_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=lambda im, **k: next(results)), \
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=lambda im, **k: next(results)), \
                 mock.patch.object(s.painter, "redraw", side_effect=lambda p, seed, im, mask, strength: calls.append(seed) or im):
             s._fix_hands(Image.new("RGB", (64, 64)), "1girl", 7, lambda m: None)
         self.assertEqual(len(calls), 3)          # 2 回直して崩れが消え、通ったあとも細部を 1 回描き直した
@@ -2275,7 +2275,7 @@ class RequestCheckTest(unittest.TestCase):
         from atelier.qc import request_check as requestcheck
         self.assertIn("hand up", requestcheck.summary({"readable": True, "missing": ["hand up"]}))
         self.assertIn("すべて", requestcheck.summary({"readable": True, "missing": []}))
-        self.assertFalse(requestcheck.check(__file__, "1girl")["readable"])   # CD_CHECK=off では止めて理由を返す
+        self.assertFalse(requestcheck.check(__file__, "1girl")["readable"])   # ATELIER_CHECK=off では止めて理由を返す
 
     def test_missing_tags_do_not_trigger_redraw(self):
         import tempfile
@@ -2702,7 +2702,7 @@ class ModelListTest(unittest.TestCase):
     def test_favorite_hidden_persist_and_notify(self):
         from unittest import mock
         from atelier.models import ratings
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             seen = []
             ratings.on_change(lambda: seen.append(1))
             ratings.set_favorite("b/b", True)
@@ -2717,7 +2717,7 @@ class ModelListTest(unittest.TestCase):
         from unittest import mock
         from atelier.models import catalog as models
         from atelier.models import ratings
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             a, b, c = self.models()
             self.assertEqual([m.name for m in models.pick([a, b, c], "推奨（確かめ済み）")], ["A", "C"])
             self.assertEqual([m.name for m in models.pick([a, b, c], "推奨（確かめ済み）", have={"b/b"})], ["A", "C"])  # 絞り込みに合わない取得済みは出さない
@@ -2738,7 +2738,7 @@ class ModelListTest(unittest.TestCase):
         from unittest import mock
         from atelier.models import ratings
         from atelier.ai.choose import choose_image
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             a, b, c = self.models()
             self.assertEqual(choose_image("騎士", "", None, [a, b, c])[0], a)                   # 点の高いアニメの模型
             self.assertEqual(choose_image("街の写真", "", None, [a, b, c])[0], b)               # 写実の頼みは写実の模型
@@ -2751,7 +2751,7 @@ class ModelListTest(unittest.TestCase):
 
     def test_studio_auto_switches_painter_and_tells_choice(self):
         from unittest import mock
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             a, b, c = self.models()
             st = Studio(FakeWords(), FakePainter(), Path(d))
             st.image_auto = True
@@ -2785,7 +2785,7 @@ class ModelListTest(unittest.TestCase):
             def set(self, k, v):
                 self.v[k] = v
         a, b, c = self.models()
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}), \
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}), \
                 mock.patch.object(manager, "installed", return_value=[]), \
                 mock.patch.object(manager, "catalog_images", return_value=[a, b, c]), \
                 mock.patch.object(manager, "machine", return_value=(0.0, 16.0)):
@@ -2814,7 +2814,7 @@ class ModelListTest(unittest.TestCase):
         from atelier.models import ratings
         from atelier.app.main_window import Window
         QApplication.instance() or QApplication([])
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             w = Window(Studio(FakeWords(), FakePainter(), Path(d)))
 
             def texts():

@@ -28,7 +28,7 @@ class FoldersTest(unittest.TestCase):
         QApplication.instance() or QApplication([])
         with TemporaryDirectory() as d, mock.patch.object(paths, "HOME", Path(d) / "data"), \
                 mock.patch.object(paths, "LLM_HOME", Path(d) / "LLM"), \
-                mock.patch.dict(os.environ, {"CD_HOME": str(Path(d) / "data")}), \
+                mock.patch.dict(os.environ, {"ATELIER_HOME": str(Path(d) / "data")}), \
                 mock.patch.object(QDesktopServices, "openUrl", return_value=True) as opened:
             menu = QMenu()
             folders.fill_menu(menu, FakeSettings(Path(d) / "pics"))
@@ -48,7 +48,7 @@ class RatingsTest(unittest.TestCase):
     def test_combine_sort_tags_and_persist(self):
         from atelier.models import catalog as models
         from atelier.models import ratings
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             a = models.ImageModel("a/a", "A", "", "", 1, 20, 5, score=85, tags=("アニメ", "商用可"))
             b = models.ImageModel("b/b", "B", "", "", 1, 20, 5, score=0, tags=("リアル",))
             c = models.ImageModel("c/c", "C", "", "", 1, 20, 5, score=50, tags=("アニメ",))
@@ -80,7 +80,7 @@ class RatingsTest(unittest.TestCase):
         from atelier.models import catalog as models
         from atelier.app.settings import Settings
         QApplication.instance() or QApplication([])
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}), \
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}), \
                 mock.patch.object(manager, "HUB", Path(d) / "hub"), mock.patch.object(manager, "GGUF", Path(d) / "g"), \
                 mock.patch.object(manager, "OWN_LLM", Path(d) / "none"):
             dlg = manager.ModelManager(Settings(QSettings(str(Path(d) / "s.ini"), QSettings.IniFormat)))

@@ -16,7 +16,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("CD_CHECK", "off")
+os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
@@ -80,7 +80,7 @@ class PickTest(unittest.TestCase):
         im = blobs()
         lab = Image.new("L", im.size, 0)
         ImageDraw.Draw(lab).rectangle((100, 30, 140, 80), fill=4)   # 上の服（4）とする部位分け
-        with mock.patch.dict(os.environ, {"CD_AUTOSEL_OFFLINE": "1"}), mock.patch.object(autosel, "model_dir", lambda: None), \
+        with mock.patch.dict(os.environ, {"ATELIER_AUTOSEL_OFFLINE": "1"}), mock.patch.object(autosel, "model_dir", lambda: None), \
                 mock.patch("atelier.ai.face_features.seg_small", lambda image: lab):
             p = autosel.pick(im, point=(120, 50))
         self.assertEqual((p.how, p.label), ("parts", "upper"))
@@ -99,7 +99,7 @@ class PickTest(unittest.TestCase):
         r = autosel.to_path(m).boundingRect()
         self.assertEqual((r.left(), r.top(), r.right(), r.bottom()), (5, 10, 55, 45))
 
-    @unittest.skipUnless(os.environ.get("CD_AUTOSEL_MODEL") == "1", "SAM 2 の模型の試験は CD_AUTOSEL_MODEL=1 のときだけ流す（重い）")
+    @unittest.skipUnless(os.environ.get("ATELIER_AUTOSEL_MODEL") == "1", "SAM 2 の模型の試験は ATELIER_AUTOSEL_MODEL=1 のときだけ流す（重い）")
     def test_sam_model(self):
         from atelier.ai import auto_select as autosel
         from atelier.ai import memory_budget as membudget
@@ -164,7 +164,7 @@ class WindowTest(WindowBase):
     def no_model(self):
         """模型を取れない環境と同じにする（部位分けも無い形で、色の続きの道を通す）"""
         from atelier.ai import auto_select as autosel
-        ps = [mock.patch.dict(os.environ, {"CD_AUTOSEL_OFFLINE": "1"}), mock.patch.object(autosel, "model_dir", lambda: None),
+        ps = [mock.patch.dict(os.environ, {"ATELIER_AUTOSEL_OFFLINE": "1"}), mock.patch.object(autosel, "model_dir", lambda: None),
               mock.patch("atelier.ai.face_features.seg_small", lambda image: None)]
         for p in ps:
             p.start()

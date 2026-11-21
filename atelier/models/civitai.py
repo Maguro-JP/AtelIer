@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 API = "https://civitai.com/api/v1"
-AGENT = "CharacterDesigner"   # 既定の Python の名乗りは Civitai の手前（Cloudflare）で 403 になった
+AGENT = "AtelIer"   # 既定の Python の名乗りは Civitai の手前（Cloudflare）で 403 になった
 KINDS = {"模型": "Checkpoint", "LoRA": "LORA"}
 # Civitai の baseModel の名前と、このアプリの世代（models.FAMILIES の鍵）
 BASES = {"SDXL 1.0": "sdxl", "Pony": "sdxl", "Illustrious": "sdxl", "NoobAI": "sdxl", "SD 1.5": "sd15", "Flux.1 D": "flux1",

@@ -24,8 +24,8 @@ def main(argv: list[str]) -> int:
     src_path, out = Path(argv[0]), Path(argv[1])
     kinds = argv[2:] or [s[0] for s in restyle.STYLES]
     import os
-    if os.environ.get("CD_RESTYLE_SIDE"):   # Actions の CPU で 1 枚を時間内に終えるため、描く大きさを縮められるようにする
-        restyle.WORK_SIDE = int(os.environ["CD_RESTYLE_SIDE"])
+    if os.environ.get("ATELIER_RESTYLE_SIDE"):   # Actions の CPU で 1 枚を時間内に終えるため、描く大きさを縮められるようにする
+        restyle.WORK_SIDE = int(os.environ["ATELIER_RESTYLE_SIDE"])
     out.mkdir(parents=True, exist_ok=True)
     m = image_model(IMAGE_MODEL)
     from huggingface_hub import snapshot_download

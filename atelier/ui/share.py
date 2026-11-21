@@ -21,7 +21,7 @@ def enabled(settings, name: str) -> bool:
 
 
 def compose_url(name: str, text: str) -> str:
-    return SERVICES[name].format(text=quote(f"{text} #CharacterDesigner".strip()))
+    return SERVICES[name].format(text=quote(f"{text} #AtelIer".strip()))
 
 
 def post(window, name: str, path: str, text: str = ""):

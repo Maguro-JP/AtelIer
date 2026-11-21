@@ -49,11 +49,11 @@ def model_dir():
 
 
 def fetch() -> tuple[str | None, str]:
-    """模型を共有の置き場に取る。(場所, 取れなかった理由)。CD_AUTOSEL_OFFLINE=1 なら取りに行かない（試験で使う）"""
+    """模型を共有の置き場に取る。(場所, 取れなかった理由)。ATELIER_AUTOSEL_OFFLINE=1 なら取りに行かない（試験で使う）"""
     d = model_dir()
     if d:
         return d, ""
-    if os.environ.get("CD_AUTOSEL_OFFLINE") == "1":
+    if os.environ.get("ATELIER_AUTOSEL_OFFLINE") == "1":
         return None, "模型を取りに行かない設定です"
     from atelier.files import paths
     try:

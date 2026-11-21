@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("CD_CHECK", "off")
+os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
@@ -153,7 +153,7 @@ class IconTest(unittest.TestCase):
     def test_draw_one_logo_candidates(self):
         from atelier.bench import draw_one
         with TemporaryDirectory() as d:
-            done = draw_one.logo_candidates({"mode": "logo", "name": "CharacterDesigner", "seeds": [1, 2], "size": [256, 256]},
+            done = draw_one.logo_candidates({"mode": "logo", "name": "AtelIer", "seeds": [1, 2], "size": [256, 256]},
                                             Path(d), painter=FakePainter())
             self.assertEqual([x["file"] for x in done], ["icon-s1.png", "icon-s2.png"])
             self.assertEqual(Image.open(Path(d) / "icon-s1.png").size, (1024, 1024))

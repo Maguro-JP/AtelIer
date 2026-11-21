@@ -75,7 +75,7 @@ OK = {"readable": True, "bad": [], "regions": []}
 class OmakaseTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
 
     def tearDown(self):
@@ -215,7 +215,7 @@ class ReselectTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": self.tmp.name})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": self.tmp.name})
         self.env.start()
         self.fin = mock.patch.object(omakase, "finishers", return_value=None)   # 仕上げの部品は読まない（選び直しだけを見る）
         self.fin.start()

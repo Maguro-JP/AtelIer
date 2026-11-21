@@ -1,4 +1,4 @@
-"""CharacterDesigner 独自の作画監督（atelier/qc/original_qc.py）: 数字の外れを崩れと直す所にし、利用者の判定から基準を学び直して次の検品に効かせる"""
+"""AtelIer 独自の作画監督（atelier/qc/original_qc.py）: 数字の外れを崩れと直す所にし、利用者の判定から基準を学び直して次の検品に効かせる"""
 import json
 import sys
 import unittest
@@ -96,7 +96,7 @@ class OmakaseFixesFoundFaultsTest(unittest.TestCase):
         def check(image, prompt):
             seen.append(image.getpixel((15, 15)))
             return bad if len(seen) == 1 else t.OK
-        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CD_HOME": d}):
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
             log, st = [], t.FakeStudio(Path(d))
             omakase.draw(st, "髪の長い女の子", 1, lambda m: None, have=[t.COMPOSE, t.HANDS, t.FACES],
                          painter_for=lambda m: t.FakePainter(m.repo, log), check=check, size=(128, 192))

@@ -306,13 +306,13 @@ def split(w, n: int):
 
 # ---- 自分の配置: 保存・読み出し・書き出し・読み込み ----
 def snapshot(w) -> dict:
-    return {"version": VERSION, "app": "CharacterDesigner",
+    return {"version": VERSION, "app": "AtelIer",
             "state": base64.b64encode(bytes(w.saveState())).decode(),
             "geometry": base64.b64encode(bytes(w.saveGeometry())).decode()}
 
 
 def restore(w, data: dict) -> bool:
-    if data.get("app") != "CharacterDesigner" or "state" not in data:
+    if data.get("app") != "AtelIer" or "state" not in data:
         return False
     _reset(w)
     ok = w.restoreState(QByteArray(base64.b64decode(data["state"])))

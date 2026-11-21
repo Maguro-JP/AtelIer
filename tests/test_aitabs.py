@@ -96,11 +96,11 @@ class BackgroundTest(unittest.TestCase):
             app().processEvents()
             wait_bg(app(), w)
             self.assertEqual(len(w.canvas.layers), n + 2)
-            path = Path(d) / "a.cdproj"
+            path = Path(d) / "a.atelier"
             w.project_path = str(path)
             took["保存"] = ms(w.save_project)
             w.dirty = True
-            auto = Path(d) / "auto" / "autosave.cdproj"
+            auto = Path(d) / "auto" / "autosave.atelier"
             from unittest import mock
             with mock.patch("atelier.files.project_file.autosave_path", return_value=auto):
                 took["自動保存"] = ms(w.autosave)
@@ -113,7 +113,7 @@ class BackgroundTest(unittest.TestCase):
             wait_bg(app(), w)
             self.assertEqual(len(w.canvas.layers), n + 2)
             self.assertEqual((Path(d) / "a.psd").read_bytes()[:4], b"8BPS")
-            self.assertEqual(project.read(path)[0]["app"], "CharacterDesigner")
+            self.assertEqual(project.read(path)[0]["app"], "AtelIer")
             for name, t in took.items():
                 self.assertLess(t, LIMIT_MS * 3, f"{name} が画面の糸で {t:.0f} ミリ秒")   # 試験の機械の揺れを見て 3 倍まで
             print("\n画面の糸の時間（ミリ秒）: " + "、".join(f"{k} {v:.0f}" for k, v in took.items()), file=sys.stderr)

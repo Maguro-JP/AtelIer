@@ -3,19 +3,19 @@
 模型の置き方は 3 通り。どれも models/ に置けば一覧に出る（models/ は git に入れない。1 つ 約 7GB）。
   1. .safetensors のファイル 1 つ（配布サイトでよく見る形）。読むときは、手元にある同じ系統の模型の設定を借りる
   2. diffusers 形式のフォルダー（中に model_index.json がある）
-  3. Hugging Face の名前（例 cagliostrolab/animagine-xl-4.0）。config/models.json に書く。取るのは CD_FETCH=1 のときだけ
+  3. Hugging Face の名前（例 cagliostrolab/animagine-xl-4.0）。config/models.json に書く。取るのは ATELIER_FETCH=1 のときだけ
 .ckpt / .pt / .bin は、読むときに中のプログラムが動きうる形式なので受け付けない。
 
 いま描けるのは SDXL 系の模型だけ（Animagine、Illustrious、Pony、dreamshaper XL など）。SD1.5・SD3・Flux は描く仕組みが違う。
 判定は .safetensors の先頭にある部品名の一覧だけを読んで行う（模型の本体は読まないので一瞬で終わる）。
 
 作風と模型の対応は config/models.json に書く（利用者ごと、git に入れない。見本は config/models.example.json）。
-無ければ anime だけを animagine-xl-4.0 にする（3.1 から替えた。手元の 3.1 は空きを作るために消した。4.0 は基準の組の 4 枚で、MeinaMix の 10 件に対して崩れ 9 件）。環境変数 CD_DRAW_MODEL を付けると、その場だけ模型を入れ替えられる。
+無ければ anime だけを animagine-xl-4.0 にする（3.1 から替えた。手元の 3.1 は空きを作るために消した。4.0 は基準の組の 4 枚で、MeinaMix の 10 件に対して崩れ 9 件）。環境変数 ATELIER_DRAW_MODEL を付けると、その場だけ模型を入れ替えられる。
 
   python3 tools/gen/models.py list                 置いてある模型と、作風ごとの割り当てを見る
   python3 tools/gen/models.py check <名前かパス>    使える模型かを確かめる（SDXL 系か、形式、大きさ）
   python3 tools/gen/models.py use <作風> <名前>     作風に模型を割り当てる（例: use anime illustrious-xl）
-  CD_FETCH=1 python3 tools/gen/models.py fetch <Hugging Face の名前>   模型を取る（約 7GB）
+  ATELIER_FETCH=1 python3 tools/gen/models.py fetch <Hugging Face の名前>   模型を取る（約 7GB）
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ import design  # noqa: E402,F401
 ROOT = Path(__file__).resolve().parents[2]
 # 模型の置き場所と、取りに行かない既定（ほかの読み込み口と同じ。huggingface_hub を読む前に決める）
 os.environ.setdefault("HF_HOME", str(cdhome.HOME / "gen" / "hf"))
-os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("CD_FETCH") == "1" else "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("ATELIER_FETCH") == "1" else "1")
 MODELS_DIR = ROOT / "models"
 CONFIG = ROOT / "config" / "models.json"
 DEFAULT = {"styles": {"anime": "cagliostrolab/animagine-xl-4.0"}}
@@ -75,9 +75,9 @@ def resolve(name: str) -> str:
 
 
 def for_style(style: str = "anime") -> str:
-    """作風に割り当てた模型。CD_DRAW_MODEL があればそれを使う"""
-    if os.environ.get("CD_DRAW_MODEL"):
-        return resolve(os.environ["CD_DRAW_MODEL"])
+    """作風に割り当てた模型。ATELIER_DRAW_MODEL があればそれを使う"""
+    if os.environ.get("ATELIER_DRAW_MODEL"):
+        return resolve(os.environ["ATELIER_DRAW_MODEL"])
     styles = config()["styles"]
     if style not in styles:
         raise KeyError(f"作風「{style}」に模型が割り当てられていない。python3 tools/gen/models.py use {style} <名前> で決める"
@@ -146,7 +146,7 @@ def check(name: str) -> dict:
             return res
         idx = try_to_load_from_cache(where, "model_index.json")
         if not isinstance(idx, str):
-            res["reason"] = f"手元に無い。取るなら CD_FETCH=1 python3 tools/gen/models.py fetch {where}（約 7GB。先に df -h で空きを見る。描く処理は取りに行かない）"
+            res["reason"] = f"手元に無い。取るなら ATELIER_FETCH=1 python3 tools/gen/models.py fetch {where}（約 7GB。先に df -h で空きを見る。描く処理は取りに行かない）"
             return res
         cls = json.loads(Path(idx).read_text()).get("_class_name", "")
         res["family"] = "sdxl" if "XL" in cls else cls or "unknown"
@@ -154,7 +154,7 @@ def check(name: str) -> dict:
         from huggingface_hub import try_to_load_from_cache
         names = ["unet/diffusion_pytorch_model.safetensors", "unet/diffusion_pytorch_model.fp16.safetensors"]
         if not any(isinstance(try_to_load_from_cache(where, n), str) for n in names):
-            res["reason"] = f"目録はあるが、描く本体（unet）の重みが手元に無い（取得が途中で止まった）。CD_FETCH=1 python3 tools/gen/models.py fetch {where} で取り直す"
+            res["reason"] = f"目録はあるが、描く本体（unet）の重みが手元に無い（取得が途中で止まった）。ATELIER_FETCH=1 python3 tools/gen/models.py fetch {where} で取り直す"
             return res
     if res.get("family") != "sdxl":
         res["reason"] = f"系統が {res.get('family')}。いまの道具は SDXL 系だけを描ける"

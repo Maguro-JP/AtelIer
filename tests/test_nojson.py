@@ -16,7 +16,7 @@ class NoJsonTest(unittest.TestCase):
         self.tmp = TemporaryDirectory()
         root = Path(self.tmp.name)
         self.out, self.home = root / "out", root / "home"
-        self.env = mock.patch.dict(os.environ, {"CD_HOME": str(self.home)})
+        self.env = mock.patch.dict(os.environ, {"ATELIER_HOME": str(self.home)})
         self.env.start()
 
     def tearDown(self):
