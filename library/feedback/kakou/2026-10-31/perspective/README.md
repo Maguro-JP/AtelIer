@@ -1,6 +1,6 @@
 # perspective: 背景のパースの測り方
 
-`PYTHONPATH=.cache/gen/lib python3 tools/gen/perspective.py 背景.png 重ねた図.png`。元は `bible/worlds/citadel/loc-gate.jpg` と `loc-hall.jpg`。
+`PYTHONPATH=.cache/gen/lib python3 tools/gen/perspective.py 背景.png 重ねた図.png`。元は設定資料集の城塞の門と広間の絵（CharacterDesigner の設定資料集にある `loc-gate.jpg` と `loc-hall.jpg`）。
 赤の放射線が見つけた消失点、黄の横線がそこから出した地平線。
 
 | 絵 | 判定 | 数字 | 残っている崩れ |

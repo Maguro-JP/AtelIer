@@ -178,11 +178,12 @@ class AppTest(unittest.TestCase):
         if w.thread:
             w.thread.wait(5000)
 
-    def test_menu_next_to_character_design(self):
+    def test_menu_after_ai(self):
+        # キャラクターデザインの拡張（CharacterDesigner）を入れると、AI とロゴ・スタンプの間に入る
         with TemporaryDirectory() as d:
             app, w = self._window(d)
             titles = [a.text() for a in w.menuBar().actions()]
-            self.assertEqual(titles[titles.index("キャラクターデザイン") + 1], "ロゴ・スタンプ")
+            self.assertEqual(titles[titles.index("AI") + 1], "ロゴ・スタンプ")
             acts = [a for a in w.logo_menu.actions() if a.text()]
             self.assertEqual(len(acts), len(logo.menu_items(w)))
             self.assertTrue(all(a.toolTip() for a in acts))          # 説明はツールチップ
