@@ -181,7 +181,7 @@ class AppFlowTest(Base):
             w._fill_chara_menu()
             act = next(a for a in w.chara_menu.actions() if a.text() == "キャラデザを作る…")
             self.assertTrue(act.toolTip())
-            with mock.patch.object(type(w), "_chara_spec_dialog", lambda self, init=None: dict(SPEC)):
+            with mock.patch.object(w, "_chara_spec_dialog", lambda init=None: dict(SPEC)):
                 act.trigger()
             self.wait(lambda: getattr(w, "chara_design_result", None) is not None, 1800)
             res = w.chara_design_result

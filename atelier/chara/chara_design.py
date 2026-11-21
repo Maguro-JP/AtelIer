@@ -61,6 +61,18 @@ def slug(name: str, home=None) -> str:
     return ident
 
 
+def expression_files(ident: str, home=None) -> list[Path]:
+    """描いた表情差分の絵（設定資料の images の expr-*）。表情の名前の順。ロゴ・スタンプの「表情差分をまとめてスタンプにする」に渡す"""
+    import json
+    root = _home(home)
+    f = root / "bible" / "characters" / f"{ident}.json"
+    try:
+        images = json.loads(f.read_text(encoding="utf-8")).get("images", {})
+    except (OSError, ValueError):
+        return []
+    return [root / v for k, v in sorted(images.items()) if k.startswith("expr-") and (root / v).exists()]
+
+
 def characters(home=None) -> list[dict]:
     """保存した設定資料（id と名前）。新しい順"""
     import json

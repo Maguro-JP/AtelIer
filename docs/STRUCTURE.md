@@ -23,7 +23,8 @@
 | `atelier/qc/` | 検品。手・体・左右・頼んだ物・数字の検品 |
 | `atelier/agent/` | AI が使う。チャット、言葉での操作、予約、音声 |
 | `atelier/bench/` | モデルを動かして確かめる台本（Actions から流す） |
-| `atelier/chara/` | キャラクターデザイン（仮置き。CharacterDesigner へ切り離す） |
+| `atelier/extensions.py` | 拡張の登録口。外の部品が、窓にメニュー・モード・欄・ファイルの種類を足す入口 |
+| `atelier/chara/` | キャラクターデザインの拡張（仮置き。このディレクトリごと CharacterDesigner へ切り離す） |
 | `atelier/assets/` | ロゴとアイコン（SVG） |
 | `tools/gen/`、`tools/engine/` | アプリが読む道具の台本（仕上げ、検品の測り方、3D）。置き場を `sys.path` に足して読む |
 | `styles/`、`casts/`、`config/` | 道具が読む基準と設定 |
@@ -36,11 +37,27 @@
 
 - AtelIer は道具の本体で、キャラクターデザインを知らない形にする
 - CharacterDesigner はキャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）だけを持ち、AtelIer の上に載る
-- いまは切り離す前で、キャラクターデザインの 2 ファイルが `atelier/chara/` に、窓の中の操作が `atelier/app/main_window.py` に残っている
+- 本体（`atelier/chara/` の外）は `atelier/chara/` を読まない。読んでいないことは `tests/test_extensions.py` が見張る。
+  例外は `atelier/extensions.py` の `BUNDLED` の 1 行で、同梱の拡張の名前を文字で持つ（切り離したら消す）
+- キャラクターデザインは拡張（`atelier/chara/extension.py`）として窓に付く。別のパッケージの拡張は entry points の `atelier.extensions` の組で入れる
+- いまは切り離す前で、`atelier/chara/` が同じリポジトリにある。`ATELIER_NO_BUNDLED_EXTENSIONS=1` で、本体だけの形で起動できる
+
+### 拡張が使う窓の口
+
+| 口 | 何を足すか |
+|---|---|
+| `menuBar()`、`logo_menu` など | メニュー。`insertMenu` で位置を決める |
+| `file_menu`、`file_extension_anchor` | ファイルのメニューの項目。保存と書き出しの間の区切り（anchor）の前に足す |
+| `add_mode(key)` と `modes.register(key, spec, after=)` | モード。`modes.MODES` の順に「表示」の「モード」へ入る |
+| `studio_hooks` | 描く仕組み（Studio）を作り直すたびに呼ぶ関数 |
+| `expression_sources` | 表情差分の絵を返す関数（ロゴ・スタンプの「表情差分をまとめてスタンプにする」が使う） |
+| `library_panel.tabs`、`library_panel.refresh_hooks` | ライブラリーの欄のタブと、並べ直しのときに呼ぶ関数 |
+
+拡張を付けるのは `Window.__init__` の、メニューと欄を作り終えたあとで、メニューの言葉の引き換え・欄の並びを戻す・キーの割り当て・メニューの編集より前。
 
 ## まだ直していない所
 
-- `atelier/app/main_window.py` が約 7,800 行ある。役目ごとのファイルに分ける
+- `atelier/app/main_window.py` が約 7,300 行ある。役目ごとのファイルに分ける
 - `tools/gen/` は置き場に頼って読む平らな台本のまま。キャラクターデザイン専用の台本（bible、charsheet、design など）も、ほかの台本が読むので一緒に来ている
 - `atelier/app/migrate.py` は CharacterDesigner の前の版からの引っ越し用で、AtelIer では働かない
 - モデルの部品（torch、diffusers）を入れた環境では、テストを流していない（`tests/needs_models.txt`）
@@ -179,6 +196,10 @@
 | `draw_one.py` | `bench/draw_one.py` |
 | `charadesign.py` | `chara/chara_design.py` |
 | `charafile.py` | `chara/chara_file.py` |
+| `app.py` のキャラクターデザインの操作 | `chara/window_part.py`（拡張が窓に結び付ける） |
+| `batch.py` の `chara_jobs`、`run_charas` | `chara/chara_batch.py` |
+| `logo.py` の `expressions` | `chara/chara_design.py` の `expression_files` |
+| `library_panel.py` のキャラクターのタブ、`modes.py` の designer | `chara/extension.py` |
 | `catalog.json` | `models/catalog.json` |
 | `fixrequests.json` | `ai/fixrequests.json` |
 | `help` | `ui/help` |

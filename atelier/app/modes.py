@@ -1,9 +1,10 @@
-"""起動したときに選ぶモード（イラストレーター・キャラクターデザイナー・ロゴ・エンブレム・スタンプ）。
+"""起動したときに選ぶモード（イラストレーター、ロゴ・エンブレム・スタンプ。拡張がモードを足せる）。
 
 全部の機能を 1 つの画面に並べると、メニューが 13 本になり、どこに何があるか分からなかった。
 モードごとに、その仕事に要るメニュー・欄・AI のプリセットだけを出す。モードを替えても、作業中の絵とレイヤーはそのまま
 （隠すのはメニューと欄だけで、キャンバスには触らない）。
 選んだモードは覚え、「次から聞かない」を付けたら次からは窓を出さずにそのモードで開く。表示のメニューからいつでも替えられる。
+拡張（atelier/extensions.py）は register でモードを足す。ここには本体のモードだけを書く。
 """
 from __future__ import annotations
 
@@ -12,18 +13,14 @@ from atelier.ui.tour import Step
 # どのモードでも出すメニュー
 COMMON_MENUS = ("ファイル", "編集", "表示", "AI", "設定", "選択範囲", "レイヤー", "ウィンドウ", "配置", "ヘルプ")
 
-# 鍵: 名前、ひとこと、出すメニュー（COMMON_MENUS の外の物）、隠す欄、出す AI のプリセット
+# 鍵: 名前、ひとこと、出すメニュー（COMMON_MENUS の外の物）、隠す欄、出す AI のプリセット。
+# 拡張が足すモードは、ツアーの 3 枚を作る関数を tour に持てる（引数は窓）
 MODES = {
     "illustrator": dict(
         name="イラストレーター", sub="場面の絵、背景、加工",
         tip="場面の 1 枚や背景を描き、綺麗にする・拡大・画風などの加工をかけます",
         menus=("加工",), hide_panels=(),
         presets=("標準", "イラスト", "背景美術", "ラフを清書", "ラフから自由に", "モノクロ")),
-    "designer": dict(
-        name="キャラクターデザイナー", sub="設定、三面図、表情差分、キャラクターシート、追加資料",
-        tip="人物の設定を書き、三面図・表情差分・追加資料を描いて、キャラクターシートと .chara にまとめます",
-        menus=("キャラクターデザイン",), hide_panels=("brushes",),
-        presets=("標準", "キャラデザ", "アイコン", "ラフを清書")),
     "logo": dict(
         name="ロゴ・エンブレム・スタンプ", sub="透過、単色、線の太さ、正方形、LINE スタンプの大きさ",
         tip="ロゴ・エンブレムのマークやスタンプを描き、背景を抜いて決まった大きさで書き出します",
@@ -31,7 +28,26 @@ MODES = {
         presets=("標準", "ロゴ", "スタンプ")),
 }
 DEFAULT = "illustrator"
-ALL_MENUS = COMMON_MENUS + tuple(m for v in MODES.values() for m in v["menus"])
+
+
+def all_menus() -> tuple[str, ...]:
+    """モードで出し分けるメニューの名前。ここに無いメニューには触らない"""
+    return COMMON_MENUS + tuple(m for v in MODES.values() for m in v["menus"])
+
+
+def register(key: str, spec: dict, after: str | None = None):
+    """モードを足す（同じ鍵があれば入れ替える）。after の鍵のすぐ後ろに並べ、無ければ最後に置く"""
+    rest = [(k, v) for k, v in MODES.items() if k != key]
+    at = next((i + 1 for i, (k, _v) in enumerate(rest) if k == after), len(rest))
+    rest.insert(at, (key, spec))
+    MODES.clear()
+    MODES.update(rest)
+
+
+def unregister(key: str):
+    """足したモードを外す。本体の初めのモード（DEFAULT）は外さない"""
+    if key != DEFAULT:
+        MODES.pop(key, None)
 
 
 def stored(store) -> tuple[str, bool]:
@@ -58,8 +74,9 @@ def apply(w, key: str):
     m = MODES[key]
     w.app_mode = key
     show = set(visible_menus(key))
+    managed = all_menus()
     for a in w.menuBar().actions():
-        if a.menu() is not None and a.text().replace("&", "") in ALL_MENUS:
+        if a.menu() is not None and a.text().replace("&", "") in managed:
             a.setVisible(a.text().replace("&", "") in show)
     hidden = set(m["hide_panels"])
     before = getattr(w, "_mode_hidden", set())
@@ -88,19 +105,15 @@ def tour(w, key: str) -> list[Step]:
             Step(chat, "描く", "AI の欄に描きたい場面を書いて「描く」を押します。プリセットで横長のイラスト・背景美術を選べます。"),
             Step(bar, "加工", "描いた絵は「加工」のメニューで綺麗にする・拡大・画風を替える、ができます。\nモードは「表示」の「モード」で替えられます。"),
         ],
-        "designer": [
-            Step(lambda: None, "キャラクターデザイナーのモード", "人物の設定から、三面図・表情差分・キャラクターシートを作るモードです。"),
-            Step(bar, "キャラクターデザイン", "「キャラクターデザイン」のメニューの「キャラデザを作る…」で、設定を書くと残りを順に描きます。\n"
-                 "「追加資料」から四面図・ポーズ差分・髪型差分などを 1 つずつ足せます。"),
-            Step(bar, "一括生成とシート", "「一括生成…」で複数の人物の三面図と表情差分をまとめて描けます。\n"
-                 "「キャラクターシートを作る」で 1 枚に並べ、PSD と PNG で保存します。"),
-        ],
         "logo": [
             Step(lambda: None, "ロゴ・エンブレム・スタンプのモード", "マークやスタンプを描いて、決まった形で書き出すモードです。"),
             Step(chat, "描く", "プリセットの「ロゴ」「スタンプ」を選び、描きたい物を書いて「描く」を押します。"),
             Step(bar, "書き出し", "「ロゴ・スタンプ」の「書き出しの形を選ぶ…」で、透過・単色・線の太さ・正方形・LINE スタンプの大きさを選んで書き出します。"),
         ],
     }
+    own = MODES.get(key, {}).get("tour")
+    if own is not None:
+        return own(w)
     return steps[key if key in steps else DEFAULT]
 
 

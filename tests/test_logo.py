@@ -136,7 +136,8 @@ class StampTest(unittest.TestCase):
                 mark().save(root / "img" / f"{k}.png")
             (root / "bible" / "characters" / "a.json").write_text(json.dumps(
                 {"id": "a", "images": {"color": "img/c.png", "expr-smile": "img/expr-smile.png", "expr-angry": "img/expr-angry.png"}}))
-            self.assertEqual([p.name for p in logo.expressions("a", home=root)], ["expr-angry.png", "expr-smile.png"])
+            from atelier.chara import chara_design as charadesign   # 表情差分の置き場を知っているのはキャラクターデザインの側
+            self.assertEqual([p.name for p in charadesign.expression_files("a", home=root)], ["expr-angry.png", "expr-smile.png"])
 
 
 class IconTest(unittest.TestCase):

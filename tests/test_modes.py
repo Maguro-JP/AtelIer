@@ -182,7 +182,7 @@ class CharaMenuTest(Base):
         from atelier.chara import chara_file as charafile
         w = self.window()
         acts = self.acts(w.chara_menu)
-        with mock.patch.object(type(w), "_chara_spec_dialog", lambda self, init=None: dict(SPEC)):
+        with mock.patch.object(w, "_chara_spec_dialog", lambda init=None: dict(SPEC)):
             acts["キャラクターを新しく作る…"].trigger()
         path = Path(w.chara_file_path)
         self.assertTrue(path.is_file())
@@ -364,7 +364,7 @@ class RealModelTest(Base):
         p.start()
         self.patches.append(p)
         w = self.window(Real(_tiny(), steps=2, size=(256, 256)))
-        with mock.patch.object(type(w), "_chara_spec_dialog", lambda self, init=None: dict(SPEC)):
+        with mock.patch.object(w, "_chara_spec_dialog", lambda init=None: dict(SPEC)):
             w.charafile_new()
         t0 = time.time()
         for key in ("turnaround", "eyes", "colors"):

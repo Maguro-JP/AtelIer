@@ -309,19 +309,6 @@ def _save_small(im: Image.Image, path: Path) -> Path:
     return path
 
 
-def expressions(ident: str, home=None) -> list[Path]:
-    """キャラクターデザインで描いた表情差分の絵（設定資料の images の expr-*）。表情の名前の順"""
-    import json
-    from atelier.chara.chara_design import _home
-    root = _home(home)
-    f = root / "bible" / "characters" / f"{ident}.json"
-    try:
-        images = json.loads(f.read_text(encoding="utf-8")).get("images", {})
-    except (OSError, ValueError):
-        return []
-    return [root / v for k, v in sorted(images.items()) if k.startswith("expr-") and (root / v).exists()]
-
-
 # ---- アプリのアイコン ----
 
 ICON_DIR = Path(__file__).parent / "icon"     # 選ばれたアイコンの絵（app.png）を置く所。無い間は今のアイコンのまま
@@ -386,6 +373,7 @@ def menu_items(window) -> list[tuple[str, object, str]]:
          "今の絵の背景を抜き、白い縁取りと余白を付けて、スタンプの大きさで書き出します"),
         ("書き出しの形を選ぶ…", window.logo_export,
          "今の絵を、透過・単色・線の太さ・正方形・LINE スタンプの大きさから選んだ形で書き出します"),
+    ] + ([
         ("表情差分をまとめてスタンプにする…", window.stamp_from_expressions,
-         "キャラクターデザインで描いた表情差分を、まとめてスタンプにして zip で書き出します"),
-    ]
+         "描いた表情差分を、まとめてスタンプにして zip で書き出します"),
+    ] if getattr(window, "expression_sources", None) else [])   # 表情差分を持つ拡張が無いときは、押しても何もできないので出さない

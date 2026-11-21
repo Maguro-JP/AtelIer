@@ -34,6 +34,7 @@ class LibraryPanel(QWidget):
         super().__init__()
         self.w = w
         self._icons: dict = {}   # 絵の道 → ((時刻, 大きさ), 小さな絵)
+        self.refresh_hooks: list = []   # 拡張が tabs に足したタブを、並べ直すたびに作り直す関数
         lay = QVBoxLayout(self)
         lay.setContentsMargins(6, 4, 6, 6)
         self.tabs = QTabWidget()
@@ -58,12 +59,6 @@ class LibraryPanel(QWidget):
         dl.addWidget(self.docs, 1)
         dl.addWidget(add)
         self.tabs.addTab(docs_page, "資料")
-
-        # キャラクター: ライブラリーの置き場の .chara（atelier/chara/chara_file.py）。ダブルクリックで開き、その人物で描く
-        self.characters = _grid()
-        self.characters.setToolTip("キャラクターファイル。ダブルクリックで開くと、その人物の設定・目・色・参考画像・LoRA で描きます")
-        self.characters.itemDoubleClicked.connect(lambda it: self.w.charafile_open(it.data(Qt.UserRole + 1)))
-        self.tabs.addTab(self.characters, "キャラクター")
 
         taste = QWidget()
         tl = QVBoxLayout(taste)
@@ -144,7 +139,8 @@ class LibraryPanel(QWidget):
         live = {it["path"] for it in lib.items}
         for gone in [p for p in self._icons if p not in live]:   # 消した絵の小さな絵は持ち続けない
             self._icons.pop(gone, None)
-        self.refresh_characters()
+        for hook in self.refresh_hooks:
+            hook()
         self.refresh_summary()
 
     def relabel(self, paths=None):
@@ -190,27 +186,6 @@ class LibraryPanel(QWidget):
                 lines.append("同じ要素が 2 回以上出るまで、言葉は足しません。")
             text = "\n".join(lines)
         self.summary.setText(text)
-
-    def refresh_characters(self):
-        """キャラクターのタブを並べ直す。小さな絵は .chara の中の thumb.png（無ければ名前だけ）"""
-        import json
-        import zipfile
-        from atelier.chara import chara_file as charafile
-        self.characters.clear()
-        for path in charafile.files_in_library():
-            try:
-                with zipfile.ZipFile(path) as z:
-                    man = json.loads(z.read("manifest.json").decode("utf-8"))
-                    raw = z.read("thumb.png") if "thumb.png" in z.namelist() else b""
-            except (OSError, KeyError, ValueError, zipfile.BadZipFile):
-                continue
-            item = QListWidgetItem(str(man.get("name", path.stem))[:10])
-            pm = QPixmap()
-            if raw and pm.loadFromData(raw):
-                item.setIcon(QIcon(pm.scaled(176, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
-            item.setData(Qt.UserRole + 1, str(path))
-            item.setToolTip(f"{man.get('name', '')}\n{man.get('profile', {}).get('look', '')}\n更新 {man.get('updated', '')}")
-            self.characters.addItem(item)
 
     # ---- 操作 ----
     def _menu(self, view: QListWidget, pos, run: bool = True):
