@@ -12,16 +12,19 @@ license = { file = "LICENSE" }
 dependencies = [
     "PySide6>=6.6",
     "numpy>=1.26",
+    "pillow>=10",
 ]
 
 [project.optional-dependencies]
-dev = ["pyflakes"]
+# 仕上げ（綺麗にする、清書、質感）が使う
+finish = ["scipy", "scikit-image"]
+dev = ["pyflakes", "scipy", "scikit-image"]
 
 [project.gui-scripts]
-atelier = "atelier.app.launch:main"
+atelier = "atelier.app.main_window:main"
 
 [tool.setuptools.packages.find]
 include = ["atelier*"]
 
 [tool.setuptools.package-data]
-atelier = ["assets/*.svg"]
+atelier = ["assets/*.svg", "models/*.json", "ai/*.json", "ai/icon/*", "ui/help/*", "app/styleprev/*"]

@@ -4,45 +4,47 @@
 
 # AtelIer
 
-人が使う、AI が使う、AI を使うペイントソフトです。読み方は「アトリエ」。名前の中の A と I が AI を表します。
+人が使う、AI が使う、AI を使うペイントソフトです。読み方は「アトリエ」で、名前の中の A と I が AI を表します。
 
-![左に道具の帯とカラー・ブラシの欄、中央にキャンバス、右に全体表示・レイヤー・操作の履歴が並ぶ画面](docs/images/main-window.png)
+![左に道具の帯とカラーとレイヤーの欄、中央にキャンバスとチャット、右に AI の欄と履歴が並ぶ画面](docs/images/main-window.png)
+
+CharacterDesigner の描画アプリから、キャラクターデザイン以外の部品を移して作っています。いまは移している途中で、まだ直していない所は [docs/STRUCTURE.md](docs/STRUCTURE.md) に書いています。
 
 ## 主な機能
 
-- 描く: ペン・鉛筆・筆・エアブラシ・マーカー・消しゴム、ぼかし、スプレー、指先、塗りつぶし、グラデーション、直線・四角・楕円・多角形・正多角形、文字
-- 描く補助: 筆圧、手ぶれ補正、対称（左右・上下・上下左右・点対称）、定規（平行線・同心円・放射・パース）、描いて止めると形を整える
-- レイヤー: 足す・消す・複製・並べ替え・結合・ロック・不透明度・反転、選択範囲から新しいレイヤーを作る
-- 選択範囲: 四角・投げなわ・多角形、コピー・切り取り・貼り付け・同じ位置に貼り付け
-- 色: 色相・彩度・明度、16 進、色の出方（単色・虹色など）、自分のパレット、最近使った色
-- ファイル: 作業ファイル（`.atelier`、レイヤーごと）、PNG と PSD の書き出し、自動保存と落ちたあとの復元
-- 表示: 拡大・回転・左右反転、グリッド、全体表示、操作の履歴、7 つのテーマ
+- 人が描く: ブラシ 6 種と筆圧、消しゴム、ぼかし、スプレー、指先、塗りつぶし、グラデーション、図形、文字、選択範囲、レイヤー
+- 描く補助: 手ぶれ補正、対称、定規（平行線、同心円、放射、パース）、描いて止めると形を整える
+- AI を使う: 言葉で頼んで描く、ラフの線に沿って描く、赤ペンで囲んだ所だけ直す、綺麗にする、拡大する、画風を替える
+- AI が使う: 人の筆と同じ経路で線を引く入口（`Canvas.draw_stroke`）と、チャットの言葉でアプリを操作する仕組み
+- ファイル: 作業ファイル（`.atelier`、レイヤーごと）、PNG と PSD の書き出し、自動保存、ごみ箱、タイムラプス
+- 見た目: 7 つのテーマ、欄の配置の保存、メニューと帯の並べ替え
 
-AI の機能（AI で描く・直す、AI からの操作）はこれから足します。今の状態と順番は [docs/STRUCTURE.md](docs/STRUCTURE.md) にあります。
+AI で描くには、絵の模型と、それを動かす部品（torch、diffusers）が要ります。模型が無くても、人が描く機能は使えます。
 
 ## 動作環境
 
 - Python 3.11 以上
-- PySide6 6.6 以上、NumPy 1.26 以上
-- 動作を確かめたのは Linux（画面なし）の Python 3.13 と PySide6 6.12 です。Windows と macOS の実機では確かめていません
+- PySide6 6.6 以上、NumPy、Pillow
+- 起動とテストを確かめたのは、Linux（画面なし）の Python 3.13 と PySide6 6.12 です
+- Windows と macOS の実機、絵の模型を入れた状態では、このリポジトリになってから確かめていません
 
 ## セットアップ手順
 
-1. リポジトリを取得します
+1. リポジトリを取得します。
 
    ```bash
    git clone https://github.com/Maguro-JP/AtelIer.git
    cd AtelIer
    ```
 
-2. 仮想環境を作って入ります（ほかの Python の部品と混ざらないようにするため）
+2. 仮想環境を作って入ります。ほかの Python の部品と混ざらないようにするためです。
 
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate    # Windows は .venv\Scripts\activate
    ```
 
-3. 依存を入れます
+3. 依存を入れます。
 
    ```bash
    pip install -e ".[dev]"
@@ -51,55 +53,52 @@ AI の機能（AI で描く・直す、AI からの操作）はこれから足�
 ## 使い方
 
 ```bash
-python -m atelier                      # 起動
-python -m atelier --open drawing.atelier   # 作業ファイルか絵を開いて起動
+python -m atelier
 ```
+
+初めて起動すると、使い方のツアーとモードの選択が出ます。道具の帯のボタンにカーソルを合わせると、名前とキーが出ます。
 
 | 操作 | キー |
 |---|---|
-| ペン / 消しゴム | B / E |
-| 塗りつぶし / スポイト | G / I |
-| 四角の選択 / 投げなわ | M / L |
-| 手のひら / 拡大 | H / Z |
-| 元に戻す / やり直す | Ctrl+Z / Ctrl+Y |
-| 保存 / PNG で書き出す | Ctrl+S / Ctrl+E |
-| 全体を表示 / 100% | Ctrl+0 / Ctrl+1 |
-
-道具の帯のボタンにカーソルを合わせると、名前とキーが出ます。
+| ペン、消しゴム | B、E |
+| 塗りつぶし、スポイト | G、I |
+| 四角の選択、投げなわ | M、L |
+| 元に戻す、やり直す | Ctrl+Z、Ctrl+Y |
+| 保存、PNG で書き出す | Ctrl+S、Ctrl+E |
 
 ## 設定
 
 | 環境変数 | 用途 | 必須 |
 |---|---|---|
-| `ATELIER_HOME` | アプリのデータ（自動保存、落ちたときの記録）の置き場を変える | 任意 |
-
-欄の配置とテーマは、閉じるときに覚えます。「ウィンドウ」→「並びを初めの形に戻す」で初めの配置に戻せます。
+| `ATELIER_HOME` | アプリの設定・部品・記録の置き場を変えます | 任意 |
+| `LLM_HOME` | 模型の置き場を変えます（設定で選んだ置き場があれば、そちらが先です） | 任意 |
+| `ATELIER_OUTPUT` | 描いた絵の保存先を変えます | 任意 |
 
 ## ディレクトリ構成
 
 | 場所 | 役割 |
 |---|---|
-| `atelier/app/` | 窓と起動。メニュー、道具の帯、開く・保存、編集の操作 |
-| `atelier/paint/` | 作画の中核。キャンバス、ブラシ、描く補助 |
-| `atelier/panels/` | 欄。カラー、ブラシ、レイヤー、全体表示、操作の履歴 |
-| `atelier/ui/` | テーマ、アイコン、ロゴ |
-| `atelier/files/` | 置き場、作業ファイル、PSD の書き出し |
-| `atelier/ai/`、`atelier/agent/` | AI を使う側と、AI が使う側（これから） |
-| `tests/` | 試験 |
-| `docs/` | 決めたこと（[decisions.md](docs/decisions.md)）、構成（[STRUCTURE.md](docs/STRUCTURE.md)） |
+| `atelier/app/` | 窓と起動 |
+| `atelier/paint/` | 作画の中核（キャンバス、ブラシ、描く補助） |
+| `atelier/panels/` | 欄（カラー、レイヤー、AI、チャット、ライブラリー） |
+| `atelier/ui/` | テーマ、アイコン、ロゴ、欄の配置、ヘルプ |
+| `atelier/files/` | 置き場、作業ファイル、ごみ箱 |
+| `atelier/ai/`、`atelier/models/`、`atelier/words/`、`atelier/qc/` | AI で描く・直す、模型の管理、頼みの言葉、検品 |
+| `atelier/agent/` | チャットと、言葉での操作 |
+| `tools/`、`styles/`、`casts/`、`config/` | アプリが読む道具の台本と基準 |
+| `tests/` | テスト |
+| `docs/` | 決めたこと（[decisions.md](docs/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、模型の一覧（[models.md](docs/models.md)） |
 
 ## 開発者向け情報
 
 ```bash
-# 試験（画面を出さずに流す）
-QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -t .
-
-# 静的な検査
-python3 -m pyflakes atelier tests
+python3 scripts/run_tests.py                 # テストを、ファイルごとに別の処理で流します
+python3 scripts/run_tests.py test_brushtools # 1 ファイルだけ流します
+python3 -m pyflakes atelier                  # 静的な検査
 ```
 
-作画の部品は CharacterDesigner から流用しています。どのファイルがどこへ来たかは [docs/STRUCTURE.md](docs/STRUCTURE.md) の対応表にあります。
+模型の部品（torch、diffusers）が無い環境では、`tests/needs_models.txt` に書いたファイルを飛ばします。
 
 ## ライセンス
 
-非公開（個人用）です。詳しくは [LICENSE](LICENSE)。依存している PySide6 は LGPL、NumPy は BSD ライセンスです。
+ソースは公開していますが、利用の許諾はしていません。詳しくは [LICENSE](LICENSE) を読んでください。依存している PySide6 は LGPL、NumPy は BSD ライセンスです。
