@@ -215,7 +215,7 @@ class Canvas(QGraphicsView):
         self.sym_center: QPointF | None = None   # 対称の軸の中心（絵の座標）。None は絵の真ん中
         self._axis_drag = False
         self._over_axis = False
-        # 描く補助（drawing_assist.py）。Shift の角度の固定、正多角形の辺の数、定規、形の補正
+        # 描く補助（atelier/paint/drawing_assist.py）。Shift の角度の固定、正多角形の辺の数、定規、形の補正
         self.shift = False            # Shift を押しているか（直線は 15 度ごと、四角は正方形、楕円は正円）
         self.poly_sides = 6           # 正多角形の辺の数
         self.shape_points: list[QPointF] = []   # 多角形の道具で置きかけの角
@@ -318,7 +318,7 @@ class Canvas(QGraphicsView):
 
     def show_image(self, path: str):
         """絵を開く。絵を下に置き、その上に描くための空のレイヤーを足す"""
-        img = _load(path)   # 読めない絵は ValueError（0×0 のキャンバスにしない）
+        img = QImage(path).convertToFormat(QImage.Format_ARGB32_Premultiplied)
         self._reset([Layer("絵", img), Layer("レイヤー 1", blank(img.width(), img.height()))], 1)
 
     def replace_with_image(self, path: str, name: str = "AI の絵"):
@@ -1709,11 +1709,11 @@ class Canvas(QGraphicsView):
 
     def apply_pick(self, mask, target: str) -> int:
         """自動選択で選んだ所（bool の配列）を、選択範囲か赤ペンの印にする。選んだ画素の数を返す"""
-        from atelier.paint.mask_path import to_path
+        from atelier.ai import auto_select as autosel
         count = int(mask.sum())
         if not count:
             return 0
-        path = to_path(mask)
+        path = autosel.to_path(mask)
         if target == "redpen":
             n = self.redpen.add_shape(path)
             if n:
