@@ -231,8 +231,18 @@ class CharSheetTest(unittest.TestCase):
 
 
 class VariantsPlanTest(unittest.TestCase):
+    def setUp(self):
+        # 設定資料の見本（bible/）は CharacterDesigner にあるので、一時の置き場に 1 人作る
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = bible.BIBLE
+        bible.BIBLE = Path(self.tmp.name)
+        bible.new_character("archivist", "記録係", "1girl, glasses", "long coat")
+
+    def tearDown(self):
+        bible.BIBLE = self.old
+        self.tmp.cleanup()
+
     def test_default_poses_and_no_default_hairstyles(self):
-        import bible
         poses = bible.variants_plan("archivist", "pose")
         self.assertGreaterEqual(len(poses), 3)
         self.assertTrue(all(p["tags"] for p in poses))

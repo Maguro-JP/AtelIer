@@ -10,6 +10,8 @@
 
 CharacterDesigner の描画アプリから、キャラクターデザイン以外の部品を移して作っています。いまは移している途中で、まだ直していない所は [docs/STRUCTURE.md](docs/STRUCTURE.md) に書いています。
 
+キャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）は、CharacterDesigner が拡張として足します。AtelIer を入れたあとに CharacterDesigner のパッケージを入れると、起動したときに entry points（`atelier.extensions`）で見つかり、「キャラクターデザイン」のメニューとモードが出ます。拡張の口は `atelier/extensions.py`、つながり方は [docs/integration.md](docs/integration.md) に書いています。
+
 ## 主な機能
 
 - 人が描く: ブラシ 6 種と筆圧、消しゴム、ぼかし、スプレー、指先、塗りつぶし、グラデーション、図形、文字、選択範囲、レイヤー
