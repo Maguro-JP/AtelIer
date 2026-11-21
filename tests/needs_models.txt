@@ -1,4 +1,4 @@
-# 模型の部品（torch、diffusers）が無いと落ちるテスト。scripts/run_tests.py は、部品が無い環境ではここに書いたファイルを飛ばす。
+# モデルの部品（torch、diffusers）が無いと落ちるテスト。scripts/run_tests.py は、部品が無い環境ではここに書いたファイルを飛ばす。
 # 2026-11-21 に、部品を入れていない Linux で流して落ちた・途中で止まったファイル。部品を入れた環境では確かめていない。
 test_aitabs
 test_autosel

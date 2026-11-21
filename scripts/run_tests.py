@@ -2,7 +2,7 @@
 """テストを、ファイルごとに別の処理で流す。
 
 1 つの処理で全部を流すと、閉じた窓の分のメモリが増え続け、数百の窓を開け閉めしたあとに Qt の中で落ちる。
-模型の部品（torch、diffusers）が無い環境では、tests/needs_models.txt のファイルを飛ばす（--all で飛ばさない）。
+モデルの部品（torch、diffusers）が無い環境では、tests/needs_models.txt のファイルを飛ばす（--all で飛ばさない）。
 
     python3 scripts/run_tests.py            全部（部品が無ければ、要るファイルを飛ばす）
     python3 scripts/run_tests.py test_brushtools test_canvasfix
@@ -45,7 +45,7 @@ def run(name: str) -> tuple[bool, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("names", nargs="*", help="流すテストのファイルの名前（.py は付けない）")
-    parser.add_argument("--all", action="store_true", help="模型の部品が無くても、全部流す")
+    parser.add_argument("--all", action="store_true", help="モデルの部品が無くても、全部流す")
     args = parser.parse_args()
     names = args.names or sorted(p.stem for p in (ROOT / "tests").glob("test_*.py"))
     skip = set() if (args.all or args.names or have_models()) else needs_models()
@@ -60,7 +60,7 @@ def main() -> int:
             failed.append(name)
     ran = len(names) - len(skipped)
     print(f"\n{ran} ファイルを流し、{len(failed)} ファイルが落ちた（{time.time() - start:.0f} 秒）。"
-          + (f"模型の部品が無いので {len(skipped)} ファイルを飛ばした。" if skipped else ""))
+          + (f"モデルの部品が無いので {len(skipped)} ファイルを飛ばした。" if skipped else ""))
     return 1 if failed else 0
 
 

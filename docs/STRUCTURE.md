@@ -5,7 +5,7 @@
 | 柱 | 意味 | 置き場 |
 |---|---|---|
 | 人が使う | 人がペンやマウスで描く | `atelier/paint`、`atelier/panels`、`atelier/ui`、`atelier/app` |
-| AI を使う | 絵の模型で描く・直す・選ぶ | `atelier/ai`、`atelier/models`、`atelier/words`、`atelier/qc` |
+| AI を使う | 絵のモデルで描く・直す・選ぶ | `atelier/ai`、`atelier/models`、`atelier/words`、`atelier/qc` |
 | AI が使う | AI がこのソフトを道具として操作する | `atelier/agent`。入口は `Canvas.draw_stroke`（人の筆と同じ経路で描く）と `atelier/agent/commands.py`（言葉での操作） |
 
 ## ディレクトリ
@@ -17,12 +17,12 @@
 | `atelier/panels/` | 欄。カラー、ブラシの見本、レイヤー、AI、チャット、ライブラリー、進みと履歴 |
 | `atelier/ui/` | 見た目と操作の土台。テーマ、アイコン、ロゴ、言語、欄の配置、メニューの編集、知らせ、ツアー、ヘルプ |
 | `atelier/files/` | 置き場とファイル。作業ファイル、ごみ箱、ライブラリー、取得、一時停止の記録 |
-| `atelier/ai/` | AI を使う。絵の模型で描く・直す・加工する・拡大する・画風を替える・自動選択 |
-| `atelier/models/` | 模型の一覧と管理。目録、初回の取得、お気に入り、評価 |
+| `atelier/ai/` | AI を使う。絵のモデルで描く・直す・加工する・拡大する・画風を替える・自動選択 |
+| `atelier/models/` | モデルの一覧と管理。目録、初回の取得、お気に入り、評価 |
 | `atelier/words/` | 頼みの言葉。日本語の語の表、単語辞書、学び |
 | `atelier/qc/` | 検品。手・体・左右・頼んだ物・数字の検品 |
 | `atelier/agent/` | AI が使う。チャット、言葉での操作、予約、音声 |
-| `atelier/bench/` | 模型を動かして確かめる台本（Actions から流す） |
+| `atelier/bench/` | モデルを動かして確かめる台本（Actions から流す） |
 | `atelier/chara/` | キャラクターデザイン（仮置き。CharacterDesigner へ切り離す） |
 | `atelier/assets/` | ロゴとアイコン（SVG） |
 | `tools/gen/`、`tools/engine/` | アプリが読む道具の台本（仕上げ、検品の測り方、3D）。置き場を `sys.path` に足して読む |
@@ -30,7 +30,7 @@
 | `packaging/` | Windows の Setup.exe の組み方（CharacterDesigner のまま。AtelIer 用にはまだ直していない） |
 | `tests/` | テスト。見本の絵は `tests/fixtures/` |
 | `scripts/run_tests.py` | テストをファイルごとに別の処理で流す |
-| `docs/` | 決めたこと（decisions.md）、この地図、模型の一覧（models.md）、画像 |
+| `docs/` | 決めたこと（decisions.md）、この地図、モデルの一覧（models.md）、画像 |
 
 ## CharacterDesigner との分け方
 
@@ -43,7 +43,7 @@
 - `atelier/app/main_window.py` が約 7,800 行ある。役目ごとのファイルに分ける
 - `tools/gen/` は置き場に頼って読む平らな台本のまま。キャラクターデザイン専用の台本（bible、charsheet、design など）も、ほかの台本が読むので一緒に来ている
 - `atelier/app/migrate.py` は CharacterDesigner の前の版からの引っ越し用で、AtelIer では働かない
-- 模型の部品（torch、diffusers）を入れた環境では、テストを流していない（`tests/needs_models.txt`）
+- モデルの部品（torch、diffusers）を入れた環境では、テストを流していない（`tests/needs_models.txt`）
 
 ## CharacterDesigner からの対応表
 

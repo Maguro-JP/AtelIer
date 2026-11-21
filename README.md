@@ -19,14 +19,14 @@ CharacterDesigner の描画アプリから、キャラクターデザイン以�
 - ファイル: 作業ファイル（`.atelier`、レイヤーごと）、PNG と PSD の書き出し、自動保存、ごみ箱、タイムラプス
 - 見た目: 7 つのテーマ、欄の配置の保存、メニューと帯の並べ替え
 
-AI で描くには、絵の模型と、それを動かす部品（torch、diffusers）が要ります。模型が無くても、人が描く機能は使えます。
+AI で描くには、絵のモデルと、それを動かす部品（torch、diffusers）が要ります。モデルが無くても、人が描く機能は使えます。
 
 ## 動作環境
 
 - Python 3.11 以上
 - PySide6 6.6 以上、NumPy、Pillow
 - 起動とテストを確かめたのは、Linux（画面なし）の Python 3.13 と PySide6 6.12 です
-- Windows と macOS の実機、絵の模型を入れた状態では、このリポジトリになってから確かめていません
+- Windows と macOS の実機、絵のモデルを入れた状態では、このリポジトリになってから確かめていません
 
 ## セットアップ手順
 
@@ -71,7 +71,7 @@ python -m atelier
 | 環境変数 | 用途 | 必須 |
 |---|---|---|
 | `ATELIER_HOME` | アプリの設定・部品・記録の置き場を変えます | 任意 |
-| `LLM_HOME` | 模型の置き場を変えます（設定で選んだ置き場があれば、そちらが先です） | 任意 |
+| `LLM_HOME` | モデルの置き場を変えます（設定で選んだ置き場があれば、そちらが先です） | 任意 |
 | `ATELIER_OUTPUT` | 描いた絵の保存先を変えます | 任意 |
 
 ## ディレクトリ構成
@@ -83,11 +83,11 @@ python -m atelier
 | `atelier/panels/` | 欄（カラー、レイヤー、AI、チャット、ライブラリー） |
 | `atelier/ui/` | テーマ、アイコン、ロゴ、欄の配置、ヘルプ |
 | `atelier/files/` | 置き場、作業ファイル、ごみ箱 |
-| `atelier/ai/`、`atelier/models/`、`atelier/words/`、`atelier/qc/` | AI で描く・直す、模型の管理、頼みの言葉、検品 |
+| `atelier/ai/`、`atelier/models/`、`atelier/words/`、`atelier/qc/` | AI で描く・直す、モデルの管理、頼みの言葉、検品 |
 | `atelier/agent/` | チャットと、言葉での操作 |
 | `tools/`、`styles/`、`casts/`、`config/` | アプリが読む道具の台本と基準 |
 | `tests/` | テスト |
-| `docs/` | 決めたこと（[decisions.md](docs/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、模型の一覧（[models.md](docs/models.md)） |
+| `docs/` | 決めたこと（[decisions.md](docs/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)） |
 
 ## 開発者向け情報
 
@@ -97,7 +97,7 @@ python3 scripts/run_tests.py test_brushtools # 1 ファイルだけ流します
 python3 -m pyflakes atelier                  # 静的な検査
 ```
 
-模型の部品（torch、diffusers）が無い環境では、`tests/needs_models.txt` に書いたファイルを飛ばします。
+モデルの部品（torch、diffusers）が無い環境では、`tests/needs_models.txt` に書いたファイルを飛ばします。
 
 ## ライセンス
 
