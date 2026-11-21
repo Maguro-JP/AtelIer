@@ -1,12 +1,12 @@
-﻿; chatdraw（CharacterDesigner）の Setup.exe。build.sh から makensis で組む（SRC、OUT、VERSION を渡す）
+﻿; AtelIerの Setup.exe。build.sh から makensis で組む（SRC、OUT、VERSION を渡す）
 ;
-; 置き場（chatdraw/paths.py と同じ。自作の AdaptiveAIStudio にそろえる）
-;   C:\Program Files\CharacterDesigner\      プログラム（入れ直すたびに丸ごと置き換える）
-;   C:\ProgramData\CharacterDesigner\        部品（torch など。初回の起動で取る）と記録
+; 置き場（atelier/files/paths.py と同じ。自作の AdaptiveAIStudio にそろえる）
+;   C:\Program Files\AtelIer\      プログラム（入れ直すたびに丸ごと置き換える）
+;   C:\ProgramData\AtelIer\        部品（torch など。初回の起動で取る）と記録
 ;   C:\LLM\gguf、C:\LLM\huggingface          模型（自作アプリで共有。消さない）
-;   ピクチャ\CharacterDesigner\              描いた絵
+;   ピクチャ\AtelIer\              描いた絵
 ;
-; 入れる: 前の版（%LOCALAPPDATA%\Programs\CharacterDesigner）があれば、模型と描いた物を新しい置き場へ移してから、前の版を消す
+; 入れる: 前の版（%LOCALAPPDATA%\Programs\AtelIer）があれば、模型と描いた物を新しい置き場へ移してから、前の版を消す
 ; 更新: 同じ場所に入れ直す。前のプログラムを消してから置くので、古いファイルが残らない。部品・模型・描いた絵はそのまま
 ; 消す: プログラム、ショートカット、登録を消す。部品（ProgramData）は聞いてから消す。利用者の設定（QSettings と ProgramData の設定のファイル）、模型、描いた絵は消さない
 Target amd64-unicode
@@ -14,7 +14,7 @@ Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 
-!define APP "CharacterDesigner"
+!define APP "AtelIer"
 !define UNINST "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}"
 
 Name "${APP}"
@@ -24,19 +24,19 @@ InstallDirRegKey HKLM "Software\${APP}" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
-; アプリのアイコン。build.sh が chatdraw/icon/app.png（利用者が選んだ絵）から .ico を作ったときだけ ICON を渡す。
+; アプリのアイコン。build.sh が atelier/ai/icon/app.png（利用者が選んだ絵）から .ico を作ったときだけ ICON を渡す。
 ; 無い間は今まで通り pythonw.exe のアイコンのまま
 !ifdef ICON
   !define MUI_ICON "${ICON}"
   !define MUI_UNICON "${ICON}"
-  !define LNK_ICON "$INSTDIR\chatdraw\icon\app.ico"
+  !define LNK_ICON "$INSTDIR\atelier\ai\icon\app.ico"
 !else
   !define LNK_ICON "$INSTDIR\python\pythonw.exe"
 !endif
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\python\pythonw.exe"
-!define MUI_FINISHPAGE_RUN_PARAMETERS "-E -s -m chatdraw.app"
-!define MUI_FINISHPAGE_RUN_TEXT "CharacterDesigner を起動する"
+!define MUI_FINISHPAGE_RUN_PARAMETERS "-E -s -m atelier"
+!define MUI_FINISHPAGE_RUN_TEXT "AtelIer を起動する"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -48,7 +48,7 @@ Var OLD
 
 Section "Install"
   ; 更新のとき、前のプログラムを先に消す（消したファイルが残って古いまま読まれないように）
-  RMDir /r "$INSTDIR\chatdraw"
+  RMDir /r "$INSTDIR\atelier"
   RMDir /r "$INSTDIR\tools"
   RMDir /r "$INSTDIR\python"
   SetOutPath "$INSTDIR"
@@ -72,7 +72,7 @@ Section "Install"
     StrCpy $OLD "$LOCALAPPDATA\Programs\${APP}"
   IfFileExists "$OLD\*.*" 0 no_old
     DetailPrint "前の版を移しています: $OLD"
-    nsExec::ExecToLog '"$INSTDIR\python\python.exe" -m chatdraw.migrate "$OLD"'
+    nsExec::ExecToLog '"$INSTDIR\python\python.exe" -m atelier.app.migrate "$OLD"'
     Pop $0
     StrCmp $0 "0" 0 migrate_failed
       Delete "$SMPROGRAMS\${APP}\*.lnk"
@@ -87,9 +87,9 @@ Section "Install"
   SetShellVarContext all
   SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\${APP}"
-  CreateShortcut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\python\pythonw.exe" "-E -s -m chatdraw.app" "${LNK_ICON}"
+  CreateShortcut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\python\pythonw.exe" "-E -s -m atelier" "${LNK_ICON}"
   CreateShortcut "$SMPROGRAMS\${APP}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$DESKTOP\${APP}.lnk" "$INSTDIR\python\pythonw.exe" "-E -s -m chatdraw.app" "${LNK_ICON}"
+  CreateShortcut "$DESKTOP\${APP}.lnk" "$INSTDIR\python\pythonw.exe" "-E -s -m atelier" "${LNK_ICON}"
 
   WriteRegStr HKLM "Software\${APP}" "InstallDir" "$INSTDIR"
   WriteRegStr HKLM "${UNINST}" "DisplayName" "${APP}"
@@ -103,7 +103,7 @@ SectionEnd
 
 Section "Uninstall"
   ; 入れた所は丸ごと消す（__pycache__ など起動で出来た物も残さない）。名前が違う所に入れたときは、入れた物だけを消す
-  RMDir /r "$INSTDIR\chatdraw"
+  RMDir /r "$INSTDIR\atelier"
   RMDir /r "$INSTDIR\tools"
   RMDir /r "$INSTDIR\python"
   Delete "$INSTDIR\VERSION"
@@ -123,7 +123,7 @@ Section "Uninstall"
   Delete "$DESKTOP\${APP}.lnk"
   DeleteRegKey HKLM "${UNINST}"
   DeleteRegKey HKLM "Software\${APP}"
-  ; 窓の並びと設定（QSettings が HKCU\Software\CharacterDesigner に書く）は消さない。入れ直したときに引き継ぐ
+  ; 窓の並びと設定（QSettings が HKCU\Software\AtelIer に書く）は消さない。入れ直したときに引き継ぐ
   ; 部品（torch など 数 GB）は取り直せるので、聞いてから消す。利用者の設定（★・非表示・ブロック・点・タグ・絵の ★・
   ; 模型の置き場・学んだ基準・ごみ箱）は消さずに残す。黙って消す（/S）ときは何も消さない
   MessageBox MB_YESNO|MB_ICONQUESTION "絵を描く部品（$COMMONPROGRAMDATA\${APP}）も消しますか？$\r$\n部品は、入れ直したときに取り直せます。お気に入りや非表示などの設定は消さずに残します。描いた絵と模型はここには入っていません。" /SD IDNO IDNO keep_data

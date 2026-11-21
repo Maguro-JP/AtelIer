@@ -31,3 +31,5 @@
 | 2026-11-21 | 同梱の拡張は `atelier/extensions.py` の `BUNDLED` に文字で 1 行だけ持ち、`ATELIER_NO_BUNDLED_EXTENSIONS=1` で読まない | 切り離すまでの間も、前と同じ画面で起動する。本体だけで動くことをテストで確かめられる | `atelier/extensions.py`、`tests/test_extensions.py` | 起動の関数で直に import する。テストの窓に付かず、本体が拡張を読む行が増える |
 | 2026-11-21 | 一時停止の記録の読み込み（pickle）は検査の例外にする | 読むのはアプリが自分のデータの置き場に書いたファイルだけで、中身がモデルの途中の状態（テンソル）なので JSON にできない | `atelier/files/pause_keep.py` の `state` | safetensors に書き直す（状態の形を全部決め直すことになる） |
 | 2026-11-21 | コミットメッセージに ID・URL・メールを入れない | 出す前の検査（precheck）が止める。公開のリポジトリの履歴に残さない | コミットの書き方 | - |
+| 2026-11-21 | Release は流用元と同じ形で出す。main に入ると Actions が Setup.exe を組み、`v<VERSION>` の Release に置く。作業ブランチでは artifact に置く | 流用元で動いていた出し方を引き継ぐ。組むのは Actions で行い、手元で組まない | `.github/workflows/atelier-setup.yml`、`packaging/`、`VERSION` | 手でタグと Release を作る |
+| 2026-11-21 | 版は 0.1.0 から数え直す。更新の確かめ先は AtelIer の Release にする | 流用元の版（0.5.38）と確かめ先のままだと、AtelIer が CharacterDesigner の Setup.exe を入れてしまう | `VERSION`、`atelier/app/updater.py` の `REPO` | 流用元の版を引き継ぐ |

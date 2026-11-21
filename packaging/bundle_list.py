@@ -1,10 +1,10 @@
-"""Setup.exe に入れるファイルの一覧を、chatdraw/ から辿って集める。
+"""Setup.exe に入れるファイルの一覧を、atelier/ から辿って集める。
 
-    python3 packaging/chatdraw/bundle_list.py        1 行に 1 つ、リポジトリからの相対の道を出す
+    python3 packaging/bundle_list.py        1 行に 1 つ、リポジトリからの相対の道を出す
 
-手で並べた一覧では、chatdraw が読む tools/gen の台本（feet.py、measure.py など）や設定（styles/、casts/）が
+手で並べた一覧では、atelier が読む tools/gen の台本（feet.py、measure.py など）や設定（styles/、casts/）が
 抜けたまま配り、配った版で検品・おまかせ・仕上げ・キャラクターデザインが import で落ちた。手元には全部あるので試験では気付けない。
-そこで chatdraw/ の全部の .py から始めて、次を辿れるだけ辿る:
+そこで atelier/ の全部の .py から始めて、次を辿れるだけ辿る:
 - import 文（tools/gen は sys.path に足して読むので、`import measure` は tools/gen/measure.py にも当てる）
 - 文字列の定数のうち tools/gen の台本の名前と同じ物（importlib や _gen("retouch") で読む物）
 - `ROOT / "styles" / "x.json"` の形の割り算の鎖と、"casts/body-plans.json" の形の文字列で、リポジトリにあるファイル
@@ -17,10 +17,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 GEN = "tools/gen"
 # 配らない物（試験と、アプリが読まない物）
-SKIP_PREFIX = ("chatdraw/tests/",)
+SKIP_PREFIX = ("tests/",)
 ALWAYS = ("VERSION", "LICENSE")
 
 
@@ -83,7 +83,7 @@ def refs(path: str, files: set[str], gen_mods: set[str]) -> set[str]:
                 module(a.name)
         elif isinstance(node, ast.ImportFrom):
             module(node.module or "", node.level)
-            for a in node.names:   # from chatdraw import upscale / from . import x
+            for a in node.names:   # from atelier.ai import upscale / from . import x
                 module(f"{node.module}.{a.name}" if node.module else a.name, node.level)
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             parts = _chain(node)
@@ -100,7 +100,7 @@ def refs(path: str, files: set[str], gen_mods: set[str]) -> set[str]:
 def collect() -> list[str]:
     files = tracked()
     gen_mods = {Path(f).stem for f in files if f.startswith(GEN + "/") and f.endswith(".py") and f.count("/") == 2}
-    start = {f for f in files if f.startswith("chatdraw/") and not f.startswith(SKIP_PREFIX)}
+    start = {f for f in files if f.startswith("atelier/") and not f.startswith(SKIP_PREFIX)}
     seen: set[str] = set()
     todo = sorted(start)
     while todo:

@@ -44,3 +44,13 @@ class LegacyProjectTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpdateSourceTest(unittest.TestCase):
+    def test_updates_come_from_this_repository(self):
+        """更新の確かめ先が流用元のままだと、AtelIer が CharacterDesigner の Setup.exe を入れてしまう"""
+        from atelier.app import updater
+        self.assertEqual(updater.REPO, "maguro-jp/atelier")
+        nsi = (Path(__file__).resolve().parents[1] / "packaging" / "installer.nsi").read_text(encoding="utf-8")
+        self.assertIn('!define APP "AtelIer"', nsi)
+        self.assertNotIn("chatdraw", nsi)

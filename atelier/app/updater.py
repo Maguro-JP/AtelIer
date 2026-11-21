@@ -12,7 +12,7 @@ from pathlib import Path
 
 from atelier.files.paths import HOME, ROOT
 
-REPO = "maguro-jp/characterdesigner"
+REPO = "maguro-jp/atelier"   # 更新は AtelIer の Release から取る（流用元の版を入れてしまわないように）
 URL = os.environ.get("ATELIER_UPDATE_URL", f"https://api.github.com/repos/{REPO}/releases/latest")
 
 
