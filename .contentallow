@@ -1,0 +1,3 @@
+# content-audit の誤検知の許可。1 行に 1 つの正規表現。
+# Python の属性の読み書き（self.home、self.local、d.local）が「内部ホスト名」に当たるため。ホスト名ではない
+^(self|d)\.(home|local)$

@@ -1,5 +1,16 @@
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+/build/
+/dist/
+.venv/
 .env
 .env.*
 !.env.example
+
+# 作業の記録（手元だけ。git に入れない）
+.worklog/
+# 開発中のアプリのデータ（自動保存・落ちた記録）
+.cache/
+# 書きかけのファイル
+*.part
