@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atelier"
+version = "0.1.0"
+description = "人が使う、AI が使う、AI を使うペイントソフト"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "PySide6>=6.6",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pyflakes"]
+
+[project.gui-scripts]
+atelier = "atelier.app.launch:main"
+
+[tool.setuptools.packages.find]
+include = ["atelier*"]
+
+[tool.setuptools.package-data]
+atelier = ["assets/*.svg"]
