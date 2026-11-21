@@ -33,3 +33,4 @@
 | 2026-11-21 | コミットメッセージに ID・URL・メールを入れない | 出す前の検査（precheck）が止める。公開のリポジトリの履歴に残さない | コミットの書き方 | - |
 | 2026-11-21 | Release は流用元と同じ形で出す。main に入ると Actions が Setup.exe を組み、`v<VERSION>` の Release に置く。作業ブランチでは artifact に置く | 流用元で動いていた出し方を引き継ぐ。組むのは Actions で行い、手元で組まない | `.github/workflows/atelier-setup.yml`、`packaging/`、`VERSION` | 手でタグと Release を作る |
 | 2026-11-21 | 版は 0.1.0 から数え直す。更新の確かめ先は AtelIer の Release にする | 流用元の版（0.5.38）と確かめ先のままだと、AtelIer が CharacterDesigner の Setup.exe を入れてしまう | `VERSION`、`atelier/app/updater.py` の `REPO` | 流用元の版を引き継ぐ |
+| 2026-11-21 | キャラクターデザインは CharacterDesigner と、服飾は FashionDesigner と一緒に開発する。AtelIer は道具の本体で、両方の中身を知らない形にする | ユーザーの指示 | `docs/integration.md`、`atelier/extensions.py` | AtelIer に全部を持つ |
