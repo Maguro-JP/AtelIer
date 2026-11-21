@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" role="img" aria-label="AtelIer">
+  <title>AtelIer</title>
+  <!-- A と I（AI）だけを差し色にして、ほかの字は地の色で組む -->
+  <text x="260" y="98" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="96" font-weight="700" letter-spacing="2" fill="#8e8e95"><tspan
+        fill="#ff5a1f">A</tspan>tel<tspan fill="#ff5a1f">I</tspan>er</text>
+  <rect x="64" y="116" width="392" height="4" rx="2" fill="#e5322d"/>
+</svg>

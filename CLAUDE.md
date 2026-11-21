@@ -71,3 +71,48 @@
 - 難しいところ（設計、原因の切り分け、危ない変更の判断）には遠慮なく使う。
 - 見合わないところには使わない。読み直し、二度目の確認、言い直し、
   過程の再掲、短い間隔の自動確認。
+
+## このプロジェクト（AtelIer）
+
+人が使う、AI が使う、AI を使うペイントソフト。Python + PySide6 のデスクトップアプリ。
+キャラクターデザイン以外の部品を CharacterDesigner（`Maguro-JP/CharacterDesigner` の `chatdraw/`）から移している。
+
+作業の前に、次も読む。
+
+1. `docs/decisions.md`（決めたことと理由）
+2. `docs/STRUCTURE.md`（構成と、CharacterDesigner からの対応表）
+3. `.worklog/` の最新の日付のファイル（手元の経緯。無ければ飛ばす）
+
+決めたことは、その場で `docs/decisions.md` に 1 行足す。試行錯誤は `.worklog/<日付>.md` に書く（git に入れない）。
+
+### 用語
+
+| 呼び方 | 意味 |
+|---|---|
+| AtelIer | 製品名。読みはアトリエ。A と I だけを大文字の差し色にする（`atelier/ui/logo.py`） |
+| 欄 | ドッキングできるパネル（カラー、ブラシ、レイヤーなど） |
+| 帯 | ツールバーとステータスバー |
+| 作業ファイル | レイヤーごと保存するファイル（`atelier/files/project_file.py`） |
+| 赤ペン | AI に直してほしい所を囲む印（`atelier/paint/redpen.py`） |
+| 流用元 | CharacterDesigner の `chatdraw/` |
+
+### 構成の決まり
+
+- `atelier/` は役目ごとの層に分ける（`docs/STRUCTURE.md`）。1 ファイル 1 役目にし、ファイル名は省略しない
+- 流用元から部品を足したり動かしたりしたら、`docs/STRUCTURE.md` の対応表を直す
+- 画面を変えたら `docs/images/` のスクリーンショットを撮り直す（ダミーの絵で撮る）
+- 直したバグはテストに足す
+
+### 確かめ方
+
+```bash
+QT_QPA_PLATFORM=offscreen python3 -m unittest tests.<テストの名前>   # テスト（1 ファイルずつ別の処理で流す）
+python3 -m pyflakes atelier                                         # 静的な検査
+python3 -m atelier                                                  # 起動
+```
+
+### git
+
+- ブランチで作業し、Draft の PR を出す。open の PR がある間は新しい PR を出さない
+- コミットをまとめてから push する
+- 記録物に機密・個人情報・モデル名やツール名の署名を書かない
