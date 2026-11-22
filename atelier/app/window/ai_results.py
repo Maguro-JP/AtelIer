@@ -111,9 +111,10 @@ class AiResultsMixin:
         if not rows:
             return
         self.canvas.add_phase_layers([(f"工程 {i}: {r['phase']}", r["image"]) for i, r in enumerate(rows, 1) if r.get("image")])
+        from atelier.ai.phases import PHASES
         for i, r in enumerate(rows, 1):
             left = r["after"] if r["fixed"] else r["found"]
-            self.say(f"工程 {i}「{r['phase']}」{r['seconds']} 秒: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:3]))
+            self.say(f"工程 {i}/{len(PHASES)}「{r['phase']}」{r['seconds']} 秒: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:3]))
                      + ("（1 回直しました）" if r["fixed"] else ""))
 
     def _on_fixed(self, path: str):
@@ -181,6 +182,11 @@ class AiResultsMixin:
         if bad:   # 崩れがあったときだけ絵の説明に足す（「描けました」は絵を見れば分かる）
             for it in self.batch_items:
                 it.setToolTip(f"{result}\n{it.toolTip()}")
+        studio = getattr(self, "job_studio", None) or self.studio
+        undone = self.job_kind == "draw" and getattr(studio, "last_phases", None) and getattr(studio, "last_passed", None) is False
+        if undone:   # 精度優先で検品を通らなかった回は「描けました」と出さない（出来たかは利用者が決める）
+            result = "未完成です（崩れが残っています）"
+            bad = list(getattr(studio, "last_left", []) or ["検品を通っていません"])
         job = getattr(self, "job", None)
         asked = len(getattr(job, "seeds", ()) or ())
         if not fixed and getattr(job, "reasons", None) and asked > 1:
@@ -189,14 +195,18 @@ class AiResultsMixin:
             self.say(result + "。描けなかった枚: " + "、".join(job.reasons[:3]))
             self._debug_failure(result, "\n".join(job.reasons), getattr(job, "trace", ""))
         self.activity.end(result, None, record=False)
-        self.say(result if fixed else f"{n} 枚描きました。履歴から選べます" if n > 1 else "描きました")
-        self.notify(result if fixed else "描けました", "error" if bad else "ok",
+        if undone:
+            self.say("未完成です。残った崩れ: " + "、".join(bad[:5]))
+        else:
+            self.say(result if fixed else f"{n} 枚描きました。履歴から選べます" if n > 1 else "描きました")
+        self.notify(result if fixed or undone else "描けました", "error" if bad else "ok",
                     (f"崩れ {len(bad)} 件。一番上のレイヤーに置きました。見て決めてください" if bad else
                      "新しいレイヤーに重ねました。見て決めてください") if fixed else
                     (f"1 枚目をキャンバスに出しました。ほかの {n - 1} 枚は履歴を押すと出ます" if n > 1
+                     else f"崩れ {len(bad)} 件。キャンバスに出しました。見て決めてください" if undone
                      else "キャンバスに出しました（元に戻すで前の絵に戻せます）"),
                     on_click=lambda: (self.panels["history"][0].show(), self.activity.tabs.setCurrentIndex(0)))
-        self._end("できました")
+        self._end("未完成" if undone else "できました")
 
     def make_chibi(self):
         """今の絵を、ちびキャラ（頭の大きなデフォルメ）に描き直して、新しいレイヤーに重ねる"""

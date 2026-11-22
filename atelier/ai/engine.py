@@ -2228,13 +2228,16 @@ class Studio:
                 self.painter.avoid = avoid0
         self.last_phases = got["phases"]
         left, checked = got["left"], got["checked"]
+        # 窓が「描けました」か「未完成」かを決めるのに使う（前は窓が知らずに「描けました」と出した）
+        self.last_passed = bool(checked and not left and got.get("complete"))
+        self.last_left = list(left)
         if got.get("blocked"):
             blocked = got["blocked"]
             say(f"工程 {blocked['index'] + 1}「{blocked['phase']}」で停止: {blocked['reason']}（未完成）")
             if left:
                 say("未解決: " + "、".join(left[:5]))
         elif left:
-            say("工程を全部通しても崩れが残りました（未完成）: " + "、".join(left[:5]))
+            say(f"{len(got['phases'])} 工程を全部通しても崩れが残りました（未完成）: " + "、".join(left[:5]))
         elif not checked:
             say("検品できなかった工程があるので、通ったかは分かりません（未完成）")
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,
