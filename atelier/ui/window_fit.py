@@ -74,3 +74,16 @@ def install(app: QApplication):
     if _FILTER is None:
         _FILTER = ScreenFit(app)
         app.installEventFilter(_FILTER)
+
+
+def fit_dock_height(dock: QWidget, height: int):
+    """欄を中身の高さ（height）にそろえる。進みの欄のように、中身が状態で増え減りする欄に使う。
+    欄の外側（流す枠）の高さを決めないと、Qt の欄の場所は前の高さのまま残り、描いている間は文が切れ、
+    描いていない間は空きが大きく残った。流す枠を中身と同じ高さに固定し、欄の場所をその高さに合わせる"""
+    box = dock.widget()
+    if box is None:
+        return
+    if box.minimumHeight() != height or box.maximumHeight() != height:
+        box.setFixedHeight(height)
+    if dock.isFloating():
+        dock.adjustSize()

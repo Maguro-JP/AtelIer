@@ -888,6 +888,10 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
             box.setMinimumSize(0, 0)
             inner.setObjectName(inner.objectName() or "scrollInner")
             d.setWidget(box)
+        # 進みの欄は中身（描いていない・描いている・工程の数）に合わせて高さを自動で合わせる
+        from atelier.ui.window_fit import fit_dock_height
+        self.activity.fitted.connect(lambda h: fit_dock_height(prog, h))
+        fit_dock_height(prog, self.activity.progress_view.height())
         for key, (d, _area) in self.panels.items():
             d.setTitleBarWidget(PanelTitle(d))
             # 欄の中で、自分のメニューを持たない所を右クリックしても、使えるメニューを出す（押しても何も出ない所を作らない）
