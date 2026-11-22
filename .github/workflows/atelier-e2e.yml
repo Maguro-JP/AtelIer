@@ -1,6 +1,10 @@
-# 組んだ Setup.exe を Windows の機械に入れ、起動・初回の取得・描く・アンインストールを本物の経路で通す（atelier/bench/end_to_end.py）。
+# 組んだ Setup.exe を Windows の機械に入れ、起動・描く・保存と読み込み・アンインストールを本物の経路で通す（atelier/bench/end_to_end.py）。
 # 手元の Linux や wine では、pythonw の出力の無さや ProgramData の権限など、Windows だけで起きる崩れを見つけられなかった。
-# リポジトリは公開しているので Actions の枠を使わない。1 回 約 20 分（Setup.exe を組む 約 5 分、取得と描く 約 10 分）。
+# 致命的な不具合の直しを待たせないため、Release を決める段（windows）は最小にし、通ったらすぐ release を動かす。
+# 重い段（精度優先、利用者の操作、検品の部品）は release のあとに windows-heavy で流し、落ちたら赤くして次の版で直す。
+# 目安: main に入ってから Release まで 約 12 分（組む 約 3 分、入れる・起動・描く・保存・取る 約 6 分（キャッシュが効けば 約 3 分）、release 1 分）。
+# 前は 約 50〜60 分（組む 3 分、入れる・取る 3〜10 分、描く・精度優先・利用者の操作の段 25 分まで、アンインストール、release）。
+# Windows の機械を作業ブランチの回と取り合わないよう、Windows の段は main への push と手で起こしたときだけ流す。
 name: atelier-e2e
 on:
   push:
@@ -14,8 +18,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: atelier-e2e-${{ github.ref }}
-  cancel-in-progress: false   # 1 回 約 20 分かかる。続けて push すると取り消され、Windows の確かめが 1 回も最後まで流れなかったので、取り消さずに順に流す（待つのは最新の 1 本だけ）
+  # main の回は main だけの組にし、作業ブランチの回に待たされない。main は取り消さずに順に流す（Release を飛ばさない）。
+  # 作業ブランチは Linux の段だけなので、続けて push したら古い回を止める
+  group: atelier-e2e-${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   regression:
     runs-on: ubuntu-latest
@@ -53,10 +59,12 @@ jobs:
           name: setup
           path: dist/AtelIer-Setup.exe
           retention-days: 3
+  # Release を決める最小の段。入れる・起動・窓が出る・1 枚描く・保存して開き直す・アンインストール
   windows:
     needs: build
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
-    timeout-minutes: 80   # 入れる 1 分、取る 10 分、描く 1 分、利用者の操作の段 25 分まで、アンインストール
+    timeout-minutes: 30
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -68,52 +76,27 @@ jobs:
           "exit=$($p.ExitCode)"
           Get-ChildItem "C:\Program Files\AtelIer" | Select-Object Name
           if (-not (Test-Path "C:\Program Files\AtelIer\python\pythonw.exe")) { throw "入っていない" }
-      - name: 起動・取得・描く
+      # 描く部品（CPU 版の torch など、ProgramData）と模型（C:\LLM）を毎回取り直さない。取る段そのものは毎回通す
+      - uses: actions/cache@v4
+        with:
+          path: |
+            C:\LLM
+            C:\ProgramData\AtelIer\gen\lib
+          key: e2e-models-${{ runner.os }}-${{ hashFiles('atelier/models/**', 'atelier/qc/parts.py', 'packaging/**') }}
+          restore-keys: e2e-models-${{ runner.os }}-
+      - name: 起動・取得・描く・保存して開き直す
+        timeout-minutes: 20
         shell: pwsh
-        timeout-minutes: 30
         env:
-          ATELIER_E2E_CORE_ONLY: "1"   # Release を決める段だけ。利用者の操作の段は次の段で流す
+          ATELIER_E2E_STAGE: release
         run: |
           & "C:\Program Files\AtelIer\python\python.exe" -E -s -m atelier.bench.end_to_end "$env:RUNNER_TEMP\e2e"
           $code = $LASTEXITCODE
           $report = "$env:RUNNER_TEMP\e2e\report.json"
-          if (Test-Path $report) {
-            Get-Content $report
-          } else {
-            Write-Error "E2E report.json was not created; Python exit code: $code"
-          }
+          if (Test-Path $report) { Get-Content $report } else { Write-Error "E2E report.json was not created; Python exit code: $code" }
           if ($code -ne 0) { exit $code }
           if (-not (Test-Path $report)) { exit 1 }
         working-directory: C:\Program Files\AtelIer
-      # 利用者が窓で踏む段（絵の置き方、赤ペン、検品、保存と読み込み、精度優先）。
-      # 落ちても Release は止めない（結果は e2e の artifact の user/report.json で見て直す）。固まっても 25 分で切る
-      - name: 利用者の操作の段
-        shell: pwsh
-        timeout-minutes: 25
-        continue-on-error: true
-        run: |
-          & "C:\Program Files\AtelIer\python\python.exe" -E -s -m atelier.bench.end_to_end "$env:RUNNER_TEMP\e2e\user"
-          Get-Content "$env:RUNNER_TEMP\e2e\user\report.json" -ErrorAction SilentlyContinue
-        working-directory: C:\Program Files\AtelIer
-      # Release は止めないが、落ちた段を黙って緑にしない（continue-on-error だけだと、落ちても気づけなかった）
-      - name: 利用者の操作の段で落ちた物を出す
-        if: always()
-        shell: pwsh
-        run: |
-          $f = "$env:RUNNER_TEMP\e2e\user\report.json"
-          if (-not (Test-Path $f)) { "::error::利用者の操作の段の report.json が無い（途中で落ちたか固まった）"; exit 0 }
-          $r = Get-Content $f -Raw | ConvertFrom-Json
-          foreach ($s in $r.steps | Where-Object { -not $_.ok }) {
-            "::error::利用者の操作の段が落ちた: $($s.name)"
-            "- 落ちた: $($s.name)" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-          }
-      - name: 検品の部品が入ったか
-        shell: pwsh
-        run: |
-          $r = Get-Content "$env:RUNNER_TEMP\e2e\report.json" -Raw | ConvertFrom-Json
-          $s = $r.steps | Where-Object { $_.name -eq "検品の部品がそろう" }
-          if (-not $s -or -not $s.ok) { throw "初回の取得で検品の部品が入っていない" }
-          "検品の部品: $($s.detail.parts -join ', ')"
       - name: アンインストールして残りを見る
         if: always()
         shell: pwsh
@@ -133,7 +116,7 @@ jobs:
           name: e2e
           path: ${{ runner.temp }}/e2e
           retention-days: 7
-  # Release は、Windows で入れる・起動・取得・描く・アンインストールが全部通った Setup.exe だけを出す。
+  # Release は、Windows で入れる・起動・取得・描く・保存して開き直す・アンインストールが通った Setup.exe だけを出す。
   # 前は組んだだけで Release に置いていて、Windows で動かない版（v0.1.0）を出した
   release:
     needs: [regression, windows]
@@ -154,4 +137,73 @@ jobs:
           tag="v$(cat VERSION)"
           gh release view "$tag" >/dev/null 2>&1 && { echo "$tag は公開済み"; exit 0; }
           gh release create "$tag" dist/*.exe --target "$GITHUB_SHA" --title "AtelIer $tag" \
-            --notes "Windows で入れる・起動・取得・描く・アンインストールを通した版です。アプリの「ヘルプ」の「更新を確かめる」から入れられます。"
+            --notes "Windows で入れる・起動・取得・描く・保存して開き直す・アンインストールを通した版です。アプリの「ヘルプ」の「更新を確かめる」から入れられます。"
+  # Release のあとに流す重い段（検品の部品の取得、右クリック、工程に分けて描く、赤ペン、検品、精度優先）。
+  # Release は止めないが、落ちたらこのジョブが赤くなり、落ちた段を Summary に出す（次の版で直す）
+  windows-heavy:
+    needs: [build, release]
+    if: always() && needs.build.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: setup
+      - name: 入れる
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath .\AtelIer-Setup.exe -ArgumentList '/S' -Wait -PassThru
+          "exit=$($p.ExitCode)"
+          Get-ChildItem "C:\Program Files\AtelIer" | Select-Object Name
+          if (-not (Test-Path "C:\Program Files\AtelIer\python\pythonw.exe")) { throw "入っていない" }
+      # 描く部品（CPU 版の torch など、ProgramData）と模型（C:\LLM）を毎回取り直さない。取る段そのものは毎回通す
+      - uses: actions/cache@v4
+        with:
+          path: |
+            C:\LLM
+            C:\ProgramData\AtelIer\gen\lib
+          key: e2e-models-${{ runner.os }}-${{ hashFiles('atelier/models/**', 'atelier/qc/parts.py', 'packaging/**') }}
+          restore-keys: e2e-models-${{ runner.os }}-
+      - name: 重い段
+        timeout-minutes: 40
+        shell: pwsh
+        env:
+          ATELIER_E2E_STAGE: heavy
+        run: |
+          & "C:\Program Files\AtelIer\python\python.exe" -E -s -m atelier.bench.end_to_end "$env:RUNNER_TEMP\e2e-heavy"
+          $code = $LASTEXITCODE
+          $report = "$env:RUNNER_TEMP\e2e-heavy\report.json"
+          if (Test-Path $report) { Get-Content $report } else { Write-Error "E2E report.json was not created; Python exit code: $code" }
+          if ($code -ne 0) { exit $code }
+          if (-not (Test-Path $report)) { exit 1 }
+        working-directory: C:\Program Files\AtelIer
+      - name: 落ちた段を出す
+        if: always()
+        shell: pwsh
+        run: |
+          $f = "$env:RUNNER_TEMP\e2e-heavy\report.json"
+          if (-not (Test-Path $f)) { "::error::重い段の report.json が無い（途中で落ちたか固まった）"; exit 1 }
+          $r = Get-Content $f -Raw | ConvertFrom-Json
+          foreach ($s in $r.steps | Where-Object { -not $_.ok }) {
+            "::error::重い段が落ちた: $($s.name)"
+            "- 落ちた: $($s.name)" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          }
+      - name: アンインストールして残りを見る
+        if: always()
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "C:\Program Files\AtelIer\Uninstall.exe" -ArgumentList '/S' -Wait -PassThru
+          # アンインストーラーは自分を一時の場所に写して動くので、終わるまで待つ
+          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\AtelIer"); $i++) { Start-Sleep 2 }
+          # ユーザーのデータと設定（C:\ProgramData\AtelIer）は、更新や入れ直しで消さないため残す決まり
+          $left = @("C:\Program Files\AtelIer",
+                    "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AtelIer",
+                    "C:\Users\Public\Desktop\AtelIer.lnk") | Where-Object { Test-Path $_ }
+          "残った物: $($left -join ', ')"
+          if ($left) { Get-ChildItem -Recurse $left | Select-Object -First 30 FullName; throw "アンインストールで残った物がある" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-heavy
+          path: ${{ runner.temp }}/e2e-heavy
+          retention-days: 7
