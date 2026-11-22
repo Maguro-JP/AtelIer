@@ -14,7 +14,12 @@ on:
       - "packaging/**"
       - "VERSION"
       - ".github/workflows/atelier-e2e.yml"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      gui_only:
+        description: "画面で進める入れ方の確かめ（windows-gui）だけを流す"
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -62,7 +67,7 @@ jobs:
   # Release を決める最小の段。入れる・起動・窓が出る・1 枚描く・保存して開き直す・アンインストール
   windows:
     needs: build
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && !inputs.gui_only)
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -116,10 +121,54 @@ jobs:
           name: e2e
           path: ${{ runner.temp }}/e2e
           retention-days: 7
+  # 利用者と同じに Setup.exe をダブルクリックして画面で進める道（packaging/gui_install_check.ps1）。
+  # windows の段は /S でしか入れておらず、コンポーネントのページ・終わりの「起動する」・動いているアプリの上書きを通していなかった。
+  # fresh: 何も無い機械に入れ、起動したまま同じ Setup.exe を画面で入れ直す。upgrade: 前の Release を入れて起動した上から入れる
+  windows-gui:
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [fresh, upgrade]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging
+      - uses: actions/download-artifact@v4
+        with:
+          name: setup
+      - name: 前の Release を入れて起動する
+        if: matrix.scenario == 'upgrade'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo $env:GITHUB_REPOSITORY --pattern '*Setup*.exe' --output old-Setup.exe
+          gh release view --repo $env:GITHUB_REPOSITORY --json tagName -q .tagName
+          $p = Start-Process -FilePath .\old-Setup.exe -ArgumentList '/S' -Wait -PassThru
+          "exit=$($p.ExitCode) 版=$(Get-Content 'C:\Program Files\AtelIer\VERSION')"
+          Start-Process explorer.exe 'C:\Users\Public\Desktop\AtelIer.lnk'
+          Start-Sleep 15
+          Get-Process pythonw -ErrorAction SilentlyContinue | Select-Object Id, Path
+      - name: 画面で入れる
+        shell: powershell
+        run: .\packaging\gui_install_check.ps1 -Setup "$PWD\AtelIer-Setup.exe" -Out "$env:RUNNER_TEMP\gui\first"
+      - name: 起動したまま、画面で入れ直す
+        shell: powershell
+        run: .\packaging\gui_install_check.ps1 -Setup "$PWD\AtelIer-Setup.exe" -Out "$env:RUNNER_TEMP\gui\again"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gui-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/gui
+          retention-days: 7
   # Release は、Windows で入れる・起動・取得・描く・保存して開き直す・アンインストールが通った Setup.exe だけを出す。
   # 前は組んだだけで Release に置いていて、Windows で動かない版（v0.1.0）を出した
   release:
-    needs: [regression, windows]
+    needs: [regression, windows, windows-gui]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -142,7 +191,7 @@ jobs:
   # Release は止めないが、落ちたらこのジョブが赤くなり、落ちた段を Summary に出す（次の版で直す）
   windows-heavy:
     needs: [build, release]
-    if: always() && needs.build.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    if: always() && needs.build.result == 'success' && (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && !inputs.gui_only))
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
