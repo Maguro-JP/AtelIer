@@ -1,7 +1,7 @@
 # 右クリックと加工の効き目の確かめ
 
 右クリックの全部のメニューと、メニューバーの「加工」の項目を、アプリの窓（offscreen）で 1 つずつ押し、効いているかを測った表。
-試験は `chatdraw/tests/test_function_check.py`（手で流す重い試験。`.claude/hooks/test.sh` には入れていない）。
+試験は流用元の `chatdraw/tests/test_function_check.py`（AtelIer には移していない。手で流す重い試験。`.claude/hooks/test.sh` には入れていない）。
 
 - 絵: 見本の絵を 256x384 に縮めて開き、顔のあたり（90,20〜160,100）を赤ペンか選択範囲で囲んだ
 - 模型: 試験用の小さな SDXL（hf-internal-testing/tiny-stable-diffusion-xl-pipe、2 歩）を本物の Painter に読ませた。重みが乱数なので、AI が描く加工の出来は測れない。見たのは押して最後まで通るか・囲みの外を変えないか・顔の目が動かないか
@@ -431,7 +431,7 @@
 ## 赤ペンの印の右クリック（「赤ペン n の中だけ加工」に出す物）
 
 印の右クリックに出す加工を選ぶため、広げるのほかの全部の加工を、顔のあたりの印 1 つ（BOX）だけに `Window.run_shortcut_on_mark` で掛けて測った。
-試験は `chatdraw/tests/test_function_check.py` の `MarkMenuCheck`（FC_RUN=1 RP_RUN=1 で手で流す）。模型は上と同じ小さな SDXL。
+試験は流用元の `chatdraw/tests/test_function_check.py` の `MarkMenuCheck`（FC_RUN=1 RP_RUN=1 で手で流す）。模型は上と同じ小さな SDXL。
 出す条件は、囲みの外 0 画素・囲みの中が変わる・目の色の差 1.5 以下の 3 つ。出す物は `atelier/app/main_window.py` の `MARK_OK`。
 
 | 項目 | 秒 | 差の画素 | 囲みの外 | 目の色 | 出す |

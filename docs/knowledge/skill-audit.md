@@ -1,7 +1,7 @@
 # 技能（右クリックの加工・仕上げ・組み合わせ）を押して効くかの棚卸し
 
 右クリックのメニューに出る技能（atelier/ai/shortcuts.py の builtins）を、本物の Window に絵（96×144）を開き、
-試験用の小さな本物の模型（hf-internal-testing/tiny-stable-diffusion-xl-pipe を chatdraw.engine.Painter で読む）を絵の模型にして、
+試験用の小さな本物の模型（hf-internal-testing/tiny-stable-diffusion-xl-pipe を atelier.ai.engine.Painter で読む）を絵の模型にして、
 1 つずつ押して最後まで流した。押せるか、終わるか、新しいレイヤーが付くか（または絵が変わるか）、出た知らせを見た。
 画素が変わるかは tests/test_shortcuts.py が項目ごとに確かめている（ここでは押して終わるところまでを見た）。
 

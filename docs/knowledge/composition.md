@@ -47,7 +47,7 @@
 
 手元では、模型に渡る言葉の差だけを見る:
 
-    python3 -c "from chatdraw import composition as c; print(c.add('迫力のある騎士', '1boy, knight, armor'))"
+    python3 -c "from atelier.ai import composition as c; print(c.add('迫力のある騎士', '1boy, knight, armor'))"
 
 本物の比べは、同じ頼み・同じ種で、構図を足す前（`composition.add` を通さない）と後を描き、
 adhere-bench の点と、構図が付いたか（あおりなら顎の下が見えるか、対角線なら体の軸の傾き）を見る。

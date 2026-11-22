@@ -48,7 +48,7 @@ def folder() -> Path:
 
 
 def file() -> Path:
-    return folder() / f"chatdraw-{time.strftime('%Y%m%d')}.log"
+    return folder() / f"atelier-{time.strftime('%Y%m%d')}.log"
 
 
 def prune(days: int = KEEP_DAYS, now: float | None = None) -> int:
@@ -56,7 +56,7 @@ def prune(days: int = KEEP_DAYS, now: float | None = None) -> int:
     now = time.time() if now is None else now
     n = 0
     try:
-        for p in folder().glob("chatdraw-*.log"):
+        for p in [*folder().glob("atelier-*.log"), *folder().glob("chatdraw-*.log")]:   # 前の版の名前の記録も消す
             if now - p.stat().st_mtime > days * 86400:
                 p.unlink()
                 n += 1

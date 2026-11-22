@@ -331,7 +331,7 @@ def _gen(name: str):
     import sys
     d = str(_gen_dir())
     if d not in sys.path:
-        sys.path.append(d)   # 後ろに足す（chatdraw の同じ名前の部品を隠さないように）
+        sys.path.append(d)   # 後ろに足す（atelier の同じ名前の部品を隠さないように）
     import importlib
     return importlib.import_module(name)
 
@@ -1339,7 +1339,7 @@ def chain_note() -> str:
 
 # ---- 既存の絵をあとから直す部品 ----
 
-KEY = "chatdraw"   # PNG の文字の欄の名前
+KEY = "chatdraw"   # PNG の文字の欄の名前。CharacterDesigner で描いた PNG と互いに読めるよう、名前を変えない
 
 
 def embed(path: str | Path, meta: dict):

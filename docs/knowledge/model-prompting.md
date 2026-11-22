@@ -1,6 +1,6 @@
 # 模型ごとの頼み方（札との照らし合わせ）
 
-描くアプリ（chatdraw）の模型の一覧（`atelier/models/catalog.json`）と世代の表（`atelier/models/catalog.py` の `FAMILIES`）を、
+描くアプリ（AtelIer）の模型の一覧（`atelier/models/catalog.json`）と世代の表（`atelier/models/catalog.py` の `FAMILIES`）を、
 各模型の札（Hugging Face のモデルカード）の使い方と 1 件ずつ照らした表。2026-11-01 に札を引いて照らした。
 
 頼み方が札と違うと、模型は頼んだ物を描かないか、崩れた絵を出した。世代の決まり文句（タグの後ろの `masterpiece, best quality`、

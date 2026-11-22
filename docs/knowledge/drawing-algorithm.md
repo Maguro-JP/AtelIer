@@ -19,7 +19,7 @@ FLUX.2 klein は頼みを Qwen3 で読むので、姿勢や形は崩れにくい
 | 段 | すること | 使う物 | 理由 |
 |---|---|---|---|
 | 1. 構図 | 頼みを文で描かせる | FLUX.2 klein 4B（Apache-2.0） | 手足の数と姿勢が崩れにくい |
-| 2. 形を取り出す | 1 の絵から奥行きと細い線だけを取る。色と塗りは捨てる | Depth Anything V2 Small（Apache-2.0）、chatdraw.postfx.lineart | 仕上げの模型に、色ではなく形だけを渡す |
+| 2. 形を取り出す | 1 の絵から奥行きと細い線だけを取る。色と塗りは捨てる | Depth Anything V2 Small（Apache-2.0）、流用元の chatdraw.postfx.lineart | 仕上げの模型に、色ではなく形だけを渡す |
 | 3. 仕上げ | 2 の形を縛りにして、白紙から絵全体を描く | Animagine XL 4.0 など SDXL のアニメの模型、ControlNet Union ProMax（xinsir、Apache-2.0。奥行き=1、細い線=3） | 塗りと線は SDXL のアニメの模型の質になり、形は 1 に従う |
 
 縛りは工程の前半（6 割）だけに効かせ、後半は模型に細部を任せます（diffusers の `control_guidance_end`）。
