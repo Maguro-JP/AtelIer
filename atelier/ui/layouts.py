@@ -19,6 +19,7 @@ VERSION = 1
 def _reset(w):
     """欄をいったん全部くっつけ直す（別ウィンドウや畳んだ物も戻す）"""
     w.__dict__.pop("_fit_cols", None)
+    w.__dict__.pop("_fit_ai", None)
     if hasattr(w, "return_all"):
         w.return_all()   # まとめた窓の欄と帯も主の窓へ戻してから並べる
     for d, _ in w.panels.values():
@@ -58,7 +59,13 @@ def need(w, key: str) -> int:
     head = title.sizeHint().height() if title is not None else 24
     if w.tabifiedDockWidgets(d):   # タブで重ねた欄は、タブの見出しの分も要る
         head += d.fontMetrics().height() + 14
-    return inner.minimumSizeHint().height() + head + 12
+    body_h = inner.minimumSizeHint().height()
+    # AI の欄は、中身をタブの中で流す形なので最小の高さが小さい。指示のタブが流れずに収まるまでに足りない分を欄に聞いて足す
+    from PySide6.QtWidgets import QWidget
+    fits = [c for c in [inner] + inner.findChildren(QWidget) if hasattr(c, "fit_height")]
+    if fits and fits[0].height() > 0:
+        return max(body_h, inner.height() + fits[0].fit_height() - fits[0].height()) + head + 2   # 測った高さなので余りは足さない
+    return body_h + head + 12
 
 
 def _group(w, d) -> list:
@@ -94,6 +101,32 @@ def fit_heights(w, keys: list[str], final: bool = False):
         return
     want[-1] += room - sum(want)
     w.resizeDocks(docks, want, Qt.Vertical)
+
+
+def fit_ai(w, final: bool = False):
+    """右の列（上に AI、下に履歴のタブの組）の高さ。AI の欄に指示のタブが流れずに収まる高さを渡し、残りを履歴に回す。
+    両方は収まらない低い窓では、比で削るとどちらにも流す棒が出るので、左の列と同じくタブにまとめ、AI を前に出す。
+    履歴の組（履歴・表示・ライブラリー）は既にタブで重ねてあり、そこへ AI を重ねる（Qt は組の側を重ねる呼び方を無視した）。
+    並べた直後は欄の高さが前の配置のままなので、まとめるのは並べ終わったあと（settle の final）だけにする"""
+    w.__dict__["_fit_ai"] = True
+    ai, hist = w.panels["chat"][0], w.panels["history"][0]
+    if any(d.isHidden() or d.isFloating() for d in (ai, hist)) or ai in w.tabifiedDockWidgets(hist):
+        return
+    front = _front(w, hist)
+    if w.dockWidgetArea(ai) != w.dockWidgetArea(front) or ai.geometry().bottom() > front.geometry().top():
+        return   # 利用者が動かした配置（AI が履歴の上に無い）には触らない
+    want = need(w, "chat")
+    title = front.titleBarWidget()
+    body = front.widget()
+    inner = body.widget() if hasattr(body, "widget") and body.widget() is not None else body
+    # 履歴の組は一覧なので、目安の余り（need）ではなく、中身の本当の最小で入るかを見る
+    least = inner.minimumSizeHint().height() + (title.sizeHint().height() if title is not None else 24) + 2
+    room = ai.height() + front.height()
+    if want + least <= room:
+        w.resizeDocks([ai, front], [want, room - want], Qt.Vertical)
+    elif final:
+        w.tabifyDockWidget(front, ai)
+        ai.raise_()
 
 
 def _top_first(w, keys: list[str]):
@@ -151,6 +184,10 @@ def settle(w):
         fronts = [_front(w, d) for d in docks]
         if any(f.height() < need(w, k) - 4 for f, k in zip(fronts, keys) if f is w.panels[k][0]):
             fit_heights(w, keys, final=True)
+    if w.__dict__.get("_fit_ai"):
+        ai = w.panels["chat"][0]
+        if not ai.isHidden() and not ai.isFloating() and ai.height() < need(w, "chat") - 4:
+            fit_ai(w, final=True)
     # 左右の欄の幅も、中身より狭くなった欄だけ広げる
     for k, (d, _) in w.panels.items():
         if d.isHidden() or d.isFloating() or d.visibleRegion().isEmpty() or w.dockWidgetArea(d) not in (L, R):
@@ -243,9 +280,17 @@ def recommended(w):
     w.panels["talk"][0].show()
     side = min(320, max(260, int(max(w.width(), 1200) * 0.19)))
     _widths(w, ["color", "layers"], ["chat", "history", "view", "library"], side)
+    # 狭い窓（800 など）では、絵の下だけだとチャットが幅 160 に潰れて横に流す棒が出た。
+    # 左右の列を除いた幅がチャットの中身より狭いときは、下の左の角をチャットに渡し、左の列の下まで広げる
+    cols = sum(max(side, need_width(w, k)) for k in ("color", "chat"))
+    if w.width() - cols - 80 < need_width(w, "talk"):
+        w.setCorner(Qt.BottomLeftCorner, B)
     # チャットは会話を読み返せる高さにする（200 のままだと 1080 の高さでも吹き出しが 2 つしか見えなかった。低い画面では絵の場所を残す）
     fit_talk(w, 200 if w.height() < 900 else int(w.height() * 0.3))
     fit_heights(w, ["color", "layers"])
+    # 右の列も中身から配る。5:5 のままだと、どの窓の大きさでも AI の欄の指示のタブに縦の流す棒が出て、
+    # 下の履歴だけが空いた場所を取った
+    fit_ai(w)
     _progress_idle(w)
     _first_tool(w, "hand")
 
