@@ -124,9 +124,21 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          # 利用者の物を置いておき、アンインストールが入れた物だけを消して、これらを残すかを見る
+          $mine = @("C:\Program Files\AtelIer\mine\note.txt",
+                    "C:\ProgramData\AtelIer\extensions\sample\keep.txt",
+                    "C:\ProgramData\AtelIer\library\keep.txt",
+                    "C:\LLM\keep.txt")
+          foreach ($f in $mine) { New-Item -ItemType File -Force -Path $f | Out-Null }
           $p = Start-Process -FilePath "C:\Program Files\AtelIer\Uninstall.exe" -ArgumentList '/S' -Wait -PassThru
           # アンインストーラーは自分を一時の場所に写して動くので、終わるまで待つ
-          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\AtelIer"); $i++) { Start-Sleep 2 }
+          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\AtelIer\Uninstall.exe"); $i++) { Start-Sleep 2 }
+          $lost = $mine | Where-Object { -not (Test-Path $_) }
+          if ($lost) { throw "アンインストールが利用者の物を消した: $($lost -join ', ')" }
+          $extra = Get-ChildItem -Force "C:\Program Files\AtelIer" | Where-Object { $_.Name -ne "mine" }
+          if ($extra) { $extra | Select-Object FullName; throw "インストール先にアプリの物が残った" }
+          foreach ($f in $mine) { Remove-Item -Force $f }
+          Remove-Item -Recurse -Force "C:\Program Files\AtelIer", "C:\ProgramData\AtelIer\extensions\sample"
           # ユーザーのデータと設定（C:\ProgramData\AtelIer）は、更新や入れ直しで消さないため残す決まり
           $left = @("C:\Program Files\AtelIer",
                     "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AtelIer",
@@ -215,9 +227,21 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          # 利用者の物を置いておき、アンインストールが入れた物だけを消して、これらを残すかを見る
+          $mine = @("C:\Program Files\AtelIer\mine\note.txt",
+                    "C:\ProgramData\AtelIer\extensions\sample\keep.txt",
+                    "C:\ProgramData\AtelIer\library\keep.txt",
+                    "C:\LLM\keep.txt")
+          foreach ($f in $mine) { New-Item -ItemType File -Force -Path $f | Out-Null }
           $p = Start-Process -FilePath "C:\Program Files\AtelIer\Uninstall.exe" -ArgumentList '/S' -Wait -PassThru
           # アンインストーラーは自分を一時の場所に写して動くので、終わるまで待つ
-          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\AtelIer"); $i++) { Start-Sleep 2 }
+          for ($i = 0; $i -lt 60 -and (Test-Path "C:\Program Files\AtelIer\Uninstall.exe"); $i++) { Start-Sleep 2 }
+          $lost = $mine | Where-Object { -not (Test-Path $_) }
+          if ($lost) { throw "アンインストールが利用者の物を消した: $($lost -join ', ')" }
+          $extra = Get-ChildItem -Force "C:\Program Files\AtelIer" | Where-Object { $_.Name -ne "mine" }
+          if ($extra) { $extra | Select-Object FullName; throw "インストール先にアプリの物が残った" }
+          foreach ($f in $mine) { Remove-Item -Force $f }
+          Remove-Item -Recurse -Force "C:\Program Files\AtelIer", "C:\ProgramData\AtelIer\extensions\sample"
           # ユーザーのデータと設定（C:\ProgramData\AtelIer）は、更新や入れ直しで消さないため残す決まり
           $left = @("C:\Program Files\AtelIer",
                     "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AtelIer",
