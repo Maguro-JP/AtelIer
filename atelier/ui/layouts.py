@@ -159,6 +159,28 @@ def settle(w):
             continue
         if d.width() < need_width(w, k) - 4:
             w.resizeDocks([d], [need_width(w, k)], Qt.Horizontal)
+    hide_stale_tabbars(w)
+
+
+def hide_stale_tabbars(w):
+    """今のタブの組に使われていないタブの帯を隠す。低い窓（1280×720）で AI を履歴の組に重ねたあと並べ直すと、
+    Qt は前の組（履歴・表示・ライブラリー・AI）のタブの帯を見えたまま残し、AI の欄の見出しに重なった"""
+    from PySide6.QtWidgets import QTabBar
+    by_title = {d.windowTitle(): d for d, _ in w.panels.values()}
+    for bar in w.findChildren(QTabBar):
+        if bar.parent() is not w or bar.isHidden():
+            continue
+        docks = [by_title.get(bar.tabText(i)) for i in range(bar.count())]
+        if not docks or None in docks:
+            continue   # 欄の名前と合わないタブは判断できないので触らない
+        first = docks[0]
+        group = set(w.tabifiedDockWidgets(first)) | {first}
+        stale = len(docks) < 2 or len(group) != len(docks) or any(d.isHidden() or d.isFloating() or d not in group for d in docks)
+        # 組は合っていても、前の幅の場所に残った帯が今の帯と重なり、タブの文字が二重に見えた（1920×1080）。
+        # 使われている帯は組の欄と同じ左端・幅に置かれる
+        g = first.geometry()
+        if stale or abs(bar.x() - g.x()) > 2 or abs(bar.width() - g.width()) > 2:
+            bar.hide()
 
 
 def fit_talk(w, wish: int):
@@ -226,6 +248,7 @@ def _first_tool(w, key: str):
 def _progress_idle(w):
     """進みは右下のポップアップに出すので、上の進みの欄は初めは隠す（絵を見る場所を広く取る）"""
     w.panels["progress"][0].hide()
+    hide_stale_tabbars(w)
 
 
 def recommended(w):
