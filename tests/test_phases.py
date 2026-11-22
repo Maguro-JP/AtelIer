@@ -3,6 +3,7 @@
 手を替えて直しても消えない崩れと囲めない崩れは、工程を足し続けずに利用者に聞いて止まる。累計は絵が変わった回だけを数える。
 偽の検品は必ず「何回目かで通る」形にして、試験が終わらなくならないようにする"""
 import os
+import re
 import sys
 import unittest
 from unittest import mock
@@ -104,7 +105,8 @@ def checks(always_bad: bool):
         @staticmethod
         def hands(image, prompt):
             seen["hands"] += 1
-            return dict(HAND) if ((always_bad and seen["hands"] <= BAD_TIMES) or seen["hands"] == 1) else dict(CLEAN_HAND)
+            # 下描きの描く工程は手を測らないので（測るのは確かめる工程だけ）、崩れを返す回は BAD_TIMES - 1 回にそろえる
+            return dict(HAND) if ((always_bad and seen["hands"] <= BAD_TIMES - 1) or seen["hands"] == 1) else dict(CLEAN_HAND)
     return C, seen
 
 
@@ -116,7 +118,7 @@ def changed(got):
     return sum(bool(r.get("changed")) + bool(r.get("first_changed")) + sum(bool(m.get("changed")) for m in r.get("mends", []))
                for r in got["history"])
 
-def hand_only_checks(bad_times=BAD_TIMES):
+def hand_only_checks(bad_times=BAD_TIMES - 1):
     """体・構図・依頼物は合格させ、手の検品だけを bad_times 回不合格にする。下描きの限定修正を単独で試す。"""
     seen = {"hands": 0}
 
@@ -172,7 +174,18 @@ class PhasesTest(unittest.TestCase):
         self.assertIn("phases.json", files)
         self.assertEqual(got["backs"], 0)   # 前の工程へ戻らない（戻って描き直すと途中で別の絵になった）
         self.assertGreater(got["fixes"], 0)
-        self.assertEqual(got["need"], N + got["fixes"])
+        plan = got["plan"]
+        self.assertEqual(got["need"], len([s for s in plan if s["no"]]))   # 要る工程の数は計画の見せる工程の数
+        self.assertEqual([s["no"] for s in plan if s["no"]], list(range(1, got["need"] + 1)))   # 計画の順に 1 つずつ進む
+        self.assertTrue(all(s["status"] != "todo" for s in plan))
+        kinds = {s["kind"] for s in plan}
+        self.assertTrue({"draw", "check", "mend", "recheck"} <= kinds, kinds)   # 描く・確かめる・直す・確かめ直すが別の工程に並ぶ
+        for k, s in enumerate(plan):
+            if s["kind"] == "recheck":   # 確かめ直すのは、直した項目だけ（直す工程のあとに、同じ工程・同じ項目で並ぶ）
+                self.assertTrue(any(x["kind"] == "mend" and x["item"] == s["item"] and x["phase"] == s["phase"] for x in plan[:k]), s)
+                last = next(x for x in reversed(plan[:k]) if x["kind"] in ("mend", "check", "recheck", "ask"))
+                self.assertEqual((last["kind"], last["item"]), ("mend", s["item"]), s)   # すぐ前は同じ項目の直す工程
+        self.assertTrue(all(s["kind"] != "mend" or len(s.get("flaws", [])) >= 1 for s in plan))
         self.assertEqual(got["total"], changed(got))   # 絵が変わった回だけを数える
         mends = [m for r in got["history"] for m in r.get("mends", [])]
         self.assertTrue(mends and all(r["outside"] == 0 for r in mends), mends)   # 囲みの外は 1 画素も変えない
@@ -280,12 +293,27 @@ class PhasesTest(unittest.TestCase):
         import numpy as np
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             painter = Painter()
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=10 ** 6))
+            from atelier.files import pause_keep as pausekeep
+            pausekeep.ROOT = Path(d) / "paused"
+            self.addCleanup(setattr, pausekeep, "ROOT", None)
+            C = hand_only_checks(bad_times=10 ** 6)
+            key = pausekeep.key("phases", "masks")
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C, pause_key=key)
+            # 止まって聞いた所（聞く工程）から、窓の「このまま進む」の答えで続ける。済んだ工程は描き直さない
+            plan = got["plan"]
+            ask_at = next(k for k, s in enumerate(plan) if s["kind"] == "ask")
+            self.assertEqual(plan[ask_at]["status"], "todo")
+            self.assertTrue(all(s["status"] != "todo" for s in plan[:ask_at]))
+            paints = len(painter.log)
+            again = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k2", checks=C, pause_key=key, answer=phases.GO_ON)
+            self.assertEqual(again["plan"][ask_at]["answer"], phases.GO_ON)
+            self.assertFalse(any(x[0] in ("paint", "refine") for x in painter.log[paints:]))   # 構図から描き直さない
+            self.assertEqual(again["asked"]["phase"], "仕上げ")   # 次に消えない崩れの所でまた聞く
         # ずっと通らない検品でも固まらず、手を替えた直しのあと、利用者に聞く所で止まる
         self.assertFalse(got["complete"])
         self.assertEqual(got["asked"]["phase"], "顔・手・足の下描き")
         draft = got["history"][-1]
-        self.assertEqual(len(draft["mends"]), phases.MENDS)
+        self.assertEqual({m["mend"] for m in draft["mends"]}, set(range(1, phases.MENDS + 1)))   # 強さの段を MENDS 回替えた
         self.assertTrue(all(m["outside"] == 0 for m in draft["mends"]))
         self.assertEqual([r["phase"] for r in got["history"]], phases.NAMES[:5])
         self.assertTrue(painter.masks)
@@ -529,7 +557,7 @@ class StopFlagTest(unittest.TestCase):
         C = hand_only_checks(bad_times=10 ** 6)   # 止めなければ通らない検品でも、旗で止まる
 
         def confirm(i, *_):
-            if i >= 4:
+            if i >= 3:   # 確かめ（confirm）は工程の最後に来る。手の崩れが消えない下描きの前で旗を立てる
                 painter.stop = True
             return "go"
         with TemporaryDirectory() as d:
@@ -630,15 +658,22 @@ class WindowFlowTest(unittest.TestCase):
                 self.assertEqual([r["phase"] for r in s.last_phases], phases.NAMES)
                 self.assertEqual(events, ["one", "done"])   # 1 枚が出来た・終わったの信号は全部の工程のあとに 1 回ずつ
                 self.assertEqual(len(ends), 1)
-                # 進み具合の欄に「工程 i/12 名前」が順に出て、終わるまで帯は満ちない
-                for i, name in enumerate(phases.NAMES, 1):
-                    self.assertTrue(any(st.startswith(f"工程 {i}/{N}　{name}") for st, *_ in seen), name)
+                # 進み具合の欄に計画の「工程 i/N 名前／描く・確かめる…」が順に出て、終わるまで帯は満ちない（目的は出さない）
+                heads = [re.match(r"工程 (\d+)/(\d+)　(.+?)／", st) for st, *_ in seen]
+                heads = [(int(m.group(1)), int(m.group(2)), m.group(3)) for m in heads if m]
+                self.assertEqual([x[2] for x in heads if x[2] == "目的"], [])
+                for name in phases.NAMES[1:]:
+                    self.assertTrue(any(x[2] == name for x in heads), name)
+                nums = [x[0] for x in heads]
+                self.assertEqual(sorted(set(nums)), list(range(1, max(nums) + 1)))
+                self.assertEqual(nums, sorted(nums))
+                N = heads[-1][1]
                 for st, v, mx, msg in seen[:ends[0]]:
                     self.assertFalse(mx > 0 and v >= mx, f"終わる前に帯が満ちた: {st} {msg}")
                     self.assertNotIn("完成", st + msg)
                     self.assertNotIn("完了", st + msg)
                 last5 = max(k for k, (st, *_r) in enumerate(seen) if st.startswith(f"工程 {N}/{N}"))
-                first1 = min(k for k, (st, *_r) in enumerate(seen) if st.startswith(f"工程 1/{N}　目的"))
+                first1 = min(k for k, (st, *_r) in enumerate(seen) if st.startswith("工程 1/"))
                 self.assertLess(first1, last5)
                 # 模型に渡した言葉は会話に出さず、進み具合の欄の詳細（ツールチップ）にだけ置く
                 self.assertFalse([c for c in chat if "渡す言葉" in c or "渡した言葉" in c], chat)
