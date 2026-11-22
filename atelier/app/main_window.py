@@ -421,6 +421,9 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         file.addAction(QAction("名前を付けて保存…", self, shortcut="Ctrl+Shift+S", triggered=lambda: self.save_project(ask=True)))
         # 保存と書き出しの間。拡張はこの区切りの前に、自分のファイルの種類の項目を足す
         self.file_extension_anchor = file.addSeparator()
+        take = QAction("ほかのアプリから引き継ぐ…", self, triggered=lambda: __import__("atelier.app.migrate_dialog", fromlist=["x"]).open_import(self))
+        take.setToolTip("CharacterDesigner の設定・模型の好み・ライブラリー・描く部品を、選んで引き継ぎます")
+        file.addAction(take)
         out = file.addMenu("書き出す")
         out.addAction(QAction("PNG（重ねた 1 枚）…", self, shortcut="Ctrl+E", triggered=self.save_as))
         out.addAction(QAction("PSD（レイヤーごと）…", self, triggered=self.export_psd))
@@ -987,6 +990,10 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         help_menu.addAction(QAction("落ちた記録を開く", self, triggered=self.open_crashlog))
         help_menu.addAction(QAction("手順書（入れ方・模型の置き方・困ったとき）", self, triggered=lambda: self.open_help("install")))
         help_menu.addAction(QAction("記録の置き場を開く", self, triggered=self.open_logs))
+        tidy = QAction("前の版が CharacterDesigner から写した物の片付け…", self,
+                       triggered=lambda: __import__("atelier.app.migrate_dialog", fromlist=["x"]).open_cleanup(self))
+        tidy.setToolTip("AtelIer が使わない写しを大きさ付きで見て、選んだ物をごみ箱へ移します（戻せます）")
+        help_menu.addAction(tidy)
         stats = QAction("あなたの統計…", self, triggered=self.open_userstats)
         stats.setToolTip("良い・悪いと判定した絵、よく使う言葉・模型・画風・大きさ、頼み直しの回数を見ます。記録はここで消せます")
         help_menu.addAction(stats)
@@ -1069,15 +1076,6 @@ def dark(app: QApplication, name: str | None = None):
 def main():
     from atelier.app import crash_log as crashlog
     crashlog.install()
-    try:
-        from atelier.app.migrate import integrate_once
-        from atelier.files.paths import GGUF
-        if integrate_once(DATA, GGUF, QSettings):   # CharacterDesigner を使っていた人だけ、ファイルと設定を 1 回だけ統合する
-            for lib in (DATA / "simple" / "lib", DATA / "gen" / "lib", DATA / "llm" / "lib"):
-                if lib.exists() and str(lib) not in sys.path:
-                    sys.path.insert(0, str(lib))
-    except OSError:
-        pass
     app = QApplication(sys.argv)
     dark(app)
     from atelier.ui import window_fit as fit
@@ -1088,9 +1086,12 @@ def main():
         app.setWindowIcon(QIcon(str(logo.icon_png())))
     from atelier import extensions
     extensions.load_bundled()        # 同梱の拡張
+    extensions.load_dropins(DATA / "extensions")   # ほかのアプリのインストーラーが置いた拡張（docs/knowledge/integration.md）
     extensions.load_entry_points()   # 別のパッケージで入れた拡張。窓を作る前に登録する（窓が作り終わりに付ける）
     w = Window()
     w.show()
+    from atelier.app import migrate_dialog
+    migrate_dialog.offer_on_start(w)   # CharacterDesigner の置き場や、前の版が写した物があるときだけ聞く
     w.ask_models()
     w.ask_words_once()
     w.upgrade_models()

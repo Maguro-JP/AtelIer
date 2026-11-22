@@ -36,6 +36,7 @@ SetCompressor /SOLID lzma
 !define MUI_FINISHPAGE_RUN "$INSTDIR\python\pythonw.exe"
 !define MUI_FINISHPAGE_RUN_PARAMETERS "-E -s -m atelier"
 !define MUI_FINISHPAGE_RUN_TEXT "AtelIer を起動する"
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -44,7 +45,8 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "Japanese"
 
 
-Section "Install"
+Section "AtelIer" SecMain
+  SectionIn RO
   ; 更新のとき、前のプログラムを先に消す（消したファイルが残って古いまま読まれないように）
   RMDir /r "$INSTDIR\atelier"
   RMDir /r "$INSTDIR\tools"
@@ -63,10 +65,7 @@ Section "Install"
   CreateDirectory "$1LLM\manual"
   nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$1LLM" /grant *S-1-5-32-545:(OI)(CI)M /Q'
 
-  ; CharacterDesigner を使っていた人だけ、ファイルと設定を AtelIer の置き場へ 1 回だけ統合する（言葉の模型は共通の置き場へ移す）
-  DetailPrint "CharacterDesigner のファイルと設定を統合しています"
-  nsExec::ExecToLog '"$INSTDIR\python\python.exe" -E -s -m atelier.app.migrate'
-  Pop $0
+  ; CharacterDesigner からの引き継ぎは、ここでは黙ってしない。初めての起動で利用者が窓で選ぶ（atelier/app/migrate_dialog.py）
 
 
   SetShellVarContext all
@@ -84,6 +83,23 @@ Section "Install"
   WriteRegStr HKLM "${UNINST}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "${UNINST}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINST}" "NoRepair" 1
+SectionEnd
+
+; 選べる項目。既定は外す。ネットから CharacterDesigner の最新の Release の Setup.exe を取って静かに入れる。
+; inetc プラグインは NSIS の標準に無く build.sh の環境に入れる手間が増えるので、Windows に必ずある PowerShell で取る
+Section /o "CharacterDesigner も入れる（ネットから取る）" SecCD
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File "${__FILEDIR__}\get-characterdesigner.ps1"
+  DetailPrint "CharacterDesigner の最新の Setup.exe を取っています"
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\get-characterdesigner.ps1"'
+  Pop $0
+  ${If} $0 == "2"
+    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner の Release に Setup.exe がまだありません。AtelIer だけを入れて先へ進みます。" /SD IDOK
+  ${ElseIf} $0 != "0"
+    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner を取れませんでした（ネットにつながっているかを確かめてください）。AtelIer だけを入れて先へ進みます。" /SD IDOK
+  ${EndIf}
+  SetOutPath "$INSTDIR"
 SectionEnd
 
 Section "Uninstall"
