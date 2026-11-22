@@ -133,6 +133,10 @@ def _tabs(w, keys: list[str]):
     """keys の欄を 1 か所にタブで重ねる。最初の欄を前に出す"""
     docks = [w.panels[k][0] for k in keys]
     for d in docks[1:]:
+        # 別の所に積んである欄は、いったん外してから重ねる。積んだまま tabifyDockWidget を呼ぶと、
+        # Qt が何もしないことがあり、おすすめの配置で表示が履歴の裏に入らず AI の上に細く残って流す棒を出した
+        if d not in w.tabifiedDockWidgets(docks[0]):
+            w.removeDockWidget(d)
         w.tabifyDockWidget(docks[0], d)
         d.show()
     docks[0].raise_()
