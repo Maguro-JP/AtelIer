@@ -74,3 +74,55 @@ def install(app: QApplication):
     if _FILTER is None:
         _FILTER = ScreenFit(app)
         app.installEventFilter(_FILTER)
+
+
+def fit_dock_height(dock: QWidget, height: int):
+    """欄を中身の高さ（height）にそろえる。進みの欄のように、中身が状態で増え減りする欄に使う。
+    欄の外側（流す枠）の高さを決めないと、Qt の欄の場所は前の高さのまま残り、描いている間は文が切れ、
+    描いていない間は空きが大きく残った。流す枠の高さの上限を中身の高さにし、欄の場所をその高さに合わせる"""
+    box = dock.widget()
+    if box is None:
+        return
+    box.setMinimumHeight(0)
+    # 上限は付けない。上限を中身の高さにすると欄の高さが固定になり、利用者が手で広げられなくなった
+    box.setMaximumHeight(16777215)
+    _watch_hand_resize(dock)
+    # 欄の外枠の最小・最大は、中身が固定の高さのとき Qt が中身から決めて持ち続ける。隠れている間に中身の高さを変えると
+    # 前の高さ（起動したときの 114 など）のまま残ったので、毎回組み直させる
+    if dock.layout() is not None:
+        dock.layout().invalidate()
+        dock.layout().activate()
+    dock.updateGeometry()
+    if dock.isFloating():
+        dock.adjustSize()
+        return
+    from PySide6.QtWidgets import QMainWindow
+    main = dock.parentWidget()
+    if isinstance(main, QMainWindow) and dock.isVisible():
+        bar = dock.titleBarWidget()
+        head = bar.sizeHint().height() if bar is not None and bar.isVisible() else 0
+        want = height + head
+        hand = dock.property("fit_hand_height")
+        if hand:
+            want = max(want, int(hand))   # 手で決めた大きさを尊重する。中身が増えて足りないときだけ広げる
+        dock._fit_busy = True
+        try:
+            main.resizeDocks([dock], [want], Qt.Vertical)
+        finally:
+            dock._fit_busy = False
+
+
+class _HandResize(QObject):
+    """欄の境目をマウスで動かして変えた高さを覚える。自動で合わせた高さや窓の大きさの変化では覚えない"""
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.Resize and not getattr(obj, "_fit_busy", False) and not obj.isFloating() \
+                and QApplication.mouseButtons() & Qt.LeftButton and e.size().height() != e.oldSize().height():
+            obj.setProperty("fit_hand_height", e.size().height())
+        return False
+
+
+def _watch_hand_resize(dock: QWidget):
+    if getattr(dock, "_hand_watch", None) is None:
+        dock._hand_watch = _HandResize(dock)
+        dock.installEventFilter(dock._hand_watch)

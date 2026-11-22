@@ -196,7 +196,7 @@ def render(pipe, prompt: str, negative: str, shapes: dict, variant: dict, seed: 
             on_step(i + 1, steps)
         return kw
     from atelier.files import sent
-    sent.record("構図", prompt, negative)
+    sent.record("仕上げ", prompt, negative)
     return pipe(prompt=prompt, negative_prompt=negative, width=w, height=h, num_inference_steps=steps, guidance_scale=guidance,
                 control_image=[shapes[k].resize(size) for k in kinds], control_mode=[MODES[k] for k in kinds],
                 controlnet_conditioning_scale=[float(variant[k]) for k in kinds], control_guidance_end=float(variant.get("end", 0.6)),
@@ -347,8 +347,10 @@ def read_result(keep: Path, name: str) -> dict:
         return {"passed": False, "checked": False, "bad": [], "missing": []}
 
 
-def finish(tags: str, seed: int, render_model: str, size, composition_path, keep: Path, variants=None):
-    """1 つの構図から、縛りの組み合わせごとに 1 枚ずつ描く。描けた絵から順にファイルに残す（途中で打ち切られても残る）"""
+def finish(tags: str, seed: int, render_model: str, size, composition_path, keep: Path, variants=None, negative: str = ""):
+    """1 つの構図から、縛りの組み合わせごとに 1 枚ずつ描く。描けた絵から順にファイルに残す（途中で打ち切られても残る）。
+    negative は利用者の禁止ワードと頼みの打ち消し（「帽子なし」の hat）。1 つの模型で描く経路と同じ物を渡す。
+    前は空で渡していたので、2 段で描くと禁止した物・打ち消した物が仕上げに描かれた"""
     from PIL import Image
     from atelier.models.catalog import image_model
     keep = Path(keep)
@@ -359,13 +361,13 @@ def finish(tags: str, seed: int, render_model: str, size, composition_path, keep
     print(f"仕上げの模型を読む: {time.time() - t:.0f} 秒", flush=True)
     for v in variants or VARIANTS:
         t = time.time()
-        out = render(pipe, tags, "",   # 頼みのまま。質のタグも打ち消しも足さない
+        out = render(pipe, tags, negative,   # 頼みのまま。質のタグも、利用者の書いていない打ち消しも足さない
 
                      shapes, v, seed, tuple(size), rm.steps, rm.guidance,
                      on_step=lambda i, n, name=v["name"]: print(f"仕上げ {name} {i}/{n} {time.time() - t:.0f} 秒", flush=True))
         out.save(keep / f"3-{v['name']}-s{seed}-fix0.png")
         print(f"仕上げ {v['name']}: {time.time() - t:.0f} 秒", flush=True)
-        prompt, negative = tags, ""   # 直しも頼みのまま。言葉を足さない
+        prompt = tags   # 直しも頼みのまま。言葉を足さない
         out = fix_hands(pipe, out, prompt, negative, seed, rm.steps, rm.guidance, keep, v["name"])
         out = refine(pipe, out, prompt, negative, seed, rm.steps, rm.guidance)
         out.save(keep / f"3-{v['name']}-s{seed}-refined.png")
@@ -419,7 +421,7 @@ def pick(installed, painter_model: str = ""):
 
 
 def run_stages(sentence: str, tags: str, seed: int, compose_model: str, render_model: str, size, keep: Path, variant: dict,
-               say=print, stopped=lambda: False):
+               say=print, stopped=lambda: False, negative: str = ""):
     """アプリから 2 段で描く。段ごとに別の処理で動かし、その出力の行を進みとして say に渡す。
     stopped() が真になったら処理を止める。描いた絵の道を返す"""
     import os
@@ -434,7 +436,7 @@ def run_stages(sentence: str, tags: str, seed: int, compose_model: str, render_m
     if py.lower().endswith("pythonw.exe"):   # 出力を読むので、窓の無い pythonw ではなく python で動かす（窓は flags で出さない）
         py = py[:-len("pythonw.exe")] + "python.exe"
     steps = [("構図", ["compose", sentence, str(seed), compose_model, str(w), str(h), str(comp), tags]),
-             ("仕上げ", ["finish", tags, str(seed), render_model, str(w), str(h), str(comp), str(keep), json.dumps([variant])])]
+             ("仕上げ", ["finish", tags, str(seed), render_model, str(w), str(h), str(comp), str(keep), json.dumps([variant]), negative])]
     for label, args in steps:
         if label == "構図" and comp.exists():
             continue   # 前に描いた構図がある（同じ置き場で続きから描く）
@@ -465,7 +467,7 @@ def run_stages(sentence: str, tags: str, seed: int, compose_model: str, render_m
 
 
 def draw(sentence: str, tags: str, seed: int, compose_model: str, render_model: str, size=(832, 1216), say=print, keep=None,
-         composition=None, variants=None, stage="all"):
+         composition=None, variants=None, stage="all", negative: str = ""):
     """sentence は構図の模型に渡す文、tags は仕上げの模型に渡すタグ。
     composition に前に描いた構図の絵を渡すと、構図の段をとばす。stage は "compose"、"finish"、"all"。
     段ごとに別の処理（プロセス）で動かし、段の間でメモリを OS に返す（16GB の機械で、FLUX のあとに SDXL を読むと
@@ -491,7 +493,7 @@ def draw(sentence: str, tags: str, seed: int, compose_model: str, render_model: 
         raise FileNotFoundError(f"構図の絵がありません: {comp}")
     t = time.time()
     subprocess.run([sys.executable, "-u", "-m", "atelier.ai.two_stage", "finish", tags, str(seed), render_model, str(w), str(h), str(comp),
-                    str(keep), json.dumps(variants or VARIANTS)], check=True)
+                    str(keep), json.dumps(variants or VARIANTS), negative], check=True)
     say(f"形と仕上げ: {time.time() - t:.0f} 秒")
     return sorted(keep.glob(f"3-*-s{seed}.png"))
 
@@ -502,4 +504,5 @@ if __name__ == "__main__":
     if cmd == "compose":
         compose(text, int(seed), model, (int(w), int(h)), sys.argv[7], sys.argv[8] if len(sys.argv) > 8 else "")
     else:
-        finish(text, int(seed), model, (int(w), int(h)), sys.argv[7], Path(sys.argv[8]), json.loads(sys.argv[9]))
+        finish(text, int(seed), model, (int(w), int(h)), sys.argv[7], Path(sys.argv[8]), json.loads(sys.argv[9]),
+               sys.argv[10] if len(sys.argv) > 10 else "")

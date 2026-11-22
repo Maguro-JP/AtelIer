@@ -1866,6 +1866,7 @@ class Studio:
               on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None) -> tuple[str, Path]:
         say = on_status or (lambda msg: None)
         self.last_phases = None   # 工程に分けて描いた回だけ、工程ごとの絵と検品を持つ（アプリが隠したレイヤーに置く）
+        self.last_plan = None   # 精度優先の工程の並び（atelier/ai/phase_plan.py）
         self.last_phase_keep = None   # 工程に分けて描いている回の工程の絵の置き場（止めたときに窓が読む）
         if refused(text):
             raise ValueError("子どもを性的に描く頼みは描きません")
@@ -2204,8 +2205,18 @@ class Studio:
             return ans
         return confirm
 
+    phase_answer = None   # 精度優先が止めて聞いた工程に、窓の 4 つのボタンで選んだ答え（再開の 1 回だけ使う）
+
+    def _phase_answer(self, as_tags):
+        """窓で選んだ答えを取り出す（使ったら消す）。足した言葉は頼みと同じく訳してから模型に渡す"""
+        ans, self.phase_answer = self.phase_answer, None
+        if isinstance(ans, (tuple, list)) and len(ans) > 1 and ans[0] == "words":
+            return ("words", self.words.to_prompt(str(ans[1]), tags=as_tags))
+        return ans
+
     def _draw_phases(self, text, seed, style, size, say, on_preview, meta):
-        """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程ごとに描く・測る・1 回だけ直す・崩れが決まった工程へ戻る。
+        """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程の中は計画（atelier/ai/phase_plan.py）の表に、
+        描く・確かめる（項目ごと）・直す（崩れごと）・確かめ直す（直した項目だけ）・聞くの工程として並ぶ。
         渡す言葉は頼みの訳と作風だけで、背景や構図の言葉は足さない。phase_confirm（アプリが入れる）があれば工程ごとに確かめる"""
         import time
         from atelier.ai import phases
@@ -2235,16 +2246,24 @@ class Studio:
         try:
             got = phases.draw(self.painter, prompt, seed, size, keep, say=say, on_preview=on_preview,
                               on_step=lambda i, n: say(f"描いています（{i}/{n}）"), confirm=self._phase_confirm(as_tags),
+                              ask=getattr(self, "phase_ask", None), answer=self._phase_answer(as_tags),
                               pause_key=pausekeep.key("phases", text, seed, style, tuple(size) if size else None, model), pause_job=job)
         finally:
             if hasattr(self.painter, "avoid"):
                 self.painter.avoid = avoid0
         self.last_phases = got["phases"]
+        self.last_plan = got.get("plan")   # 工程の並び（済んだ工程・残り・聞いて止まった工程）。窓と記録が同じ表を読む
         left, checked = got["left"], got["checked"]
         # phases.draw が返るのは全部の工程が検品を通ったときだけ（崩れが残る間は工程を足して続け、止めたときは Stopped で抜ける）
         self.last_passed = bool(checked and not left and got.get("complete"))
         self.last_left = list(left)
-        say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
+        self.last_asked = got.get("asked")   # 窓が「どこで止めたか・直し方」を出す
+        if got.get("complete"):
+            say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
+        else:   # 囲みで直せなかった崩れが残った。描き直し続けずに止め、残った崩れと直し方の候補を利用者に出す
+            ask = got.get("asked") or {}
+            say(f"「{ask.get('phase', '')}」で崩れが残ったので止めました（累計 {got.get('total')} 工程）: " + "、".join(left[:4])
+                + "。直し方: " + "、".join(ask.get("choices") or ["赤ペンで囲んで直す", "言葉を足して直す", "構図から描き直す"]))
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,
                                                    model=getattr(self.painter, "model", ""), way="phases", stages=str(keep),
                                                    phases=got["phases"], passed=checked and not left))
@@ -2260,6 +2279,12 @@ class Studio:
         say("頼みを描く言葉に直しています")
         sentence = self.words.to_prompt(text, tags=False)
         tags = self.words.to_prompt(text, tags=True)
+        # 仕上げ（SDXL）に、1 つの模型で描くときと同じ打ち消しを渡す（禁止ワードと「帽子なし」の hat）。前は空で、禁止した物が描かれた
+        negative = list(getattr(self.words, "negative", []) or [])
+        if negative:
+            say("描かない物: " + ", ".join(negative))
+        avoid = english_only(", ".join(dict.fromkeys(t.strip() for a in [getattr(self.painter, "avoid", "")] + negative
+                                                     for t in str(a or "").split(",") if t.strip())))
         from atelier.ai import composition  # 意図の言葉が書かれていたときだけ構図を足す
         sentence, _ = composition.add(text, sentence, tags=False)
         tags, note = composition.add(text, tags, tags=True)
@@ -2285,7 +2310,7 @@ class Studio:
             sentence, tags = vary_background(sentence0, s_k, tags=False), emphasize(vary_background(tags0, s_k), missing_all)
             keep = self.out / ".stages" / f"{time.strftime('%Y%m%d-%H%M%S')}-{s_k}"
             path = twostage.run_stages(sentence, tags, s_k, comp.repo, render.repo, tuple(size or (832, 1216)), keep, variant,
-                                       say=say, stopped=lambda: self.painter.stop)
+                                       say=say, stopped=lambda: self.painter.stop, negative=avoid)
             result = twostage.read_result(keep, variant["name"])
             left = list(result.get("bad", [])) + [f"描かれていない: {m}" for m in result.get("missing", [])]
             missing_all += [m for m in result.get("missing", []) if m not in missing_all]

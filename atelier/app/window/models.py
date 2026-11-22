@@ -125,9 +125,14 @@ class ModelsMixin:
     def ask_models(self, force: bool = False):
         """初めての起動か、絵の模型が足りなければ、候補を見せて選んでもらう。force なら入れ替えと更新の画面を開く"""
         from atelier.models.first_setup import SetupDialog, missing
-        first = not int(self.settings.store.value("setup_done", 0))
-        if not (force or first or missing()["image"]):
+        store = self.settings.store
+        # 閉じても「今は選ばない」として 1 回だけ聞く。前は閉じると次の起動でまた出て、模型が無い間は毎回出た
+        first = not int(store.value("setup_done", 0)) and not int(store.value("setup_asked", 0))
+        if not (force or first):
+            if missing()["image"] and hasattr(self, "notify"):
+                self.statusBar().showMessage("絵の模型がまだありません。「AI」の「模型の管理」から取れます", 8000)
             return
+        store.setValue("setup_asked", 1)
         if SetupDialog(self.settings, self, first=not force).exec():
             self.studio = self._studio_from_settings()   # 選んだ模型で描き直す
             self.check_ai()
@@ -164,13 +169,17 @@ class ModelsMixin:
         self.statusBar().showMessage(f"新しい言葉の模型 {new.name} を裏で取っています", 6000)
         threading.Thread(target=self.upgrader.run, args=(None, new), daemon=True).start()
 
-    def ask_words_once(self, pick=None):
-        """言葉の模型を一度だけ選んでもらう。選んだ物（「使わない」を含む）は覚え、次の起動からは聞かない。
-        変えるのは模型の管理から。pick は試験で窓の代わりに答えを返す関数（items を受けて 1 つ返す。None はやめた）"""
+    def ask_words_once(self, pick=None, force: bool = False):
+        """言葉の模型を選んでもらう。起動のときは聞かない（初めての起動で確かめの窓が 3 枚続いたため。
+        選ぶまでは点のいちばん高い物を使う。upgrade_models）。「設定」の「言葉の模型を選ぶ…」と試験（pick）から開く。
+        閉じたときは「今は選ばない」で、「使わない」とは覚えない。
+        pick は試験で窓の代わりに答えを返す関数（items を受けて 1 つ返す。None はやめた）"""
         from atelier.models.manager import choose_words, words_chosen
         from atelier.models.catalog import offered_words
         from atelier.models.first_setup import has_words, words_path
-        if words_chosen(self.settings):
+        if pick is None and not force:
+            return
+        if words_chosen(self.settings) and not force:
             return
         offered = offered_words()
         if not offered:
@@ -186,7 +195,9 @@ class ModelsMixin:
             got = got if ok else None
         else:
             got = pick(labels)
-        if got is None or got == "使わない":
+        if got is None:
+            return   # 閉じた・やめた。何も決めず、前の模型のまま
+        if got == "使わない":
             choose_words(self.settings, "")
             self.statusBar().showMessage("言葉の模型を使いません。使うときは「模型の管理」から選びます", 6000)
         else:

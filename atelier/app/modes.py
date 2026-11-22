@@ -53,7 +53,8 @@ def unregister(key: str):
 def stored(store) -> tuple[str, bool]:
     """覚えたモードと、「次から聞かない」か"""
     key = str(store.value("mode/current", "") or "")
-    ask = int(store.value("mode/ask", 1) or 0)
+    # 既定は聞かない。初めての起動で確かめの窓が 3 枚続いたため、モードは既定で開き「表示」の「モード」で替える
+    ask = int(store.value("mode/ask", 0) or 0)
     return (key if key in MODES else ""), not ask
 
 

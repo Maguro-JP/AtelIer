@@ -56,6 +56,12 @@ class FailingPainter(Painter):
 
 class PhasesPauseTest(KeepDir):
     def run_with(self, exc):
+        # 偽の絵は線の輪郭の検品を通らないので、ほかの工程の試験と同じく輪郭は通す（通らない崩れは聞いて止まるため、再開を最後まで見られない）
+        from unittest import mock
+        from atelier.ai import phase_tools as pt
+        p = mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0})
+        p.start()
+        self.addCleanup(p.stop)
         C, _ = checks(False)
         painter = FailingPainter(3, exc)
         said = []
@@ -67,17 +73,27 @@ class PhasesPauseTest(KeepDir):
         rec = pausekeep.info(k)
         self.assertEqual(rec["kind"], "phases")
         self.assertTrue(rec["has_state"])
-        i = pausekeep.state(k)["i"]
-        done_before = len(pausekeep.state(k)["history"])
-        # 再開: 同じ鍵で呼び直すと、その工程から続き、前の工程は描き直さない
+        kept = pausekeep.state(k)
+        from atelier.ai.phase_plan import Plan
+        plan = Plan.load(phases.NAMES, phases.HIDDEN, kept["plan"])
+        j, _n = plan.number()   # 止めた工程の、計画の中の見せる番号
+        i = plan.current()["phase"]
+        self.assertTrue(stopped_at.startswith(f"工程 {j}/"), stopped_at)
+        done_before = len([r for r in kept["history"] if r["phase"] != phases.NAMES[i]])
+        # 再開: 同じ鍵で呼び直すと、計画の同じ工程から続き、済んだ工程は描き直さない
         said2 = []
         calls_before = painter.n_paint
         got = phases.draw(painter, "1girl", 5, (64, 96), self.d / "k2", say=said2.append, checks=C, pause_key=k)
-        self.assertIn(f"一時停止した工程 {i + 1}/{len(phases.PHASES)}", said2[0])
+        self.assertIn(f"一時停止した工程 {j}/", said2[0])
         first = next(s for s in said2 if s.startswith("工程 "))
-        self.assertTrue(first.startswith(f"工程 {i + 1}/"), (first, stopped_at))
+        self.assertTrue(first.startswith(f"工程 {j}/"), (first, stopped_at))
         self.assertEqual([r["phase"] for r in got["phases"]], phases.NAMES)
-        self.assertGreaterEqual(len(got["history"]), done_before + (len(phases.PHASES) - i))
+        # 再開のあと、止めた工程から計画の順に 1 つずつ進み、同じ工程を繰り返さない（止める前に描き終えた工程も描き直さない）
+        order = [phases.NAMES.index(r["phase"]) for r in got["history"]]
+        self.assertEqual(order, list(range(len(phases.PHASES))), (order, got.get("asked"), said2[-6:]))
+        self.assertEqual(len(got["history"]), done_before + (len(phases.PHASES) - i))
+        begun = [int(s.split("/")[0].split()[1]) for s in said2 if s.startswith("工程 ") and not s.startswith("工程 0/")]
+        self.assertEqual(begun, list(range(j, got["need"] + 1)), begun)
         self.assertIsNone(pausekeep.info(k))   # 描き終えたら残した途中は消す
         self.assertGreater(painter.n_paint, calls_before)
 

@@ -1,7 +1,8 @@
 """進みのポップアップ。AI が描いている間、絵の欄の右下に下からせり上がって出る。
 
-上に進みの欄を常に置くと、絵を見る場所が狭くなった。描いている間だけ右下に小さく出し、
-描き終わっても結果が読めるよう、利用者が × で閉じるまで残す（自分で消えると状態が分からなかった）。
+上に進みの欄を常に置くと、絵を見る場所が狭くなった。描いている間だけ右下に小さく出す。
+描き終わったあとは、設定の「通知」の「描き終わり」（描けなかったときは「エラー」）の決まりで、数秒で消すか・押すまで残すか・出さないかを決める
+（前は × を押すまでずっと残り、邪魔になった）。結果は進み具合の欄の「知らせ」に残るので、消えても見返せる。
 中身は進みの欄（activity）の知らせ（changed）をそのまま映す。進みの欄は「ウィンドウ」メニューから今まで通り出せる。
 """
 from __future__ import annotations
@@ -110,6 +111,10 @@ class ProgressPopup(QFrame):
         # × で閉じたら、その 1 回分が終わるまで出し直さない（前は次の進みの知らせのたびにまた出た）。次の 1 回で戻す
         self.dismissed = False
         window.activity.begun.connect(self._new_run)
+        # 描き終わったあとに消すための時計（描いている間は止める）
+        self.fade = QTimer(self)
+        self.fade.setSingleShot(True)
+        self.fade.timeout.connect(self.close_popup)
         if window.centralWidget() is not None:   # 欄を動かして絵の欄の大きさが変わったら付け直す
             window.centralWidget().installEventFilter(self)
 
@@ -148,7 +153,26 @@ class ProgressPopup(QFrame):
         self.anim.setEndValue(end)
         self.anim.start()
 
+    ERROR_WORDS = ("できませんでした", "描けません", "エラー", "失敗", "落ち", "足りません")
+
+    def finished(self, title: str, text: str = "") -> bool:
+        """終わりの知らせを出したあとに、設定どおり消す時計を掛ける。返りは出してよいか（「出さない」なら False）"""
+        from atelier.ui.notice_rules import KEEP, OFF, rule
+        kind = "error" if any(w in f"{title} {text}" for w in self.ERROR_WORDS) else "done"
+        act = getattr(self.w, "activity", None)
+        if act is not None and hasattr(act, "note"):
+            act.note(" ".join(t for t in (title, text) if t and t != "終わりました") or title, "error" if kind == "error" else "ok")
+        how, sec = rule(getattr(self.w, "settings", None), kind)
+        self.fade.stop()
+        if how == OFF:
+            self.close_popup()
+            return False
+        if how != KEEP:
+            self.fade.start(sec * 1000)
+        return True
+
     def _new_run(self):
+        self.fade.stop()
         self.dismissed = False
         self.thumb.clear()
         self.thumb.hide()
@@ -215,6 +239,11 @@ class ProgressPopup(QFrame):
         # 終わりの知らせ（描けなかった理由・止めた・取り終えた）は閉じていても出す。進みの途中は閉じたまま・欄に出ていれば出さない
         if pct != -2 and (self.dismissed or self.panel_shown()):
             return
+        if pct == -2:
+            if not self.finished(title, text):
+                return
+        else:
+            self.fade.stop()
         self.dismissed = False
         self.pop()
 
@@ -239,7 +268,10 @@ class ProgressPopup(QFrame):
             self.eta.setText("")
             self.pulse.stop()
             self.bar.setValue(100)
+            if not self.finished(self.title.text(), text):
+                return
         else:
+            self.fade.stop()
             mode = getattr(act, "mode", "")
             self.title.setText(self.heading())
             self.text.setText(text[len(mode) + 2:] if mode and text.startswith(mode + ": ") else text)   # 工程（新規: は見出しと重なるので外す）

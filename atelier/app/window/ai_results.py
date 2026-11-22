@@ -21,7 +21,7 @@ class AiResultsMixin:
         絵を置くのを先にする。前は検品の知らせを先に出していて、そこで落ちると絵が置かれず、途中の絵か何も無いままだった"""
         if self._stale():
             return
-        self.canvas.show_overlay(None)
+        # 途中の絵はここでは外さない。置く所（put_result）が、見えている途中の絵から筆で描き込む
         if self.job_kind == "fix":
             self._on_fixed(path)
             return
@@ -83,7 +83,10 @@ class AiResultsMixin:
         if image is not None:
             self.canvas.show_overlay(qimage_from_pil(image))
         left = row["after"] if row.get("fixed") else row.get("found", [])
-        text = (f"工程 {i + 1}「{name}」が終わりました。\n決めた物: {row.get('decides', '')}\n"
+        from atelier.ui.phase_display import number
+        j = number(i + 1, name)
+        text = ((f"工程 {j}「{name}」" if j else f"「{name}」") + "が終わりました。"
+                + f"\n決めた物: {row.get('decides', '')}\n"
                 + ("崩れは見つかりませんでした" if not left else "残った崩れ: " + "、".join(left[:4])))
         box = QMessageBox(QMessageBox.Question, "工程ごとに確かめる", text, parent=self)
         box.setObjectName("phase_confirm")
@@ -105,11 +108,99 @@ class AiResultsMixin:
             return ("words", add) if ok and add.strip() else "go"
         return "go"
 
+    def offer_phase_ways(self, ask: dict):
+        """精度優先が崩れを直せずに止めたとき、直し方の 4 つのボタンを窓に出す。どれも一時停止の続き（pause_keep）から進める。
+        窓は閉じずに置く（赤ペンで囲む間もキャンバスを触れるように、ほかの操作を塞がない）"""
+        from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+        old = getattr(self, "_phase_ways", None)
+        if old is not None:
+            old.close()
+        box = QDialog(self)
+        box.setObjectName("phaseWays")
+        box.setWindowTitle("直し方を選ぶ")
+        col = QVBoxLayout(box)
+        col.addWidget(QLabel(f"「{ask.get('phase', '')}」で崩れが残りました: " + "、".join((ask.get("left") or [])[:4])))
+        row = QHBoxLayout()
+        tips = {"赤ペンで囲んで直す": "直したい所を赤ペンで囲み、指示の欄の「確定」を押すと、囲んだ中だけを直して続きから進めます",
+                "言葉を足して直す": "足す言葉を書くと、訳して模型に渡し、この工程の崩れの所を直して続けます",
+                "構図から描き直す": "サムネイル（構図）の工程から、種を変えて描き直します",
+                "このまま進む": "残った崩れを記録に残して、次の工程へ進みます"}
+        for name in ask.get("choices") or list(tips):
+            b = QPushButton(name, box)
+            b.setObjectName("phaseWay")
+            b.setToolTip(tips.get(name, ""))
+            b.clicked.connect(lambda _c=False, n=name: self.pick_phase_way(ask, n))
+            row.addWidget(b)
+        col.addLayout(row)
+        self._phase_ways = box
+        box.show()
+        return box
+
+    def pick_phase_way(self, ask: dict, name: str) -> bool:
+        """押した直し方を答えにして、止めた工程から続ける。赤ペンは、囲んで「確定」を押すまで待つ"""
+        k = ask.get("key")
+        box = getattr(self, "_phase_ways", None)
+        if name == "赤ペンで囲んで直す":
+            self._phase_pen = ask
+            if "redpen" in getattr(self, "tool_actions", {}):
+                self.tool_actions["redpen"].trigger()
+            self.say("直したい所を赤ペンで囲み、指示の欄の「確定」を押すと、囲んだ中だけを直して続きから進めます")
+            if box is not None:
+                box.hide()
+            return True
+        if name == "言葉を足して直す":
+            from PySide6.QtWidgets import QInputDialog
+            add, ok = QInputDialog.getText(self, "言葉を足して直す", "足す言葉:")
+            if not ok or not add.strip():
+                return False
+            answer = ("words", add.strip())
+        elif name == "構図から描き直す":
+            from atelier.ai.phases import RESTART
+            answer = RESTART
+        else:
+            from atelier.ai.phases import GO_ON
+            answer = GO_ON
+        return self._resume_phase(k, answer)
+
+    def _resume_phase(self, k, answer) -> bool:
+        box = getattr(self, "_phase_ways", None)
+        if box is not None:
+            box.close()
+            self._phase_ways = None
+        self.studio.phase_answer = answer
+        ok = self.resume_paused(k)
+        if not ok:
+            self.studio.phase_answer = None
+        return ok
+
+    def phase_pen_done(self) -> bool:
+        """赤ペンの「確定」で呼ぶ。止めた工程を待っていれば、囲んだ所を白黒の絵にして、その中だけを直して続ける"""
+        ask = getattr(self, "_phase_pen", None)
+        masks = self.canvas.redpen.masks() if ask else []
+        if not ask or not masks:
+            return False
+        from atelier.files import pause_keep as pausekeep
+        from PySide6.QtGui import QPainter
+        whole = masks[0].copy()
+        q = QPainter(whole)
+        q.setCompositionMode(QPainter.CompositionMode_Lighten)
+        for m in masks[1:]:
+            q.drawImage(0, 0, m)
+        q.end()
+        path = pausekeep.root() / f"{ask['key']}-pen.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        whole.save(str(path))
+        self._phase_pen = None
+        from atelier.ai.phases import REDPEN
+        return self._resume_phase(ask["key"], (REDPEN, str(path)))
+
     def _put_phases(self):
         """工程に分けて描いた回は、工程ごとの絵を描いた絵の下に隠したレイヤーで置き、工程ごとの検品を会話に出す（atelier/ai/phases.py）"""
         rows = getattr(self.studio, "last_phases", None) if self.job_kind == "draw" else None
         if not rows:
             return
+        from atelier.ui.phase_display import drawn
+        rows = drawn(rows)   # 描かない工程（目的）は番号にもレイヤーにも出さない
         self.canvas.add_phase_layers([(f"工程 {i}: {r['phase']}", r["image"]) for i, r in enumerate(rows, 1) if r.get("image")])
         for r in rows:
             left = r["after"] if r["fixed"] else r["found"]
@@ -138,8 +229,9 @@ class AiResultsMixin:
         try:
             if got.get("image") and self.canvas.layers:
                 self.put_result(got["image"], f"止めた所までの絵（工程 {total}「{got.get('phase', '')}」）")
-                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in
-                                              enumerate(zip(got.get("names", []), got.get("images", [])), 1)])
+                from atelier.ui.phase_display import hidden
+                pairs = [(nm, im) for nm, im in zip(got.get("names", []), got.get("images", [])) if not hidden(nm)]
+                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in enumerate(pairs, 1)])
                 self._refresh_layers()
         except (OSError, ValueError) as e:
             self.say(f"止めた所までの絵をレイヤーに置けませんでした（{e}）")
@@ -226,7 +318,12 @@ class AiResultsMixin:
             self._debug_failure(result, "\n".join(job.reasons), getattr(job, "trace", ""))
         self.activity.end(result, None, record=False)
         if undone:
-            self.say("未完成です。残った崩れ: " + "、".join(bad[:5]))
+            ask = getattr(studio, "last_asked", None) or {}
+            # 精度優先は直せない崩れで止まる。描き直し続けずに、どこで止まったかと直し方の候補を出して利用者に選んでもらう
+            how = ("。「" + ask["phase"] + "」で止めました。直し方: " + "、".join(ask.get("choices") or [])) if ask.get("phase") else ""
+            self.say("未完成です。残った崩れ: " + "、".join(bad[:5]) + how)
+            if ask.get("key"):
+                self.offer_phase_ways(ask)
         else:
             self.say(result if fixed else f"{n} 枚描きました。履歴から選べます" if n > 1 else "描きました")
         self.notify(result if fixed or undone else "描けました", "error" if bad else "ok",

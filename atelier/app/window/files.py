@@ -117,6 +117,27 @@ class FilesMixin:
             self.source_path = str(path)
         self.dirty = False
 
+    def new_blank(self, w: int = 1200, h: int = 1600):
+        """白い新しいキャンバスにする。前は積み重ねごと消していたので、描いた絵が元に戻すで戻らなかった
+        （説明には「戻せます」と書いてあった）。前の絵を 1 手として積み、作業ファイルの道も外す
+        （外さないと、続けて保存したとき前の作業ファイルを白い絵で上書きした）"""
+        from PySide6.QtGui import QColor
+        from atelier.paint.canvas import Layer, blank
+        c = self.canvas
+        if not c.layers:
+            c.new_canvas(w, h)
+        else:
+            c.snapshot_all()
+            c._clear_marks()   # replace_with_image と同じく、前の絵の赤ペンの枠を残さない
+            c.layers = [Layer("背景", blank(w, h, QColor("white"))), Layer("レイヤー 1", blank(w, h))]
+            c.current = 1
+            c.sym_center = None
+            c.set_selection(None)
+            c.rebuild()
+            c.fit()
+        self.project_path, self.source_path = None, None
+        self.statusBar().showMessage("新しいキャンバスにしました（元に戻すで前の絵に戻せます）", 4000)
+
     def save_project(self, ask: bool = False, wait: bool = False) -> bool:
         """作業ファイル（レイヤー・赤ペンの印ごと）に保存する。初めてか ask なら置き場を聞く。
         書くのは裏の糸（PNG に縮めるのに 1 枚 0.1〜0.3 秒かかり、その間描けなかった）。wait なら書き終えるまで待つ
@@ -140,6 +161,7 @@ class FilesMixin:
                 self.notify("保存できませんでした", "error", f"{e}\n保存先に書き込めるか、ディスクに空きがあるかを確かめてください")
                 return False
             self.project_path, self.dirty = path, False
+            self.statusBar().showMessage("保存しました", 3000)   # 「保存しています…」を残すと、終わったのか分からなかった
             self.notify("保存しました", "ok", Path(path).name)
             return True
         self.project_path, self.dirty = path, False
@@ -150,6 +172,7 @@ class FilesMixin:
                 self.dirty = True
                 self.notify("保存できませんでした", "error", f"{err}\n保存先に書き込めるか、ディスクに空きがあるかを確かめてください")
                 return
+            self.statusBar().showMessage("保存しました", 3000)   # 「保存しています…」を残すと、終わったのか分からなかった
             self.notify("保存しました", "ok", Path(path).name)
         self.run_io(lambda: project.write(snap, path), done, "保存")
         return True

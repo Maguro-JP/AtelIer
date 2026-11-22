@@ -60,7 +60,7 @@ def catalog(w) -> dict[str, tuple[str, list[Step]]]:
         "talk": ("チャット", [Step(_panel(w, "talk"), "チャット", "AI と話す欄です。使い方を聞く、絵の相談をする、「ペンにして」のような操作を頼む、ができます。\nEnter で送り、Shift+Enter で改行します。描く内容は AI の欄に書きます。", _show(w, "talk"))]),
         "library": ("ライブラリー", [Step(_panel(w, "library"), "ライブラリー", "描いた絵は「作品」に入ります。右クリックで「好き」「いまいち」を付けてください。\n「資料」には好きな絵柄の絵を置けます。「好み」に読み取った結果が出て、描くときに足されます。", _show(w, "library"))]),
         "taste": ("好み", [Step(_panel(w, "library"), "好みを学ぶ", "「好き」の絵に多い要素を足し、「いまいち」の絵に多い要素を避けて描きます。\n同じ要素が 2 回以上出るまでは足しません。「好み」のタブで外せます。", _show(w, "library"))]),
-        "progress": ("進み", [Step(lambda: w.progress_popup, "進み", "AI が描いている間は、右下に進みが出ます。描き終わっても × で閉じるまで残ります。",
+        "progress": ("進み", [Step(lambda: w.progress_popup, "進み", "AI が描いている間は、右下に進みが出ます。描き終わったあと数秒で消えるか、押すまで残すかは、設定の「通知」で選べます。",
                                   lambda: w.progress_popup.pop())]),
         # ---- AI ----
         "draw": ("AI で描く", [Step(lambda: w.progress_popup, "AI が描いています", "工程と進みは右下に出ます。\n描いている途中の絵がキャンバスに重なって見えます。", lambda: w.progress_popup.pop()),
@@ -93,7 +93,7 @@ def catalog(w) -> dict[str, tuple[str, list[Step]]]:
         # ---- はじめのツアーから分けた案内（1 つ 5 枚まで） ----
         "tour_panels": ("欄の案内", [
             Step(_panel(w, "talk"), "チャット", "AI に使い方を聞いたり、絵の相談をしたりできます。\n答えに出た描く内容の案は、吹き出しのボタンで AI の欄に入れられます。", _show(w, "talk")),
-            Step(lambda: w.progress_popup, "進み", "AI が描いている間は、右下に工程と進みが出ます。\n× で閉じるまで消えません。", lambda: w.progress_popup.pop()),
+            Step(lambda: w.progress_popup, "進み", "AI が描いている間は、右下に工程と進みが出ます。\n描き終わったあとの出し方は、設定の「通知」で選べます。", lambda: w.progress_popup.pop()),
             Step(_panel(w, "view"), "表示", "全体の縮小図と参考画像です。縮小図を押すと、その場所を表示します。", _show(w, "view")),
             Step(_panel(w, "history"), "履歴", "描いた絵と、キャンバスの操作の履歴です。\n操作を選ぶと、その時点まで戻れます。", _show(w, "history")),
             Step(_panel(w, "color"), "色・ブラシ・レイヤー", "左には手で描くための欄をまとめています。\nAI の絵はレイヤーとして重なります。", _show(w, "color"))]),

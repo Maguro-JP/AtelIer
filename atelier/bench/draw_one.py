@@ -12,14 +12,30 @@ import time
 from pathlib import Path
 
 
+REQUEST = Path(__file__).resolve().parents[2] / "config" / "draw-request.json"
+
+
+def read_request(composition: str | None = None) -> dict:
+    """頼みを読む。config/draw-request.json が無いとき（頼みを消したブランチで、構図を使い回して仕上げだけ描き直すとき）は、
+    構図の隣に構図の段が残した頼み（request-compose.json）を使う。前は無い頼みを開こうとして、描き直しの段が落ちた。
+    道はリポジトリから引く（今いるフォルダーからでは、別の所から動かすと見つからなかった）"""
+    places = [REQUEST]
+    if composition:
+        places.append(Path(composition).with_name("request-compose.json"))
+    for p in places:
+        if p.is_file():
+            return json.loads(p.read_text(encoding="utf-8"))
+    raise SystemExit("頼みがありません: " + "、".join(str(p) for p in places))
+
+
 def main():
+    import os
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
-    req = json.loads(Path("config/draw-request.json").read_text(encoding="utf-8"))
+    req = read_request(os.environ.get("DRAW_COMPOSITION"))
     if req.get("mode") == "twostage":
         # 段は環境変数 DRAW_STAGE（compose、finish、all）で選ぶ。Actions では段ごとに別のジョブにして、
         # 1 つのジョブが打ち切られても、前の段の絵は draw-results に残る
-        import os
         from atelier.ai.two_stage import draw
         stage = os.environ.get("DRAW_STAGE", "all")
         # 頼みの composition に、立体の人形（関節の可動域を検査した姿勢）を撮った絵を書けば、構図の模型をとばして
@@ -28,7 +44,8 @@ def main():
         t = time.time()
         seed = int(os.environ.get("DRAW_SEED") or req.get("seed", 7))   # 検品を通るまで、種を変えて描き直す（draw-one.yml）
         draw(req["prompt"], req["tags"], seed, req["compose"], req["render"], size=tuple(req.get("size", (832, 1216))),
-             say=lambda m: print(m, flush=True), keep=out, composition=comp, variants=req.get("variants"), stage=stage)
+             say=lambda m: print(m, flush=True), keep=out, composition=comp, variants=req.get("variants"), stage=stage,
+             negative=req.get("negative", ""))
         from atelier.qc import hand_check as handcheck
         checks = {}
         for f in sorted(out.glob("1-composition.png")) + sorted(out.glob("3-*.png")):
