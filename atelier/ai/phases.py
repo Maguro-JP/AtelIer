@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import gc
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -165,6 +166,11 @@ def release() -> float:
         return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
     except Exception:   # noqa: BLE001
         return 0.0
+
+
+def _shape(flaws) -> list[str]:
+    """崩れの文から数字を外した形。「0.745」と「0.759」のように値だけ違う崩れを同じ崩れとして比べる"""
+    return [re.sub(r"\d+(?:\.\d+)?", "#", str(f)) for f in flaws]
 
 
 def _mask(size, regions):
@@ -707,7 +713,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             back = got.get("back")
             if back is None:
                 back = BACK_TARGETS[i] if row["readable"] and BACK_TARGETS[i] is not None else i
-            same = last_left.get(i) == list(left)
+            same = last_left.get(i) is not None and _shape(last_left[i]) == _shape(left)   # 数字だけ違う崩れも同じ崩れと見なす
             last_left[i] = list(left)
             if same:
                 # 同じ直しで同じ崩れが続いた。同じ入力を繰り返さないよう、戻り先を 1 つ前へ広げ、種と直しの強さを替える
