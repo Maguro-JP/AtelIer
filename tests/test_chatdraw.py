@@ -1101,10 +1101,13 @@ def wait_idle(app, w, limit: float = 300.0):
     """裏の処理が終わる（w.thread が None になる）まで待つ"""
     import time as _t
     end = _t.time() + limit
-    while w.thread is not None and _t.time() < end:
+    while _t.time() < end:
+        if w.thread is None:
+            app.processEvents()   # 終わりの知らせが次の処理（直しのあとの検品など）を始めることがある。始まったら続けて待つ
+            if w.thread is None:
+                return
         app.processEvents()
         w.thread and w.thread.wait(10)
-    app.processEvents()
     if w.thread is not None:   # 固まったまま後ろの確かめに進むと、固まった不具合が通ってしまう
         raise AssertionError(f"{limit:.0f} 秒たっても裏の処理が終わらない（固まった）")
 
@@ -1113,10 +1116,13 @@ def wait_bg(app, w, limit: float = 60.0):
     """裏の糸の保存・読み込み・加工が、画面に答えを返し終えるまで待つ"""
     import time as _t
     end = _t.time() + limit
-    while getattr(w, "bg_pending", 0) and _t.time() < end:
+    while _t.time() < end:
+        if not getattr(w, "bg_pending", 0):
+            app.processEvents()   # 答えを返す処理が次の裏の処理を始めることがある。始まったら続けて待つ
+            if not getattr(w, "bg_pending", 0):
+                return
         app.processEvents()
         _t.sleep(0.005)
-    app.processEvents()
     if getattr(w, "bg_pending", 0):
         raise AssertionError(f"{limit:.0f} 秒たっても保存・読み込み・加工の答えが画面に返らない（固まった）")
 

@@ -47,6 +47,29 @@ jobs:
           python -m unittest -v tests.test_origqc
           python -m unittest -v tests.test_phases
           python -m unittest -v tests.test_draw_api
+  # tests/needs_models.txt のファイル（赤ペン・レイヤー・ショートカットなど）は torch が無い機械では丸ごと飛ばされ、
+  # 上の回帰の段も決まったファイルしか流さないので、どこでも流れていなかった。CPU 版の torch と diffusers を入れて全部を流す。
+  # Release を決める段（release の needs）には入れない。落ちたらこのジョブが赤くなる。
+  needs-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-needs-models-${{ runner.os }}-${{ hashFiles('.github/workflows/atelier-e2e.yml') }}
+          restore-keys: pip-needs-models-${{ runner.os }}-
+      - name: 部品（CPU 版の torch と diffusers）
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libegl1
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q diffusers transformers accelerate PySide6 numpy scipy scikit-image pillow
+      - name: モデルの部品が要るファイル
+        run: python scripts/run_tests.py $(grep -v '^#' tests/needs_models.txt)
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20

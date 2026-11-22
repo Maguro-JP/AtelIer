@@ -113,6 +113,10 @@ class Base(unittest.TestCase):
         self.wait(w)
         print(f"直しの時間 {time.time() - t0:.1f} 秒")
         self.assertIsNone(w.thread, "直しが終わらない")
+        # 置いた直しは、筆で描き込んで見せる間（atelier/paint/brush_reveal.py）は前の絵の重ね絵の下にある。
+        # 見せ終えたあとの画面を確かめるので、再生を最後まで飛ばす（利用者が見終えたときと同じ画面）
+        w.reveal().finish()
+        self.qapp.processEvents()
 
 
 class RedPen3Test(Base):
@@ -624,6 +628,11 @@ class RedPen3Test(Base):
         dlg.edit.setText("目を大きく")
         with mock.patch.object(w, "_keep_original", lambda text: text):
             dlg.run.click()
+            # 直しは、確定した指示が画面に見えてから QTimer で始まる（mark_instruction）。始まる前に待つと、
+            # 何も動いていないので待たずに抜け、そのあとで直しが始まった（始まらなければ、下の直しのレイヤーの確かめで落ちる）
+            end = time.time() + 10
+            while w.thread is None and not getattr(w, "bg_pending", 0) and time.time() < end:
+                self.qapp.processEvents()
             self.wait(w)
         self.settle(w)
         layers = [l for l in c.layers if l.redpen]

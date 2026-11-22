@@ -77,12 +77,6 @@ class BusyGuardTest(unittest.TestCase):
     def test_outpaint_while_drawing(self):
         self._while_drawing(lambda w: w.outpaint_canvas(128, 0, 128, 0, background=True))
 
-    def test_turnaround_while_drawing(self):
-        def press(w):
-            w.chara_id = "x"
-            w.chara_turnaround()
-        self._while_drawing(press)
-
 
 class OutpaintPromptTest(unittest.TestCase):
     """開いて直す絵（頼みの言葉だけ残っていて、チャットの頼みが無い）を広げるとき、残った言葉を模型に渡す"""

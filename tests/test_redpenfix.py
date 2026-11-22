@@ -127,9 +127,15 @@ class RedPenFixTest(unittest.TestCase):
         hist, n = self.w.history.count(), len(c.layers)
         said = []
         self.w.notify = lambda title, kind="", body="", **k: said.append(f"{title} {body}")
-        self.w.run_shortcut(sid)
-        wait_idle(self.qapp, self.w, 120)
-        wait_bg(self.qapp, self.w)
+        # 試験の絵の赤い楕円は、torch のある機械では顔の模型が顔と読み、顔を守る所（囲みの全部）を元の画素に戻した。
+        # ここで確かめたいのは囲みの中だけが変わることなので、顔を守る所は無しにする
+        from unittest import mock
+        from atelier.ai import finishers
+        with mock.patch.object(finishers, "face_keep", return_value=None), \
+                mock.patch.object(finishers, "face_box_keep", return_value=None):
+            self.w.run_shortcut(sid)
+            wait_idle(self.qapp, self.w, 120)
+            wait_bg(self.qapp, self.w)
         self.assertEqual(len(c.layers), n + 1, said)
         self.assertEqual(c.current, len(c.layers) - 1)
         self.assertTrue(c.layers[c.current].visible)
