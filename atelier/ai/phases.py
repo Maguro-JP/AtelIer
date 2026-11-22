@@ -35,6 +35,8 @@ import time
 from pathlib import Path
 
 # 工程の名前、決める物、見る物、判定の数字
+NO_PREVIEW = ("目的", "サムネイル", "アタリ")   # キャンバスに途中の絵を出さない工程（アタリを表示しない）
+
 PHASES = [
     ("目的", "何を一番見せるか（主役）", "頼み", "頼みの言葉の数、主役の言葉"),
     ("サムネイル", "構図（小さなラフを何枚か比べて選ぶ）", "白と黒の塊、画面の重さ", "人数、描かれていない物、重さの片寄り（weight_x）"),
@@ -660,9 +662,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             if shown is not None:
                 path = keep / f"{total:03d}-{i + 1:02d}-{name}.png"   # 累計の順の名前（タイムラプスがこの順につなぐ。描き直しも上書きしない）
                 shown.save(path)
-                if on_preview is not None:   # 工程ごとの絵をすぐキャンバスに出す（描いている所を見せる）
+                # 工程ごとの絵をすぐキャンバスに出す（描いている所を見せる）。ただしアタリ（とその前のラフ）と、
+                # 骨組みを重ねた確かめの絵は出さない（利用者の指示: アタリを表示しない）。工程の絵は隠したレイヤーにだけ残る
+                plain = got.get("image")
+                if on_preview is not None and plain is not None and name not in NO_PREVIEW:
                     try:
-                        on_preview(shown)
+                        on_preview(plain)
                     except Exception:   # noqa: BLE001  見せるだけ。描く流れは止めない
                         pass
             mem = release()
