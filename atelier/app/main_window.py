@@ -272,11 +272,11 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         way_row.addWidget(self.way_pick, 1)
         outer = self.ai_panel.layout()
         outer.insertLayout(max(0, outer.indexOf(line)), way_row)
-        # 枚数は描き方の行に置く。描くボタンの帯に並べると、欄の幅で描くボタンが「描」の 1 文字に潰れた
-        way_row.addWidget(count_label)
+        # 枚数は描くボタンのすぐ左に置く（利用者が決めた並び。離すと見つからなかった）
+        line.addWidget(count_label)
         # 数が読めて打てる幅を必ず取る（幅 0 に潰れて見えなくなったことがある）
         self.ai_panel.count_spin.setMinimumWidth(self.ai_panel.count_spin.fontMetrics().horizontalAdvance("9999") + 40)
-        way_row.addWidget(self.ai_panel.count_spin)
+        line.addWidget(self.ai_panel.count_spin)
         line.addWidget(self.button, 1)
         self.button.setMinimumWidth(self.button.fontMetrics().horizontalAdvance(self.button.text() or "描く") + 24)
         line.addWidget(self.stop_button)
@@ -286,14 +286,14 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         # 使えない環境でもボタンは出し、何を入れれば使えるかをツールチップと押したときの知らせに出す
         from atelier.agent import voice
         self.mic_button = voice.mic_button(self.entry, parent=self)
-        line.addWidget(self.mic_button)
+        way_row.addWidget(self.mic_button)   # 帯に並べると、狭い欄で描くボタンが消えた
         self.fav_button = QPushButton("☆")
         self.fav_button.setToolTip("書く欄の言葉を描くワードに登録する（もう一度押すと外す）")
         self.fav_button.setFixedWidth(40)
         self.fav_button.clicked.connect(self._toggle_fav)
         self.entry.textChanged.connect(lambda: self.fav_button.setText(
             "★" if (t := self.entry.text().strip()) and t in self.favorite_prompts() else "☆"))
-        line.addWidget(self.fav_button)
+        way_row.addWidget(self.fav_button)
         from atelier.ui.flow_layout import FlowLayout
         from PySide6.QtWidgets import QSizePolicy
         # 登録・履歴のボタンは欄の横幅で折り返して並べる（横 1 行だと欄からはみ出し、奥のボタンが見えなかった）
