@@ -69,6 +69,8 @@ class EmergencyStopTest(unittest.TestCase):
         a = app()
         with TemporaryDirectory() as d:
             w = Window(Studio(words or FakeWords(), painter, Path(d)))
+            # 描く部品（torch、diffusers）の有無は見ない。偽の模型で止め方だけを確かめる。部品の確かめは test_chatdraw が見る
+            w.check_ai = lambda: {"torch": True, "image": True, "words": True, "reason": ""}
             w.settings.set("output_dir", str(Path(d) / "out"))
             before = w.canvas.flatten().copy()
             layers = len(w.canvas.layers) if hasattr(w.canvas, "layers") else None

@@ -27,6 +27,8 @@ def fresh(tmp: str, size=(1280, 720)):
     w.setWindowState(Qt.WindowNoState)
     w.reset_layout()
     w.resize(*size)
+    # 描く部品（torch、diffusers）の有無は見ない。偽の模型で欄の動きだけを確かめる。部品の確かめは test_chatdraw が見る
+    w.check_ai = lambda: {"torch": True, "image": True, "words": True, "reason": ""}
     w.ai_panel.count_spin.setValue(1)   # 前の試験が残した作成枚数で、まとめて描く確かめの窓が出て止まらないように
     spin(3)
     return w
