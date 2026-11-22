@@ -14,11 +14,11 @@ from atelier.ai.phases import NAMES
 HIDDEN = ("目的",)   # 描かない工程。利用者に見せる番号と名前から外す
 SHOWN = [n for n in NAMES if n not in HIDDEN]
 _PHASE = re.compile(r"工程 (\d+)/(\d+)「([^」]+)」")
-_NEED = re.compile(r"要る工程 (\d+)→(\d+)")
 
 
 def hidden(name: str) -> bool:
-    return name in HIDDEN
+    """name は工程の名前か、計画の工程の名前（「体の形／確かめる 骨組みの比」）"""
+    return name.split("／")[0] in HIDDEN
 
 
 def number(i: int, name: str) -> int | None:
@@ -34,17 +34,12 @@ def total(n: int) -> int:
 
 
 def relabel(msg: str) -> str | None:
-    """知らせの中の「工程 i/n「名前」」と「要る工程 a→b」を、見せる番号に直す。描かない工程の知らせは None（出さない）"""
+    """描かない工程の知らせは None（出さない）。計画（atelier/ai/phase_plan.py）の「工程 i/n」と「要る工程 a→b」は、
+    描く流れが描かない工程を外して数えてあるので、番号は直さない（直すと 2 度引いてずれる）"""
     m = _PHASE.search(msg or "")
     if m and hidden(m.group(3)):
         return None
-
-    def phase(mm):
-        i, n, name = int(mm.group(1)), int(mm.group(2)), mm.group(3)
-        j = number(i, name)
-        return mm.group(0) if j is None else f"工程 {j}/{total(n)}「{name}」"
-    msg = _PHASE.sub(phase, msg)
-    return _NEED.sub(lambda mm: f"要る工程 {total(int(mm.group(1)))}→{total(int(mm.group(2)))}", msg)
+    return msg
 
 
 def drawn(rows: list[dict]) -> list[dict]:

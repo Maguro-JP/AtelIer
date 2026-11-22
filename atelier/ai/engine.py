@@ -1866,6 +1866,7 @@ class Studio:
               on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None) -> tuple[str, Path]:
         say = on_status or (lambda msg: None)
         self.last_phases = None   # 工程に分けて描いた回だけ、工程ごとの絵と検品を持つ（アプリが隠したレイヤーに置く）
+        self.last_plan = None   # 精度優先の工程の並び（atelier/ai/phase_plan.py）
         self.last_phase_keep = None   # 工程に分けて描いている回の工程の絵の置き場（止めたときに窓が読む）
         if refused(text):
             raise ValueError("子どもを性的に描く頼みは描きません")
@@ -2214,7 +2215,8 @@ class Studio:
         return ans
 
     def _draw_phases(self, text, seed, style, size, say, on_preview, meta):
-        """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程ごとに描く・測る・1 回だけ直す・崩れが決まった工程へ戻る。
+        """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程の中は計画（atelier/ai/phase_plan.py）の表に、
+        描く・確かめる（項目ごと）・直す（崩れごと）・確かめ直す（直した項目だけ）・聞くの工程として並ぶ。
         渡す言葉は頼みの訳と作風だけで、背景や構図の言葉は足さない。phase_confirm（アプリが入れる）があれば工程ごとに確かめる"""
         import time
         from atelier.ai import phases
@@ -2250,6 +2252,7 @@ class Studio:
             if hasattr(self.painter, "avoid"):
                 self.painter.avoid = avoid0
         self.last_phases = got["phases"]
+        self.last_plan = got.get("plan")   # 工程の並び（済んだ工程・残り・聞いて止まった工程）。窓と記録が同じ表を読む
         left, checked = got["left"], got["checked"]
         # phases.draw が返るのは全部の工程が検品を通ったときだけ（崩れが残る間は工程を足して続け、止めたときは Stopped で抜ける）
         self.last_passed = bool(checked and not left and got.get("complete"))
