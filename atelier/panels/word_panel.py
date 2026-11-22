@@ -49,7 +49,7 @@ def ask_favorite(parent, entry) -> str | None:
     from atelier.words.japanese_terms import align
     words = [r["word"] for r in align(entry.text()) if r["kind"] in ("draw", "lost")]
     if not words:
-        word, ok = QInputDialog.getText(parent, "単語を登録", "お気に入りにする語（日本語でも英語のタグでも）")
+        word, ok = QInputDialog.getText(parent, "単語を登録", "登録する語（日本語でも英語のタグでも）")
         word = word.strip()
         if ok and word:
             worddict.add_favorite(word)
@@ -73,7 +73,7 @@ def entry_menu(entry, on_change=None):
     m = entry.createStandardContextMenu()
     sel = entry.textCursor().selectedText().strip()
     m.addSeparator()
-    act = m.addAction(f"「{sel[:12]}」を単語のお気に入りに登録" if sel else "単語のお気に入りに登録（語を選んでから）")
+    act = m.addAction(f"「{sel[:12]}」を語のボタンに登録" if sel else "語のボタンに登録（語を選んでから）")
     act.setEnabled(bool(sel))
     act.triggered.connect(lambda: (worddict.add_favorite(sel), on_change and on_change()))
     return m
@@ -90,7 +90,7 @@ class WordRow(QWidget):
         self.flow = FlowLayout(self)
         self.star = QPushButton("☆語")
         self.star.setObjectName("suggest")
-        self.star.setToolTip("描くワードの欄の語を 1 語ずつお気に入りに登録します（欄で語を選んでから押すと、その語）")
+        self.star.setToolTip("描くワードの欄の語を、押すと欄に足せる語のボタンとして登録します（欄で語を選んでから押すと、その語を登録します）")
         self.star.clicked.connect(self.register)
         self.book = QPushButton("辞書…")
         self.book.setObjectName("suggest")
