@@ -103,7 +103,7 @@ from atelier.app.window.canvas_menu import CanvasMenuMixin  # noqa: E402
 from atelier.app.window.chat import ChatMixin  # noqa: E402
 from atelier.app.window.files import FilesMixin  # noqa: E402
 from atelier.app.window.fullscreen import FullscreenMixin  # noqa: E402
-from atelier.app.window.group_window import GroupMixin  # noqa: E402
+from atelier.app.window.group_window import DetachMixin, GroupMixin  # noqa: E402
 from atelier.app.window.history import HistoryMixin  # noqa: E402
 from atelier.app.window.image_editing import ImageEditingMixin  # noqa: E402
 from atelier.app.window.layers_and_selection import LayersAndSelectionMixin  # noqa: E402
@@ -120,7 +120,7 @@ from atelier.app.window.tour import TourMixin  # noqa: E402
 __all__ = ['Bridge', 'Job', 'MARK_OK', 'Navigator', 'NoteEdit', 'PANEL', 'PANEL_ORDER', 'PAUSED_HEAD', 'PanelTitle', 'PhaseAsk', 'REDPEN_SHAPES', 'Reference', 'SHAPE_TIPS', 'TOOLS', 'Task', '_BIG_ICON_STYLE', '_big_icon_style', 'crashed_before', 'exec_once', 'fit_size', 'fresh_stop', 'gray_to_pil', 'guarded', 'pid_alive', 'qimage_from_pil', 'qimage_to_pil', 'qimage_to_pil_rgba', 'QFileDialog', 'Window', 'dark', 'main', 'THEME', 'DATA', 'ROOT']
 
 
-class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin, RedpenMixin, CanvasMenuMixin, LayersAndSelectionMixin, ImageEditingMixin, ModelsMixin, HistoryMixin, ModesAndLogosMixin, SettingsAndDebugMixin, ResultsAndProgressMixin, LayoutMixin, TourMixin, FullscreenMixin, GroupMixin, QMainWindow):
+class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin, RedpenMixin, CanvasMenuMixin, LayersAndSelectionMixin, ImageEditingMixin, ModelsMixin, HistoryMixin, ModesAndLogosMixin, SettingsAndDebugMixin, ResultsAndProgressMixin, LayoutMixin, TourMixin, FullscreenMixin, GroupMixin, DetachMixin, QMainWindow):
     """作画ソフトの並び: 左に頼みの欄、真ん中に絵、右に描いた絵の一覧、下に進み"""
 
     def __init__(self, studio: Studio | None = None):
@@ -903,7 +903,7 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
             # 欄の境目をドラッグして上下左右に広げ縮めできる。狭めすぎて中身が潰れない大きさだけ決める
             d.setMinimumSize(160, 80)
             d.topLevelChanged.connect(lambda floating, d=d: (self._as_window(d, floating), self.floated_now(d, floating)))
-            d.dockLocationChanged.connect(lambda _area, d=d: d.titleBarWidget().expand())
+            d.dockLocationChanged.connect(lambda _area, d=d: (d.titleBarWidget().expand(), self._maybe_hand_placed()))
             d.visibilityChanged.connect(lambda on, d=d: self._appear(d, on))
         self.tools = tools
         self.setDockNestingEnabled(True)
@@ -974,9 +974,12 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         win.addAction(QAction("欄を隠す・出す（絵だけを見る）", self, shortcut="Tab", triggered=self.toggle_all))
         win.addSeparator()
         # 初めの並びに戻すのはここの 1 か所（前は「設定」にも同じ働きの項目があった）
-        win.addAction(QAction("並びを初めの形に戻す", self, triggered=self.reset_layout))
+        win.addAction(QAction("並びを初めの形に戻す", self, triggered=lambda: (self.remember_layout(), self.reset_layout())))
+        win.addAction(QAction("前の配置に戻す", self, triggered=self.undo_layout))
         win.addAction(QAction("リボンの並びを変える…", self, triggered=self.edit_ribbon_order))
         win.addAction(QAction("すべて別ウィンドウにする", self, triggered=self.float_all))
+        self.build_detach_menu(win.addMenu("独立したウィンドウ（液タブ・タッチモニター）"))
+        self.build_bar_shown_menu(win.addMenu("帯を表示する"))
         self.build_group_menu(win.addMenu("まとめた窓（欄と帯を組む）"))
         win.addAction(QAction("自由配置（欄をドラッグして好きな所に置く）", self, triggered=self.free_layout))
         self.build_ribbon()
@@ -1062,6 +1065,8 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
             self.restoreGeometry(self.layout_store.value("geometry9"))
             if not self.restoreState(state):
                 self.arrange()
+            else:
+                self.__dict__["_hand_placed"] = True   # 前に閉じたときの配置。自動で整えて動かさない
             for d, _area in self.panels.values():
                 if d.isFloating():
                     self._as_window(d, True)   # 戻した並びで外に出ている欄も、ふつうの窓の枠にする
@@ -1075,6 +1080,9 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         # 起動したときの道具。初めは手（絵を動かして見る）。描くときにペンを選ぶ。設定でペンにもできる
         self.select_tool("pen" if self.settings.get("first_tool") == "ペン" else "hand")
         self.apply_debug_mode()   # デバッグモード（既定はオフ。オンなら下に「記録」の欄を出す）
+        # 前に閉じたときの独立したウィンドウとタッチ向けの欄を戻す（今の画面の外に出た窓は画面の中へ）
+        self.restore_groups_at_start()
+        self.restore_touch()
 
 
 

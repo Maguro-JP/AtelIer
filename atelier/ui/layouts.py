@@ -20,6 +20,7 @@ def _reset(w):
     """欄をいったん全部くっつけ直す（別ウィンドウや畳んだ物も戻す）"""
     w.__dict__.pop("_fit_cols", None)
     w.__dict__.pop("_fit_ai", None)
+    w.__dict__["_hand_placed"] = False   # 決まった配置を選び直したら、また自動で整える
     if hasattr(w, "return_all"):
         w.return_all()   # まとめた窓の欄と帯も主の窓へ戻してから並べる
     for d, _ in w.panels.values():
@@ -141,7 +142,12 @@ def _top_first(w, keys: list[str]):
 def settle(w):
     """並べ終わったあとと、ウィンドウの大きさが変わったあとに、中身が収まらない欄のある列だけ高さを配り直す。
     ウィンドウを広げると Qt は増えた高さを今の比で配り、色の欄のように中身の多い欄が足りないまま残った。
-    収まっている列は動かさない（利用者が境目をドラッグして決めた高さを崩さない）"""
+    収まっている列は動かさない（利用者が境目をドラッグして決めた高さを崩さない）。
+    利用者が手で置いた配置（保存した配置を戻した、欄をドラッグで動かした）には何もしない。
+    自動で整えると、戻した配置が開くたびに数画素ずつずれ、毎回直すことになった"""
+    if w.__dict__.get("_hand_placed"):
+        hide_stale_tabbars(w)
+        return
     for keys in list(w.__dict__.get("_fit_cols", [])):
         docks = [w.panels[k][0] for k in keys]
         if not all(not d.isHidden() and not d.isFloating() for d in docks):
@@ -396,20 +402,43 @@ def snapshot(w) -> dict:
             "geometry": base64.b64encode(bytes(w.saveGeometry())).decode(),
             # まとめた窓（別ウィンドウに組んだ欄と帯）と、全画面にした画面
             "groups": w.groups_snapshot() if hasattr(w, "groups_snapshot") else [],
-            "fullscreen": w.fullscreen_snapshot() if hasattr(w, "fullscreen_snapshot") else {}}
+            "fullscreen": w.fullscreen_snapshot() if hasattr(w, "fullscreen_snapshot") else {},
+            # 保存したときのモニターの組。呼び出す側が、今の組に合う配置を先に並べる
+            "screens": current_screens(),
+            "floats": w.floats_snapshot() if hasattr(w, "floats_snapshot") else {}}
+
+
+def current_screens() -> str:
+    from PySide6.QtGui import QGuiApplication
+    from atelier.ui import screens
+    return screens.signature([s.geometry() for s in QGuiApplication.screens()])
+
+
+def screens_of(store, name: str) -> str:
+    raw = store.value(f"layouts/{name}")
+    try:
+        return json.loads(raw).get("screens", "") if raw else ""
+    except ValueError:
+        return ""
 
 
 def restore(w, data: dict) -> bool:
     if data.get("app") != "AtelIer" or "state" not in data:
         return False
     _reset(w)
-    ok = w.restoreState(QByteArray(base64.b64decode(data["state"])))
+    # 大きさを先に戻してから欄の並びを戻す。逆だと、欄の大きさが前の窓の大きさで配られてから縮められ、ずれた
     if data.get("geometry"):
         w.restoreGeometry(QByteArray(base64.b64decode(data["geometry"])))
+    ok = w.restoreState(QByteArray(base64.b64decode(data["state"])))
+    w.__dict__["_hand_placed"] = True
     # 別の大きさの画面で保存した配置だと、別ウィンドウの欄が画面の外に出て見えなくなった
     for d, _ in w.panels.values():
         if d.isFloating() and hasattr(w, "keep_on_screen"):
             w.keep_on_screen(d)
+    if data.get("floats") and hasattr(w, "floats_restore"):
+        w.floats_restore(data["floats"])   # restoreState の位置は枠の分ずれたので、残した数字で当て直す
+    if hasattr(w, "keep_window_on_screen"):
+        w.keep_window_on_screen(w)   # 主の窓も、保存したモニターが無ければ今の画面の中へ
     # まとめた窓は主の窓の位置を戻したあとに作る。先に作ると、主の窓の restoreState が
     # 子の窓の中の欄まで名前で探して取り戻し、まとめた窓から欄が消えた
     if hasattr(w, "groups_restore"):

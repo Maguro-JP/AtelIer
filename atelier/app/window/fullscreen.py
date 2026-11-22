@@ -36,6 +36,19 @@ class FullscreenCanvas(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         # 主の窓のショートカット（ペン、消しゴム、拡大、元に戻す、欄の F キー）を、この窓でも同じに効かせる
         self.addActions(main.shared_actions())
+        # 抜け方を最初の数秒だけ上の端に出す（枠もメニューも無いので、出さないと戻り方が分からない）
+        self.hint = QLabel(f"Esc か {SHORTCUT} で元の窓に戻ります", self)
+        self.hint.setToolTip(f"全画面をやめるには Esc か {SHORTCUT} を押します")
+        self.hint.setStyleSheet("background: rgba(0,0,0,170); color: white; padding: 8px 14px; border-radius: 6px;")
+        self.hint.adjustSize()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        from PySide6.QtCore import QTimer
+        self.hint.move(max(0, (self.width() - self.hint.width()) // 2), 16)
+        self.hint.raise_()
+        self.hint.show()
+        QTimer.singleShot(4000, self.hint.hide)
 
     def keyPressEvent(self, e):
         # キャンバスが使わなかった Esc（図形の途中でなければ）で戻る

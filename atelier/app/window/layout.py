@@ -107,6 +107,7 @@ class LayoutMixin:
     def apply_layout(self, fn, *args):
         """配置を当て、絵を新しい大きさに合わせる"""
         self._all_hidden = False   # Tab で隠したあとに配置を選んだとき、次の Tab で出したばかりの欄が隠れないように
+        self.remember_layout()
         fn(self, *args)
         from PySide6.QtCore import QTimer
         from atelier.ui.layouts import settle
@@ -130,12 +131,13 @@ class LayoutMixin:
             for n in (3, 5):
                 menu.addAction(QAction(f"{n} 等分にする", self, triggered=lambda _=False, n=n: self.apply_layout(L.split, n)))
             menu.addSeparator()
+            menu.addAction(QAction("前の配置に戻す", self, triggered=self.undo_layout))
             mine = L.saved_names(self.layout_store)
             if mine:
                 sub = menu.addMenu("自分の配置")
                 for name in mine:
                     sub.addAction(QAction(name, self, triggered=lambda _=False, n=name: (
-                        L.load(self, self.layout_store, n), self.notify(f"「{n}」の配置にしました", "ok"))))
+                        self.remember_layout(), L.load(self, self.layout_store, n), self.notify(f"「{n}」の配置にしました", "ok"))))
                 rm = menu.addMenu("自分の配置を消す")
                 for name in mine:
                     rm.addAction(QAction(name, self, triggered=lambda _=False, n=name: (
@@ -513,7 +515,7 @@ class LayoutMixin:
             lambda pos: self._ribbon_menu().exec(r.tabBar().mapToGlobal(pos)))
         bar = QToolBar("リボン", self)
         bar.setObjectName("ribbonbar")
-        bar.setMovable(False)
+        # リボンも上下左右の端や別ウィンドウへ動かせる（前は動かせなかった）。「帯を固定する」で止められる
         bar.addWidget(r)
         self.insertToolBar(self.options, bar)     # リボンを道具の設定の帯の前に入れ、
         self.insertToolBarBreak(self.options)     # 道具の設定の帯はリボンの下の段に置く
@@ -580,18 +582,8 @@ class LayoutMixin:
     def keep_on_screen(self, d: QDockWidget):
         """別ウィンドウの欄を画面の中に収める。保存した配置を別の画面の大きさで読んだときや、
         すべて別ウィンドウにして並べたときに、画面の外に出て見えなくなった"""
-        screen = (self.screen() or QApplication.primaryScreen())
-        if screen is None:
-            return
-        area = screen.availableGeometry()
-        g = d.frameGeometry()
-        w, h = min(max(g.width(), 200), area.width()), min(max(g.height(), 160), area.height())
-        x = min(max(g.x(), area.left()), area.right() - w + 1)
-        y = min(max(g.y(), area.top()), area.bottom() - h + 1)
-        if (w, h) != (g.width(), g.height()):
-            d.resize(w, h)
-        if (x, y) != (g.x(), g.y()):
-            d.move(x, y)
+        # 主の窓の画面だけに収めると、2 台目のモニターへ置いた欄まで 1 台目へ引き戻した。重なる画面の中へ収める
+        self.keep_window_on_screen(d)
 
     def _collapse_all(self, on: bool):
         for d, _area in self.panels.values():
@@ -717,6 +709,7 @@ class LayoutMixin:
             self._io_queue.put(None)
             self._io_queue = None
         self.layout_store.setValue("running", 0)   # 正しく閉じた印（次の起動で戻すかを聞かない）
+        self.close_groups()   # 独立したウィンドウは親を持たないので、ここで並びを残して閉じる
         # 次に開いたときも同じ並びにする
         self.layout_store.setValue("geometry9", self.saveGeometry())
         self.layout_store.setValue("state9", self.saveState())

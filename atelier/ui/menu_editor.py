@@ -245,9 +245,8 @@ class Bars:
 
     def set_locked(self, on: bool, save: bool = True):
         """帯を固定する。固定するとドラッグで動かない（うっかり動かして並びが崩れるのを防ぐ）"""
-        for bar in self.w.findChildren(QToolBar):
-            if bar.objectName() == "ribbonbar":
-                continue
+        bars = self.w.all_bars().values() if hasattr(self.w, "all_bars") else self.w.findChildren(QToolBar)
+        for bar in bars:   # 独立したウィンドウに出した帯も同じに固定する
             bar.setMovable(not on)
         ribbon = getattr(self.w, "ribbon", None)
         if ribbon is not None:

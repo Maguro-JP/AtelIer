@@ -460,3 +460,92 @@ class CopyImageTest(unittest.TestCase):
             w.copy_image(str(src))
             self.assertEqual(QApplication.clipboard().image().width(), 40)
             w.close()
+
+
+class DetachTest(unittest.TestCase):
+    """全部の欄と帯を独立したウィンドウにし、置き場所を保存して開き直しても 1 画素もずれない"""
+
+    def test_screens_two_monitors(self):
+        from PySide6.QtCore import QRect, QSize
+        from atelier.ui import screens
+        a, b = QRect(0, 0, 1920, 1080), QRect(1920, 0, 2560, 1440)
+        self.assertEqual(screens.signature([b, a]), "2 台 1920×1080 + 2560×1440")
+        # 2 台目にある窓は 2 台目のまま（主の画面へ引き戻さない）
+        self.assertEqual(screens.fit_into(QRect(3000, 100, 400, 300), [a, b]), QRect(3000, 100, 400, 300))
+        # 2 台目が外されたら、主の画面の中へ戻す
+        r = screens.fit_into(QRect(3000, 100, 400, 300), [a])
+        self.assertTrue(a.contains(r), r)
+        # はみ出た窓は、重なっている画面の中へ収める
+        self.assertTrue(b.contains(screens.fit_into(QRect(4300, 1300, 600, 400), [a, b])))
+        for r in screens.cascade(a, [QSize(360, 520)] * 20):
+            self.assertTrue(a.contains(r), r)
+
+    def test_detach_all_pin_touch_and_return(self):
+        from atelier.ui import touch
+        with TemporaryDirectory() as tmp:
+            w = fresh(tmp)
+            shown_now = [d for d, _a in w.panels.values() if not d.isHidden()] + \
+                [b for b in w.all_bars().values() if not b.isHidden()]
+            made = w.detach_all()
+            spin(3)
+            self.assertEqual(len(made), len(shown_now))
+            self.assertGreaterEqual(len(made), 8)
+            for g in made:
+                self.assertIsNone(g.parent())   # 親を持たない窓（タスクバーに出る）
+                self.assertTrue(g.windowFlags() & Qt.WindowMinimizeButtonHint)
+            self.assertIn(w.tools.window(), made)
+            g = w.panels["color"][0].window()
+            g.set_pinned(True)
+            self.assertTrue(g.windowFlags() & Qt.WindowStaysOnTopHint)
+            w.set_touch(w.panels["color"][0], True)
+            self.assertTrue(touch.is_on(w.panels["color"][0]))
+            self.assertIn(w.panels["color"][0].objectName(), w.touch_panels())
+            # 組み替え: 色の窓へレイヤーを入れるとタブにまとまる
+            w.put_panel_in(w.panels["layers"][0], g)
+            self.assertIs(w.panels["layers"][0].window(), g)
+            self.assertTrue(w.undo_layout())   # 前の配置（全部を外に出す前）に戻せる
+            spin(3)
+            self.assertIs(w.tools.window(), w)
+            w.set_touch(w.panels["color"][0], False)
+            w.return_all()
+            self.assertEqual(lost(w), [])
+            done(w)
+
+    def test_place_saved_three_times_same(self):
+        with TemporaryDirectory() as tmp:
+            w = fresh(tmp)
+            g1 = w.detach(w.panels["color"][0])
+            g2 = w.detach(w.tools)
+            spin(3)
+            # 画面の倍率（QT_SCALE_FACTOR）で画面の大きさが変わるので、画面の中の端数の位置にする
+            a = w.screen().availableGeometry()
+            one = (a.x() + 13, a.y() + 17, a.width() // 2 + 1, a.height() // 2 + 3)
+            g1.setGeometry(*one)
+            g2.setGeometry(a.x() + a.width() // 2 + 5, a.y() + 9, 97, a.height() // 3)
+            g2.set_pinned(True)
+            spin(3)
+            want = None
+            for _ in range(3):
+                w.close_groups()
+                spin(2)
+                self.assertEqual(w.groups, [])
+                w.restore_groups_at_start()
+                spin(3)
+                got = sorted((g.windowTitle(), g.geometry().getRect(), g.pinned(), g.isVisible()) for g in w.groups)
+                if want is None:
+                    want = got
+                    self.assertIn(("カラー - AtelIer", one, False, True), got)
+                self.assertEqual(got, want)
+            # 名前を付けた配置にも同じ中身が入る
+            from atelier.ui import layouts
+            snap = layouts.snapshot(w)
+            self.assertIn("rect", snap["groups"][0])
+            self.assertTrue(snap["screens"].startswith("1 台"))
+            w.return_all()
+            self.assertTrue(layouts.restore(w, snap))
+            spin(3)
+            self.assertEqual(sorted((g.windowTitle(), g.geometry().getRect()) for g in w.groups),
+                             sorted((t, r) for t, r, _p, _v in want))
+            self.assertTrue(w.__dict__.get("_hand_placed"))   # 戻した配置は自動で整えない
+            w.return_all()
+            done(w)

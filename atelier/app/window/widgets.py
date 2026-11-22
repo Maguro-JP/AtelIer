@@ -199,12 +199,20 @@ class PanelTitle(QWidget):
         menu.addAction("別ウィンドウにする", lambda: self.dock.setFloating(True))
         main = getattr(mw, "main", mw)
         if hasattr(main, "put_panel_in"):
+            a = menu.addAction("独立したウィンドウにする", lambda: main.detach(self.dock))
+            a.setToolTip("最小化・前面に固定ができ、タスクバーに出る窓にします。別のモニターへ動かせます")
             menu.addAction("新しいまとめた窓に入れる", lambda: main.put_panel_in(self.dock))
             for g in getattr(main, "groups", []):
                 if g is not mw:
                     menu.addAction(f"{g.windowTitle()}に入れる", lambda g=g: main.put_panel_in(self.dock, g))
             if mw is not main:
                 menu.addAction("元の窓に戻す", lambda: main.return_panel(self.dock))
+            from atelier.ui import touch
+            t = menu.addAction("タッチ向けにする")
+            t.setCheckable(True)
+            t.setChecked(touch.is_on(self.dock))
+            t.toggled.connect(lambda on: main.set_touch(self.dock, on))
+        menu.setToolTipsVisible(True)
         return menu
 
     def toggle(self):
