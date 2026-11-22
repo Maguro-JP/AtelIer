@@ -248,7 +248,7 @@
 
 - [x] 線画集 第一集（`templates/showcase/book.html`）: 騎士・魔女2・剣士・機械技師の線画5枚と設定のメモ、彩色の参考3枚、見つけた矛盾を頁ごとに書いた
 - [x] 紹介の頁（`templates/showcase/site.html`）: できること6つ（見本の絵つき）、使い方3段と写せる命令、道具の一覧、まだできないこと
-- 組み立ては `python3 tools/showcase.py book|site OUT.html`。絵は `library/book/*.jpg` を埋め込む。肌を多く見せる見本（素体・下着姿）は載せない
+- 組み立ては `python3 tools/showcase.py book|site OUT.html`。絵は CharacterDesigner の library/book の絵 を埋め込む。肌を多く見せる見本（素体・下着姿）は載せない
 
 ### M12. 理由から位置と形を決める作り直し（2026-10-11）
 
