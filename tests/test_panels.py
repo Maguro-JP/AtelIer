@@ -27,8 +27,6 @@ def fresh(tmp: str, size=(1280, 720)):
     w.setWindowState(Qt.WindowNoState)
     w.reset_layout()
     w.resize(*size)
-    # 描く部品（torch、diffusers）の有無は見ない。偽の模型で欄の動きだけを確かめる。部品の確かめは test_chatdraw が見る
-    w.check_ai = lambda: {"torch": True, "image": True, "words": True, "reason": ""}
     w.ai_panel.count_spin.setValue(1)   # 前の試験が残した作成枚数で、まとめて描く確かめの窓が出て止まらないように
     spin(3)
     return w
@@ -55,9 +53,12 @@ def lost(w) -> list:
                 bad.append((k, "画面の外"))
             if title.collapsed:
                 bad.append((k, "別ウィンドウなのに畳んだまま"))
-        elif w.dockWidgetArea(d) == Qt.NoDockWidgetArea and not (d.window() is not w and d.window().isVisible()):
-            # 別ウィンドウどうしをタブにすると、Qt はタブの窓（浮いた組）に入れ、置き場は「無し」になる。窓が見えていれば消えていない
-            bad.append((k, "置き場所が無い"))
+        elif w.dockWidgetArea(d) == Qt.NoDockWidgetArea:
+            # 浮いた欄にタブで重ねた欄は、Qt の浮いたタブの組の窓に入り、isFloating も置き場所も無いと返す。
+            # その窓が画面の中に出ていれば見えている（消えたと数えると、全部浮かせる → タブ が落ちた）
+            group = d.window()
+            if group is w or not group.isVisible() or not screen.intersects(group.frameGeometry()):
+                bad.append((k, "置き場所が無い"))
         if not title.collapsed:
             if body.isHidden():
                 bad.append((k, "中身が隠れたまま"))
