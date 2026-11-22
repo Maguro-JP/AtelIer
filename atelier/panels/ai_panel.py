@@ -99,6 +99,12 @@ class Section(QScrollArea):
         outer.addStretch()
         self.setWidget(self.box)
 
+    def content_height(self) -> int:
+        """中身が縦の流す棒を出さずに収まる高さ。折り返す並び（登録のボタン）は、棒の無い今の幅で測る"""
+        lay = self.box.layout()
+        width = self.width()
+        return lay.totalHeightForWidth(width) if lay.hasHeightForWidth() else self.box.sizeHint().height()
+
     def is_open(self) -> bool:
         return self.tabs.currentWidget() is self
 
@@ -110,6 +116,14 @@ class Section(QScrollArea):
 
 class AiPanel(QWidget):
     changed = Signal()
+
+    def fit_height(self) -> int:
+        """今のタブの中身が、タブの中で流れずに収まる欄の高さ（欄の配置が右の列の高さを配るときに使う）。
+        最小の大きさにはしない。低い窓では今までどおりタブの中だけを流して、窓の大きさを縛らない"""
+        sec = self.tabs.currentWidget()
+        if not isinstance(sec, Section) or sec.height() <= 0:
+            return self.minimumSizeHint().height()
+        return self.height() - sec.height() + sec.content_height()
 
     def __init__(self, w):
         super().__init__()

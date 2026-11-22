@@ -149,6 +149,9 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         self.canvas.set_cursor_style(self.settings.get("cursor"))
         self.canvas.new_canvas()
         self.setCentralWidget(self.canvas)
+        # 狭い窓（800 など）でも絵の幅を残す。下のチャットを左の列の下へ広げると、絵の幅を支えていたチャットの最小の幅が
+        # 無くなり、左右の欄に押されて絵が 90 ほどに潰れた（前の版は 160 だった）
+        self.canvas.setMinimumWidth(160)
         self.canvas.menu_wanted.connect(self.canvas_menu)
         self.canvas.hide_cursor_after = 1500 if self.settings.get("cursor_hide") == "止まったら隠す" else 0
 

@@ -54,7 +54,11 @@ def lost(w) -> list:
             if title.collapsed:
                 bad.append((k, "別ウィンドウなのに畳んだまま"))
         elif w.dockWidgetArea(d) == Qt.NoDockWidgetArea:
-            bad.append((k, "置き場所が無い"))
+            # 浮いた欄にタブで重ねた欄は、Qt の浮いたタブの組の窓に入り、isFloating も置き場所も無いと返す。
+            # その窓が画面の中に出ていれば見えている（消えたと数えると、全部浮かせる → タブ が落ちた）
+            group = d.window()
+            if group is w or not group.isVisible() or not screen.intersects(group.frameGeometry()):
+                bad.append((k, "置き場所が無い"))
         if not title.collapsed:
             if body.isHidden():
                 bad.append((k, "中身が隠れたまま"))
