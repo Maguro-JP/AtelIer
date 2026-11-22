@@ -8,6 +8,7 @@ param([Parameter(Mandatory)] [string] $Setup, [Parameter(Mandatory)] [string] $O
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, System.Drawing
 New-Item -ItemType Directory -Force $Out | Out-Null
+Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);'
 $A = [System.Windows.Automation.AutomationElement]
 $T = [System.Windows.Automation.TreeScope]
 $log = Join-Path $Out 'pages.txt'
@@ -40,7 +41,8 @@ while (-not $proc.HasExited) {
     $step++
     "$step. $sig" | Tee-Object -Append -FilePath $log
     Shot ("{0:D2}" -f $step)
-    $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    # NSIS のボタンは UI Automation の Invoke を持たないことがあるので、Win32 の BM_CLICK を送る
+    [W.U]::PostMessage([IntPtr]$btn.Current.NativeWindowHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     $last = $sig
   }
   Start-Sleep -Milliseconds 700
