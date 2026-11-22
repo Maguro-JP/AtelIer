@@ -2161,11 +2161,26 @@ class ViewingTest(unittest.TestCase):
             app.processEvents()   # メニューは離す処理を終えてから開く
             self.assertEqual(len(menus), 1)                             # 動かさずに離すと右クリックのメニュー
 
+    def test_first_tool_is_pen_and_remembered(self):
+        """起動したときの道具はペン（手のひらだと初めての人がなぞっても線が出なかった）。次からは前に使った道具"""
+        with TemporaryDirectory() as d:
+            app, w = self._window(d)
+            w.layout_store.remove("last_tool")   # ほかの試験が持ち替えた道具を残さない（置き場は試験の間で共有）
+            w.settings.store.remove("first_tool")
+            w = self._window(d)[1]
+            self.assertEqual(w.canvas.tool, "pen")
+            w.tool_actions["eraser"].trigger()
+            w2 = self._window(d)[1]
+            self.assertEqual(w2.canvas.tool, "eraser")
+            w2.settings.set("first_tool", "手")
+            self.assertEqual(self._window(d)[1].canvas.tool, "hand")
+            w2.settings.store.remove("first_tool")
+            w2.layout_store.remove("last_tool")
+
     def test_first_tool_is_hand_and_creator_layout_is_pen(self):
         from atelier.ui import layouts
         with TemporaryDirectory() as d:
             app, w = self._window(d)
-            self.assertEqual(w.canvas.tool, "hand")
             layouts.creator(w)
             self.assertEqual(w.canvas.tool, "pen")
             layouts.recommended(w)

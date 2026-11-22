@@ -140,6 +140,20 @@ class AskWordsOnceTest(unittest.TestCase):
             Window.ask_words_once(w, pick=lambda items: asked.append(items) or "使わない")   # 2 回目の起動
             self.assertEqual(len(asked), 1)
 
+    def test_closing_words_dialog_is_not_none_and_startup_does_not_ask(self):
+        """閉じたら「今は選ばない」。「使わない」と覚えない。起動のとき（引数なし）は聞かない"""
+        from atelier.app.main_window import Window
+        from atelier.models.manager import words_chosen
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ATELIER_HOME": d}):
+            w = self._window(d)
+            before = w.settings.get("words_model")
+            Window.ask_words_once(w, pick=lambda items: None)
+            self.assertFalse(words_chosen(w.settings))
+            self.assertEqual(w.settings.get("words_model"), before)
+            with mock.patch("PySide6.QtWidgets.QInputDialog.getItem") as dlg:
+                Window.ask_words_once(w)
+                dlg.assert_not_called()
+
     def test_chosen_model_is_kept_and_not_upgraded(self):
         from atelier.app.main_window import Window
         from atelier.models.catalog import offered_words

@@ -20,17 +20,28 @@ class ModesAndLogosMixin:
         if tour:
             modes.show_tour(self, self.app_mode)
 
+    def choose_mode(self) -> str:
+        """「表示」の「モード」の「モードを選ぶ…」。起動のときと同じ窓を開き、閉じたら今のモードのまま"""
+        from atelier.app import modes
+        dlg = modes.ModeDialog(self, getattr(self, "app_mode", ""))
+        picked = dlg.exec()
+        if picked:
+            self.set_mode(picked)
+        return picked
+
     def start_mode(self, ask=None) -> str:
         """起動したときのモード。覚えたモードがあり「次から聞かない」なら窓を出さない"""
         from atelier.app import modes
         key, dont_ask = modes.stored(self.layout_store)
-        if not (key and dont_ask):
+        if not dont_ask:   # 「起動したときにモードを聞く」を利用者が入れたときだけ聞く
             dlg = modes.ModeDialog(self, key)
             picked = ask(dlg) if ask else dlg.exec()
+            # 閉じたときは「今は選ばない」。前のモード（無ければ既定）で開き、聞くかどうかの設定は変えない
+            if picked:
+                modes.remember(self.layout_store, picked, dlg.dont_ask.isChecked())
+                self.mode_ask_action.setChecked(not dlg.dont_ask.isChecked())
             key = picked or key or modes.DEFAULT
-            modes.remember(self.layout_store, key, dlg.dont_ask.isChecked())
-            self.mode_ask_action.setChecked(not dlg.dont_ask.isChecked())
-        self.set_mode(key)
+        self.set_mode(key or modes.DEFAULT)
         return key
 
     def add_mode(self, key: str):

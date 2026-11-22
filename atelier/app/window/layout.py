@@ -380,7 +380,22 @@ class LayoutMixin:
         self.bars_editor = menuedit.Bars(self, self.layout_store, {
             "よく使う帯": self.quick_bar, "道具の帯": self.tools, "欄の帯": self.panel_bar, "下の帯": self.bottom_bar},
             self.all_actions())
+        self.add_first_run_items()
         self.menus_editor = menuedit.Menus(self, self.layout_store)
+        # 窓を作り終える前の最後の持ち替え（main_window の起動したときの道具）を、前に使った道具にする
+        self._start_tool_pending = True
+
+    def add_first_run_items(self):
+        """起動のときに出さなくなった確かめの窓を、意味の合うメニューから開けるようにする
+        （「はじめに」の窓は「AI」の「模型の管理」から開ける）"""
+        menus = {a.text(): a.menu() for a in self.menuBar().actions() if a.menu() is not None}
+        if "設定" in menus:
+            menus["設定"].addAction(QAction("言葉の模型を選ぶ…", self, triggered=lambda: self.ask_words_once(force=True),
+                                          toolTip="日本語の頼みとチャットに使う模型を選びます。選ぶまでは点のいちばん高い物を使います"))
+        if getattr(self, "mode_menu", None) is not None:
+            self.mode_menu.insertAction(self.mode_menu.actions()[0] if self.mode_menu.actions() else None,
+                                        QAction("モードを選ぶ…", self, triggered=self.choose_mode,
+                                                toolTip="モードを大きなボタンで選ぶ窓を開きます"))
 
     def edit_menus(self):
         from atelier.ui.menu_editor import MenuEditor

@@ -336,6 +336,8 @@ class ResultsAndProgressMixin:
     def _tool_changed(self, key: str):
         """上の道具の設定の見出しを、選んだ道具の名前にする"""
         label = next(lb for k, lb, _s in TOOLS if k == key)
+        if getattr(self, "_start_tool_done", False):   # 起動の途中で持ち替えた道具は覚えない（前に使った道具を消さない）
+            self.layout_store.setValue("last_tool", key)
         self.tool_name.setText(label)
         if hasattr(self, "st_tool"):
             self.st_tool.setText(label)

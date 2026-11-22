@@ -94,12 +94,27 @@ class PromptsMixin:
 
     def select_tool(self, key: str):
         """道具を持ち替える（初めの道具や配置を変えたとき）。利用者が押したときと違い、初めて使うときの案内は出さない"""
+        if getattr(self, "_start_tool_pending", False):
+            key = self.start_tool(key)
         act = self.tool_actions.get(key)
         if act is None:
             return
         act.setChecked(True)
         self.canvas.set_tool(key)
         self._tool_changed(key)
+
+    def start_tool(self, asked: str) -> str:
+        """起動したときの道具。初めはペン（手のひらだと、初めての人がなぞっても線が出なかった）。
+        次からは前に使った道具。設定の「起動したときの道具」で手かペンに決めておける"""
+        self._start_tool_pending = False
+        self._start_tool_done = True
+        fixed = self.settings.get("first_tool")
+        if fixed == "手":
+            return "hand"
+        if fixed == "ペン":
+            return "pen"
+        last = str(self.layout_store.value("last_tool", "") or "")
+        return last if last in self.tool_actions else "pen"
 
     def voice_input(self):
         """描くワードの欄のマイクを押すのと同じ"""
