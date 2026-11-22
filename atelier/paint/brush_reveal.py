@@ -242,6 +242,14 @@ class Player:
         self._touch = _Touch()
         canvas.installEventFilter(self._touch)
         canvas.viewport().installEventFilter(self._touch)
+        if hasattr(canvas, "changed"):
+            canvas.changed.connect(self._layers_changed)
+
+    def _layers_changed(self):
+        """置いた絵を見せている途中にレイヤーが変わった（消した・隠した・元に戻した）ら、すぐ見せ終える。
+        重ね絵は置いたときの絵の写しなので、そのままだと消したレイヤーの絵が見せ終えるまで画面に残った"""
+        if self.active() and not self.keep:
+            self.finish()
 
     def active(self) -> bool:
         return self.timer.isActive()
