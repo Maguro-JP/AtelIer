@@ -398,12 +398,15 @@ def main():
             raise RuntimeError(f"工程の絵のファイルが無い: {missing}")
         return detail
 
-    ok = step("CharacterDesigner の模型の置き場の模型を一覧に出す", from_character_designer) and ok
-    ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
-    ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
-    ok = step("描いた絵を検品する", inspect) and ok
-    ok = step("作業ファイルに保存して開き直す", save_and_reopen) and ok
-    ok = step("精度優先で描き、工程ごとの絵が出る", precise_draw) and ok
+    # 利用者が窓で踏む段。Release を決める段（入れる・起動・取る・描く）とは分けて流す
+    # （ATELIER_E2E_CORE_ONLY=1 のときは流さない）。ここで固まると、描けると分かった版まで Release に出なかった
+    if not os.environ.get("ATELIER_E2E_CORE_ONLY"):
+        ok = step("CharacterDesigner の模型の置き場の模型を一覧に出す", from_character_designer) and ok
+        ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
+        ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
+        ok = step("描いた絵を検品する", inspect) and ok
+        ok = step("作業ファイルに保存して開き直す", save_and_reopen) and ok
+        ok = step("精度優先で描き、工程ごとの絵が出る", precise_draw) and ok
     report["said"] = said[-40:]
     if win.get("w") is not None:
         win["w"].close()
