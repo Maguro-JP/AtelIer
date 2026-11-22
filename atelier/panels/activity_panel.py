@@ -88,10 +88,12 @@ class ActivityPanel(QWidget):
         top = QVBoxLayout(self.progress_view)
         top.setContentsMargins(10, 4, 10, 6)
         top.setSpacing(4)
+        # 狭い窓（800 など）でも横に流す棒を出さないよう、状態と時間は折り返して縮められるようにする
+        for lb in (self.state, self.time):
+            lb.setWordWrap(True)
+            lb.setMinimumWidth(40)
         head = QHBoxLayout()
-        head.addWidget(self.state)
-        head.addStretch()
-        head.addWidget(self.time)
+        head.addWidget(self.state, 1)
         head.addWidget(self.resume_tool)
         head.addWidget(self.stop_tool)
         # 動いていない間は隠す。上の帯にも緊急停止があり、待っている間は 2 つ並んで見えた（動いている間だけ進みの横に出す）
@@ -99,6 +101,7 @@ class ActivityPanel(QWidget):
         top.addLayout(head)
         top.addLayout(self.steps)
         top.addWidget(self.bar)
+        top.addWidget(self.time)   # 時間は帯の下に。見出しの横に置くと、狭い窓で状態の文が 1 字ずつ折れた
         top.addWidget(self.detail)
         top.addWidget(self.editor)
         top.addWidget(self.alive)

@@ -79,11 +79,24 @@ def install(app: QApplication):
 def fit_dock_height(dock: QWidget, height: int):
     """欄を中身の高さ（height）にそろえる。進みの欄のように、中身が状態で増え減りする欄に使う。
     欄の外側（流す枠）の高さを決めないと、Qt の欄の場所は前の高さのまま残り、描いている間は文が切れ、
-    描いていない間は空きが大きく残った。流す枠を中身と同じ高さに固定し、欄の場所をその高さに合わせる"""
+    描いていない間は空きが大きく残った。流す枠の高さの上限を中身の高さにし、欄の場所をその高さに合わせる"""
     box = dock.widget()
     if box is None:
         return
-    if box.minimumHeight() != height or box.maximumHeight() != height:
-        box.setFixedHeight(height)
+    box.setMinimumHeight(0)
+    box.setMaximumHeight(height)
+    # 欄の外枠の最小・最大は、中身が固定の高さのとき Qt が中身から決めて持ち続ける。隠れている間に中身の高さを変えると
+    # 前の高さ（起動したときの 114 など）のまま残ったので、毎回組み直させる
+    if dock.layout() is not None:
+        dock.layout().invalidate()
+        dock.layout().activate()
+    dock.updateGeometry()
     if dock.isFloating():
         dock.adjustSize()
+        return
+    from PySide6.QtWidgets import QMainWindow
+    main = dock.parentWidget()
+    if isinstance(main, QMainWindow) and dock.isVisible():
+        bar = dock.titleBarWidget()
+        head = bar.sizeHint().height() if bar is not None and bar.isVisible() else 0
+        main.resizeDocks([dock], [height + head], Qt.Vertical)
