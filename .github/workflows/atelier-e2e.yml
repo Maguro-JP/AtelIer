@@ -15,7 +15,7 @@ permissions:
   contents: read
 concurrency:
   group: atelier-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false   # 1 回 約 20 分かかる。続けて push すると取り消され、Windows の確かめが 1 回も最後まで流れなかったので、取り消さずに順に流す（待つのは最新の 1 本だけ）
 jobs:
   regression:
     runs-on: ubuntu-latest
