@@ -12,7 +12,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QInputDialog, QLabel, QListView, QListWidget,
                                QListWidgetItem, QMenu, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
-from atelier.files.library import DISLIKE, LIKE, NONE
+from atelier.files.library import DISLIKE, LIKE, NONE, exists
 
 MARK = {LIKE: "♥ 好き", DISLIKE: "× いまいち", NONE: ""}
 
@@ -44,7 +44,8 @@ class LibraryPanel(QWidget):
         self.works.setToolTip("描いた絵。右クリックで「好き」「いまいち」を付けると、好みを学びます")
         self.works.customContextMenuRequested.connect(lambda pos: self._menu(self.works, pos))
         # ダブルクリックは開くだけ（レイヤーに足すと勝手に増えた）。重ねるのは右クリックの「今の絵に重ねる」
-        self.works.itemDoubleClicked.connect(lambda it: self.w.open_path(it.data(Qt.UserRole + 1)))
+        self.works.itemDoubleClicked.connect(lambda it: self._need(it.data(Qt.UserRole), it.data(Qt.UserRole + 1),
+                                                                   lambda: self.w.open_path(it.data(Qt.UserRole + 1))))
         self.tabs.addTab(self.works, "作品")
 
         docs_page = QWidget()
@@ -107,18 +108,39 @@ class LibraryPanel(QWidget):
         self._icons[path] = (key, icon)
         return icon
 
+    def _missing_icon(self) -> QIcon:
+        """ファイルが無い項目の印。縮小の絵の代わりに、灰色の枠と「？」を描く"""
+        if getattr(self, "_gone_icon", None) is None:
+            from PySide6.QtGui import QColor, QFont, QPainter, QPen
+            pm = QPixmap(176, 240)
+            pm.fill(QColor("#e6e6e6"))
+            qp = QPainter(pm)
+            qp.setPen(QPen(QColor("#999999"), 4, Qt.DashLine))
+            qp.drawRect(4, 4, 168, 232)
+            f = QFont()
+            f.setPixelSize(96)
+            qp.setFont(f)
+            qp.setPen(QColor("#888888"))
+            qp.drawText(pm.rect(), Qt.AlignCenter, "?")
+            qp.end()
+            self._gone_icon = QIcon(pm)
+        return self._gone_icon
+
     def _label(self, it: dict) -> str:
+        if not exists(it):
+            return "ファイルが無い"
         star = "★" if it["kind"] == "work" and it["path"] in self._favs else ""
         return star + MARK.get(it["rating"], "") if it["kind"] == "work" else (it["note"] or Path(it["path"]).name)[:10]
 
     def _item(self, it: dict) -> QListWidgetItem:
         item = QListWidgetItem(self._label(it))
-        icon = self._icon(it["path"])
+        gone = not exists(it)
+        icon = self._missing_icon() if gone else self._icon(it["path"])
         if icon is not None:
             item.setIcon(icon)
         item.setData(Qt.UserRole, it["id"])
         item.setData(Qt.UserRole + 1, it["path"])
-        tip = [it["added"], it.get("text") or it.get("note", "")]
+        tip = [f"ファイルが見つかりません（{it['path']}）" if gone else "", it["added"], it.get("text") or it.get("note", "")]
         if it.get("tags"):
             tip.append("言葉: " + ", ".join(it["tags"]))
         item.setToolTip("\n".join(t for t in tip if t))
@@ -200,7 +222,17 @@ class LibraryPanel(QWidget):
         lib, item_id, path = self.w.library, it.data(Qt.UserRole), it.data(Qt.UserRole + 1)
         entry = lib.get(item_id)
         m = QMenu(self)
-        if entry and entry["kind"] == "work":
+        if entry is None or not exists(entry):
+            # 絵が無いので、開く・置く・参考にするは出さず、外すか探すかだけを選べるようにする
+            head = m.addAction("ファイルが見つかりません")
+            head.setEnabled(False)
+            m.addAction("場所を探す…", lambda: self.locate(item_id, path)).setToolTip(path)
+            m.addAction("一覧から外す", lambda: self.forget(self._chosen(view, path)))
+            if not run:
+                return m
+            exec_once(m, view.mapToGlobal(pos))
+            return None
+        if entry["kind"] == "work":
             m.addAction("♥ 好き", lambda: self.rate(item_id, LIKE))
             m.addAction("× いまいち", lambda: self.rate(item_id, DISLIKE))
             m.addAction("評価を外す", lambda: self.rate(item_id, NONE))
@@ -223,6 +255,48 @@ class LibraryPanel(QWidget):
         if not run:
             return m
         exec_once(m, view.mapToGlobal(pos))
+
+    def _need(self, item_id: str, path: str, then):
+        """絵があれば then を動かす。無ければ落とさずに知らせ、「一覧から外す」「場所を探す」を選べるようにする"""
+        entry = self.w.library.get(item_id)
+        if entry is not None and exists(entry):
+            then()
+            return
+        from PySide6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("ファイルが見つかりません")
+        box.setText(f"ファイルが見つかりません（{path}）")
+        box.setInformativeText("消されたか、動かされた絵です。")
+        find = box.addButton("場所を探す…", QMessageBox.AcceptRole)
+        drop = box.addButton("一覧から外す", QMessageBox.DestructiveRole)
+        box.addButton("閉じる", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is find:
+            self.locate(item_id, path)
+        elif box.clickedButton() is drop:
+            self.forget([path])
+
+    def locate(self, item_id: str, path: str):
+        """ファイルが無い項目の絵を、利用者に探してもらって付け替える"""
+        new, _ = QFileDialog.getOpenFileName(self, "絵の場所を探す", "", "画像 (*.png *.jpg *.jpeg *.webp)")
+        if not new:
+            return
+        if self.w.library.relocate(item_id, new):
+            self.refresh()
+            self.w.notify("場所を付け替えました", "ok", new)
+        else:
+            self.w.notify("付け替えられませんでした", "error", f"ファイルが見つかりません（{new}）")
+
+    def forget(self, paths: list[str]):
+        """一覧から外す。ファイルの無い項目は、ごみ箱へ移す物が無いので記録だけを外す"""
+        lib = self.w.library
+        for entry in [e for e in lib.items if e["path"] in set(paths)]:
+            if entry["kind"] == "doc" and exists(entry):
+                continue   # 資料の写しがある物は、ここでは消さない（ごみ箱の経路で消す）
+            lib.items.remove(entry)
+        lib.save()
+        self.drop(paths)
 
     def _chosen(self, view: QListWidget, path: str) -> list[str]:
         """右クリックした絵と、一緒に選んでいる絵"""
