@@ -83,6 +83,8 @@ class LayerKeepTest(unittest.TestCase):
             self.qapp.processEvents()
             time.sleep(0.01)
         self.qapp.processEvents()
+        if w.thread is not None or getattr(w, "bg_pending", 0):
+            self.fail(f"{sec} 秒たっても処理が終わらない（固まった）")
 
     def redpen_fix(self, w):
         """赤ペンで囲んで指示を書き、「描く」で直す（アプリの経路そのまま）"""

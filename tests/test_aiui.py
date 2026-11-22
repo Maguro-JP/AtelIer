@@ -179,10 +179,12 @@ class InstructTabTest(unittest.TestCase):
         with TemporaryDirectory() as d:
             w = window(d)
             self.assertNotIn("お気に入り", w.fav_button.toolTip())
-            src = "".join(p.read_text(encoding="utf-8") for p in [Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py", *sorted((Path(__file__).resolve().parents[1] / "atelier" / "app" / "window").glob("*.py"))])   # 窓は役目ごとに atelier/app/window/ へ分けた
-            for line in src.splitlines():
-                if "お気に入り" in line and ("addAction" in line or "addMenu" in line or "setToolTip" in line or "showMessage" in line):
-                    self.assertIn("★", line)                                   # 残るのは絵の ★（作品の印）だけ
+            # 利用者に見えるメニューの項目とツールチップを窓から集めて見る（ソースの文字ではなく、出た画面を見る）
+            from PySide6.QtGui import QAction
+            from PySide6.QtWidgets import QWidget
+            shown = [a.text() for a in w.findChildren(QAction)] + [a.toolTip() for a in w.findChildren(QAction)] \
+                + [x.toolTip() for x in w.findChildren(QWidget)]
+            self.assertEqual([t for t in shown if "お気に入り" in t and "★" not in t], [])   # 残るのは絵の ★（作品の印）だけ
             w.close()
 
     def test_negative_presets(self):

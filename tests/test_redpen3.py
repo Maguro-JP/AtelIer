@@ -92,6 +92,8 @@ class Base(unittest.TestCase):
             self.qapp.processEvents()
             time.sleep(0.01)
         self.qapp.processEvents()
+        if w.thread is not None or getattr(w, "bg_pending", 0):
+            self.fail(f"{sec} 秒たっても処理が終わらない（固まった）")
 
     def redpen_fix(self, w):
         """赤ペンで囲んで指示を書き、「描く」で直す（アプリの経路そのまま）"""
@@ -120,6 +122,8 @@ class RedPen3Test(Base):
         while (w.thread is not None or getattr(w, "bg_pending", 0)) and time.time() < end:
             self.qapp.processEvents()
         self.qapp.processEvents()
+        if w.thread is not None or getattr(w, "bg_pending", 0):
+            self.fail(f"{sec} 秒たっても処理が終わらない（固まった）")
 
     def files(self):
         return sorted(str(p.relative_to(self.out)) for p in self.out.rglob("*") if p.is_file() and ".trash" not in p.parts
@@ -480,13 +484,22 @@ class RedPen3Test(Base):
         QTest.mouseClick(w.note_ok, Qt.LeftButton)
         self.assertEqual(c.redpen.texts, ["目を大きく"])
         self.assertFalse(w.note_box.isVisible())
+        from atelier.app.main_window import gray_to_pil, qimage_to_pil_rgba
+        inside = gray_to_pil(c.redpen.masks()[0]).convert("L").point(lambda v: 255 if v else 0)
         n = len(w.studio.painter.calls)
         with mock.patch.object(w, "_keep_original", lambda t: t):
             w.send()
             self.wait(w)
         print("確定のあとの直し: 模型の呼び出し", len(w.studio.painter.calls) - n, "印", len(c.redpen.marks))
         self.assertEqual(len(w.studio.painter.calls) - n, 1)
-        self.assertEqual(sum(1 for l in c.layers if l.redpen), 1)
+        fixes = [l for l in c.layers if l.redpen]
+        self.assertEqual(len(fixes), 1)
+        # 直しのレイヤーは囲んだ所だけの画素にする（絵全体の写しを重ねると、囲みの外まで変わったのと同じになる）
+        from PIL import ImageChops
+        alpha = qimage_to_pil_rgba(fixes[0].image).getchannel("A").point(lambda v: 255 if v else 0)
+        self.assertIsNotNone(alpha.getbbox(), "直しのレイヤーが空（押しても何も直っていない）")
+        self.assertIsNone(ImageChops.multiply(alpha, ImageChops.invert(inside.resize(alpha.size))).getbbox(),
+                          "囲みの外にも直しの画素がある")
         self.assertEqual(len(c.redpen.marks), 0)
 
     # ---- 右クリックから赤ペンにしたあと、つかんだままの動きにならない ----

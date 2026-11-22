@@ -28,9 +28,23 @@ class SettingsHasNoModelsTest(unittest.TestCase):
             self.assertEqual(st.get("words_model"), "")   # 値は残っていて読める
 
     def test_settings_menu_has_no_model_manager(self):
-        src = "".join(p.read_text(encoding="utf-8") for p in [Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py", *sorted((Path(__file__).resolve().parents[1] / "atelier" / "app" / "window").glob("*.py"))])   # 窓は役目ごとに atelier/app/window/ へ分けた
-        self.assertNotIn("模型の管理（入れ替え・更新）", src)
-        self.assertNotIn("model_dir_changed", src)
+        """窓のメニューに、前に外した「模型の管理（入れ替え・更新）」が戻っていない（窓を開いてメニューの項目を見る）"""
+        from tempfile import TemporaryDirectory
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QApplication
+        from atelier.ai.engine import Studio
+        from atelier.app.main_window import Window
+        from tests.test_chatdraw import FakePainter, FakeWords
+        QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as d:
+            w = Window(Studio(FakeWords(), FakePainter(), Path(d)))
+            try:
+                texts = [a.text() for a in w.findChildren(QAction)]
+                self.assertTrue(texts)
+                self.assertFalse([t for t in texts if "模型の管理（入れ替え・更新）" in t], texts)
+            finally:
+                w.closing_checked = True
+                w.close()
 
 
 class ManagerTest(unittest.TestCase):

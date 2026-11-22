@@ -36,7 +36,8 @@ jobs:
       - run: pip install -q --index-url https://download.pytorch.org/whl/cpu torch && pip install -q numpy scipy scikit-image pillow transformers huggingface_hub
       - run: git worktree add ../old "${{ github.event.inputs.old || 'v0.1.0' }}"
       - run: lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-200
-      - run: |
+      - shell: bash   # pipefail を付ける（tee の後ろに置くと、台が落ちても緑になった）
+        run: |
           for p in tests/fixtures/yukionna.png tests/fixtures/pockets.png; do
             echo "== $p"
             python -m atelier.bench.finish_bench "$p" --upscale

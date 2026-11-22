@@ -116,7 +116,7 @@ class RedPenFixTest(unittest.TestCase):
         self.assertTrue(any("模型が落ちた" in t for t in said), said)
 
 
-    def process(self, sid, hide_first=False):
+    def process(self, sid):
         """赤ペンで囲み、加工を右クリックのショートカットと同じ道（run_shortcut）で掛ける"""
         from atelier.app.main_window import qimage_to_pil
         from PIL import ImageChops
@@ -124,8 +124,6 @@ class RedPenFixTest(unittest.TestCase):
         before = qimage_to_pil(c.flatten()).convert("RGB")
         self.mark("")
         mask = self.w._region_mask().resize(before.size)
-        if hide_first:   # 隠した印の所は加工しない
-            c.redpen.set_shown(1, False) if hasattr(c.redpen, "set_shown") else None
         hist, n = self.w.history.count(), len(c.layers)
         said = []
         self.w.notify = lambda title, kind="", body="", **k: said.append(f"{title} {body}")
@@ -141,6 +139,7 @@ class RedPenFixTest(unittest.TestCase):
         inside = mask.convert("L").point(lambda v: 255 if v else 0)   # 囲みの縁のぼかしも中に数える
         outside = ImageChops.multiply(diff, ImageChops.invert(inside))
         self.assertIsNone(outside.getbbox(), (said, outside.getbbox(), inside.getbbox()))   # 囲みの外は 1 画素も変えない
+        self.assertIsNotNone(diff.getbbox(), ("加工を掛けても絵が 1 画素も変わらない", said))   # 何もしなくても通らないように
         return said
 
     def test_process_effect_inside_marks(self):
@@ -167,6 +166,7 @@ class RedPenFixTest(unittest.TestCase):
         after = qimage_to_pil(c.flatten()).convert("RGB")
         diff = ImageChops.difference(before, after).convert("L").point(lambda v: 255 if v else 0)
         self.assertIsNone(ImageChops.multiply(diff, ImageChops.invert(first)).getbbox())
+        self.assertIsNotNone(ImageChops.multiply(diff, first).getbbox(), "見えている 1 つ目の印の所も変わっていない")
 
     def test_hidden_mark_is_not_fixed(self):
         self.hidden_second(lambda: QTest.mouseClick(self.w.button, Qt.LeftButton))

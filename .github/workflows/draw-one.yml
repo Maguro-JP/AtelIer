@@ -125,7 +125,7 @@ jobs:
           # 描けるまで描き直す。仕上げの検品（result-*.json の passed）を 1 つも通らなければ、種を 1 つ進めて構図から出し直す（20 回まで）
           if grep -q '"passed": true' out/result-*.json 2>/dev/null; then echo "検品を通りました"; exit 0; fi
           tries=$(( ${{ inputs.tries || '0' }} + 1 ))
-          [ "$tries" -le 20 ] || { echo "20 回描き直しても通りませんでした"; exit 0; }
+          [ "$tries" -le 20 ] || { echo "20 回描き直しても通りませんでした"; exit 1; }   # 通らないまま緑にしない
           base=${{ inputs.seed }}
           [ -n "$base" ] || base=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/config/draw-request.json')).get('seed',7))")
           curl -sS -f -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \

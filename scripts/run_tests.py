@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import time
@@ -30,15 +31,26 @@ def have_models() -> bool:
     return all(importlib.util.find_spec(name) is not None for name in ("torch", "diffusers"))
 
 
+# アプリが配る部品。これが無くて飛ばした試験は「通った」ではなく落ちたとして数える
+# （飛ばした数は OK の行に出るだけで、配る部品が抜けても全部 OK に見えた）
+SHIPPED = re.compile(r"scipy|skimage|scikit-image|numpy|PySide6|Pillow|qc を読めない|qc の読み込み")
+
+
 def run(name: str) -> tuple[bool, str]:
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen", ATELIER_CHECK="off", ATELIER_ASSUME_FREE_RAM_GB="64")
     try:
-        done = subprocess.run([sys.executable, "-m", "unittest", f"tests.{name}"], cwd=ROOT, env=env, capture_output=True,
+        done = subprocess.run([sys.executable, "-m", "unittest", "-v", f"tests.{name}"], cwd=ROOT, env=env, capture_output=True,
                               text=True, errors="replace", timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         return False, f"{TIMEOUT} 秒で終わらなかった"
     lines = [line for line in done.stderr.splitlines() if "propagateSizeHints" not in line]
     last = next((line for line in reversed(lines) if line.startswith(("OK", "FAILED"))), f"終了コード {done.returncode}")
+    skipped = [line for line in lines if " ... skipped " in line]
+    missing = [line for line in skipped if SHIPPED.search(line)]
+    if done.returncode == 0 and missing:
+        return False, "配る部品が無くて飛ばした（通ったことにしない）:\n" + "\n".join(missing[:20])
+    if done.returncode == 0 and skipped:
+        last += "\n" + "\n".join("     飛ばした: " + line.strip() for line in skipped[:10])
     return done.returncode == 0, last if done.returncode == 0 else "\n".join(lines[-40:])
 
 
@@ -55,7 +67,8 @@ def main() -> int:
             skipped.append(name)
             continue
         ok, text = run(name)
-        print(f"{'OK  ' if ok else 'FAIL'} {name}" + ("" if ok else f"\n{text}"), flush=True)
+        extra = text.split("\n", 1)[1] if ok and "\n" in text else ""
+        print(f"{'OK  ' if ok else 'FAIL'} {name}" + (f"\n{extra}" if extra else "") + ("" if ok else f"\n{text}"), flush=True)
         if not ok:
             failed.append(name)
     ran = len(names) - len(skipped)

@@ -27,6 +27,7 @@ jobs:
           python-version: "3.11"
       - run: pip install -q --index-url https://download.pytorch.org/whl/cpu torch && pip install -q numpy scipy scikit-image pillow transformers huggingface_hub PySide6
       - name: 重い物を流す
+        shell: bash   # pipefail を付ける（tee の後ろに置くと、台が落ちても緑になった）
         run: python tools/gen/accuracy_bench.py --only 検品単体 --json accuracy.json | tee accuracy.txt
       - uses: actions/upload-artifact@v4
         if: always()

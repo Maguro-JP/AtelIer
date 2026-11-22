@@ -95,6 +95,18 @@ jobs:
           & "C:\Program Files\AtelIer\python\python.exe" -E -s -m atelier.bench.end_to_end "$env:RUNNER_TEMP\e2e\user"
           Get-Content "$env:RUNNER_TEMP\e2e\user\report.json" -ErrorAction SilentlyContinue
         working-directory: C:\Program Files\AtelIer
+      # Release は止めないが、落ちた段を黙って緑にしない（continue-on-error だけだと、落ちても気づけなかった）
+      - name: 利用者の操作の段で落ちた物を出す
+        if: always()
+        shell: pwsh
+        run: |
+          $f = "$env:RUNNER_TEMP\e2e\user\report.json"
+          if (-not (Test-Path $f)) { "::error::利用者の操作の段の report.json が無い（途中で落ちたか固まった）"; exit 0 }
+          $r = Get-Content $f -Raw | ConvertFrom-Json
+          foreach ($s in $r.steps | Where-Object { -not $_.ok }) {
+            "::error::利用者の操作の段が落ちた: $($s.name)"
+            "- 落ちた: $($s.name)" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          }
       - name: 検品の部品が入ったか
         shell: pwsh
         run: |

@@ -95,8 +95,10 @@ jobs:
           mkdir -p res
           python -u -m atelier.bench.adherence_bench score art/adhere-before-* && mv score.json res/before.json
           python -u -m atelier.bench.adherence_bench score art/adhere-after-* && mv score.json res/after.json
-          python -m atelier.bench.adherence_bench table res/before.json res/after.json | tee res/table.md
+          set -o pipefail
+          rc=0; python -m atelier.bench.adherence_bench table res/before.json res/after.json | tee res/table.md || rc=$?
           cat res/table.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc   # 前より下がったら落とす（改悪しない決まり。前は下がっても緑だった）
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -149,6 +149,8 @@ class WindowBase(unittest.TestCase):
             self.qapp.processEvents()
             time.sleep(0.01)
         self.qapp.processEvents()
+        if w.thread is not None or getattr(w, "bg_pending", 0):
+            self.fail(f"{sec} 秒たっても処理が終わらない（固まった）")
 
 
 class WindowTest(WindowBase):

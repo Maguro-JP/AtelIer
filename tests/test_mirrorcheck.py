@@ -94,7 +94,7 @@ class MirrorCheckTest(unittest.TestCase):
         self.assertGreaterEqual(marks[0][0][0], 210)
 
 
-@unittest.skipUnless((ROOT / ".cache" / "simple" / "lib" / "PySide6").is_dir(), "PySide6 が無い")
+@unittest.skipUnless(__import__("importlib").util.find_spec("PySide6"), "PySide6 が無い")   # 前は .cache の置き場だけを見ており、入っていても飛ばした
 class MirrorFromWindowTest(unittest.TestCase):
     """編集のメニューの「検品する」を押すと、映り込みの矛盾が赤ペンの印になる。
     手・足・顔の模型は偽に差し替え、映り込みの検品（mirrorcheck）は本物を通す"""

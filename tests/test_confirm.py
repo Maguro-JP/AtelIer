@@ -50,6 +50,8 @@ def wait(w, s=60):
             break
         time.sleep(0.01)
     spin(10)
+    if w.thread is not None:   # 固まったまま後ろの確かめに進ませない
+        raise AssertionError(f"{s} 秒たっても処理が終わらない（固まった）")
 
 
 class IntentTest(unittest.TestCase):

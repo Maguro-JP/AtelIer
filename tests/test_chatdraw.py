@@ -1105,6 +1105,8 @@ def wait_idle(app, w, limit: float = 300.0):
         app.processEvents()
         w.thread and w.thread.wait(10)
     app.processEvents()
+    if w.thread is not None:   # 固まったまま後ろの確かめに進むと、固まった不具合が通ってしまう
+        raise AssertionError(f"{limit:.0f} 秒たっても裏の処理が終わらない（固まった）")
 
 
 def wait_bg(app, w, limit: float = 60.0):
@@ -1115,6 +1117,8 @@ def wait_bg(app, w, limit: float = 60.0):
         app.processEvents()
         _t.sleep(0.005)
     app.processEvents()
+    if getattr(w, "bg_pending", 0):
+        raise AssertionError(f"{limit:.0f} 秒たっても保存・読み込み・加工の答えが画面に返らない（固まった）")
 
 
 class FixAndBatchTest(unittest.TestCase):

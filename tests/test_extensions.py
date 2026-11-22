@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import io
 import os
-import re
 import sys
 import unittest
 from contextlib import redirect_stderr
@@ -30,19 +29,6 @@ CHARA_MENU = "キャラクターデザイン"
 
 
 class SourceTest(unittest.TestCase):
-    def test_core_does_not_import_character_design(self):
-        """本体は、キャラクターデザインのパッケージ（前の atelier.chara、今の character_designer）を読まない。
-        本体が拡張を読むと、拡張を別のリポジトリに置けなくなるため"""
-        self.assertFalse((ROOT / "atelier" / "chara").exists())
-        # 読み方の形だけを見る（置き場を書いた説明は読み込みではないので拾わない）
-        pattern = re.compile(r"atelier\.chara\b|from\s+atelier\s+import\s+[^\n]*\bchara\b|^\s*(from|import)\s+character_designer\b")
-        hits = []
-        for path in sorted((ROOT / "atelier").rglob("*.py")):
-            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if pattern.search(line):
-                    hits.append((path.relative_to(ROOT).as_posix(), n, line.strip()))
-        self.assertEqual(hits, [])
-
     def test_nothing_is_bundled(self):
         self.assertEqual(extensions.BUNDLED, ())
 

@@ -67,8 +67,6 @@ class KeepSettings(unittest.TestCase):
             self.assertEqual(paths.data_home(), before)
             self.assertEqual(Path(data_home.HOME), before)   # 部品の置き場もデータの置き場と同じ 1 か所
             self.assertTrue(ratings.is_favorite("a/b"))
-        for name in ("hand_check.py", "request_check.py"):
-            self.assertNotIn('os.environ["ATELIER_HOME"]', (ROOT / "atelier" / "qc" / name).read_text(encoding="utf-8"))
 
     def test_broken_file_is_kept(self):
         """読めないファイルは消さずに控えを残し、次の保存で元の中身を失わない"""

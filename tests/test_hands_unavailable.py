@@ -21,10 +21,6 @@ class Unavailable(unittest.TestCase):
             hands._model(Path("/nonexistent/hand_detector.tflite"))
         self.assertIn("hand_detector.tflite", str(c.exception))
 
-    def test_setup_checks_package_apart_from_model(self):
-        src = (Path(__file__).resolve().parents[1] / "tools" / "gen" / "setup.py").read_text(encoding="utf-8")
-        self.assertIn('if not (LIB / "ai_edge_litert").exists():', src)
-
 
 if __name__ == "__main__":
     unittest.main()

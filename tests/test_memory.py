@@ -58,6 +58,8 @@ def wait_done(a, w, limit: float = 30.0):
         a.processEvents()
         w.thread and w.thread.wait(10)
     a.processEvents()
+    if w.thread is not None:
+        raise AssertionError(f"{limit:.0f} 秒たっても処理が終わらない（固まった）")
 
 
 class MemoryRetryTest(unittest.TestCase):

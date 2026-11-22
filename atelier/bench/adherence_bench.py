@@ -124,7 +124,15 @@ def main():
         Path("score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     elif cmd == "table":
         load = lambda p: json.loads(Path(p).read_text(encoding="utf-8"))   # noqa: E731
-        print(table(load(sys.argv[2]), load(sys.argv[3])))
+        before, after = load(sys.argv[2]), load(sys.argv[3])
+        print(table(before, after))
+        # 改悪しない決まり: 描けた割合が下がるか、人数の違う絵・作画監督の外れが増えたら落とす
+        worse = [k for k in ("people_wrong", "qc_bad") if after.get(k, 0) > before.get(k, 0)]
+        if after.get("rate", 0) < before.get("rate", 0):
+            worse.insert(0, "rate")
+        if worse:
+            print("前より下がった: " + "、".join(worse))
+            sys.exit(1)
     else:
         print(__doc__)
 

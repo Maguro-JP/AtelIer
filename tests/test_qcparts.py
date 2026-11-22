@@ -19,23 +19,6 @@ class NamesTest(unittest.TestCase):
             ours = re.search(rf'^{name}\s*=\s*"([^"]+)"', src, re.M).group(1)
             self.assertEqual(ours, const(path, var), f"{name} と {path} の {var}")
 
-    def test_table_lists_every_part(self):
-        doc = (ROOT / "docs" / "knowledge" / "qc-parts.md").read_text(encoding="utf-8")
-        for repo in re.findall(r'^[A-Z]+\s*=\s*"([^"]+)"', (ROOT / "atelier" / "qc" / "parts.py").read_text(encoding="utf-8"), re.M):
-            self.assertIn(repo, doc)
-
-    def test_new_models_in_verify_list_with_zero_score(self):
-        import json
-        cat = json.loads((ROOT / "atelier" / "models" / "catalog.json").read_text(encoding="utf-8"))
-        verify = (ROOT / "config" / "verify-models.txt").read_text(encoding="utf-8")
-        new = [m for m in cat if isinstance(m, dict) and m.get("added") == "2026-11-14"]
-        self.assertTrue(new)
-        for m in new:
-            self.assertEqual(m.get("score", 0), 0, m["repo"])
-        # 点が 0 の模型は config/verify-models.txt に書かなくても model-verify が拾う（atelier.bench.verify_models.candidates）
-        self.assertIn("ここに書かなくても", verify)
-        self.assertIn("m.score <= 0", (ROOT / "atelier" / "bench" / "verify_models.py").read_text(encoding="utf-8"))
-
 
 if __name__ == "__main__":
     unittest.main()

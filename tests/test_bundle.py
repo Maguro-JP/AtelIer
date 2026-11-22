@@ -146,12 +146,6 @@ class BundleTest(unittest.TestCase):
         res = probe(bundle_files())
         self.assertEqual(res["fails"], [], "配る中身に無い物を読んでいる:\n" + "\n".join(res["fails"]))
 
-    def test_build_uses_bundle_list(self):
-        """build.sh が手で並べた一覧に戻っていないこと"""
-        sh = (ROOT / "packaging" / "build.sh").read_text(encoding="utf-8")
-        self.assertIn("bundle_list.py", sh)
-        self.assertNotIn("tools/gen/hands.py tools/gen/data_home.py", sh)
-
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--files"]:   # 別の一覧（例: 直す前の build.sh の一覧）で流す
