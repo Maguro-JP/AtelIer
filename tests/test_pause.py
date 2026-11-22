@@ -56,6 +56,12 @@ class FailingPainter(Painter):
 
 class PhasesPauseTest(KeepDir):
     def run_with(self, exc):
+        # 偽の絵は線の輪郭の検品を通らないので、ほかの工程の試験と同じく輪郭は通す（通らない崩れは聞いて止まるため、再開を最後まで見られない）
+        from unittest import mock
+        from atelier.ai import phase_tools as pt
+        p = mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0})
+        p.start()
+        self.addCleanup(p.stop)
         C, _ = checks(False)
         painter = FailingPainter(3, exc)
         said = []
@@ -77,7 +83,12 @@ class PhasesPauseTest(KeepDir):
         first = next(s for s in said2 if s.startswith("工程 "))
         self.assertTrue(first.startswith(f"工程 {i + 1}/"), (first, stopped_at))
         self.assertEqual([r["phase"] for r in got["phases"]], phases.NAMES)
-        self.assertGreaterEqual(len(got["history"]), done_before + (len(phases.PHASES) - i))
+        # 再開のあと、止めた工程から 1 つずつ進み、同じ工程を繰り返さない（止める前に描き終えた工程も描き直さない）
+        order = [phases.NAMES.index(r["phase"]) for r in got["history"]]
+        self.assertEqual(order, list(range(len(phases.PHASES))), (order, got.get("asked"), said2[-6:]))
+        self.assertEqual(len(got["history"]), done_before + (len(phases.PHASES) - i))
+        begun = [int(s.split("/")[0].split()[1]) for s in said2 if s.startswith("工程 ")]
+        self.assertEqual(begun, list(range(i + 1, len(phases.PHASES) + 1)), begun)
         self.assertIsNone(pausekeep.info(k))   # 描き終えたら残した途中は消す
         self.assertGreater(painter.n_paint, calls_before)
 

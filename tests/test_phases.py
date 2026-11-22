@@ -52,16 +52,20 @@ class Painter(FakePainter):
     def paint(self, prompt, seed, on_step=None, **kw):
         self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
         super().paint(prompt, seed, on_step=on_step, **kw)
+        # 頼み・種によらず同じ絵を返すと、同じ工程の繰り返しを見分けられない。種ごとに人物の色を変える
+        im = figure(kw.get("size") or (64, 96))
+        from PIL import ImageChops
+        im = ImageChops.add(im, im.point(lambda _v: seed % 23))
         if kw.get("on_preview"):
-            kw["on_preview"](figure(kw.get("size") or (64, 96)))
-        return figure(kw.get("size") or (64, 96))
+            kw["on_preview"](im)
+        return im
 
     def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
         self.log.append(("redraw", seed, kw.get("strength")))
         self.masks = getattr(self, "masks", []) + [mask]
-        # 本物の模型と同じく絵全体を返し、囲みの中だけでなく外も少し変える（外を元に戻すのは phases の役目）
+        # 本物の模型と同じく絵全体を返し、囲みの中だけでなく外も変える（外を元に戻すのは phases の役目）。回ごとに違う絵にする
         from PIL import ImageChops
-        return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 9))
+        return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 5 + seed % 7))
 
 
 BAD_TIMES = 3   # 崩れを返し続ける検品が、何回目で通るか（必ず通る回を持たせ、試験を終わらせる）
@@ -228,8 +232,14 @@ class PhasesTest(unittest.TestCase):
             painter.stop = True
             return orig(image, prompt)
         C.hands = staticmethod(hands)
-        with TemporaryDirectory() as d, self.assertRaises(Stopped):
-            phases.draw(painter, "1girl", 1, (64, 96), Path(d) / "k", checks=C)
+        import json
+        with TemporaryDirectory() as d:
+            with self.assertRaises(Stopped):
+                phases.draw(painter, "1girl", 1, (64, 96), Path(d) / "k", checks=C)
+            got = json.loads((Path(d) / "k" / "progress.json").read_text(encoding="utf-8"))
+            self.assertEqual(got["state"], "stopped")
+            self.assertEqual(got["phase"], "顔・手・足の下描き")   # 手を見る最初の工程で止まった
+            self.assertTrue(got["image"] and Path(got["image"]).exists())   # 止めた所までの絵が残る
 
     def test_draft_blocks_when_landmark_inspection_is_unreadable(self):
         base, _ = checks(always_bad=False)
@@ -270,8 +280,14 @@ class PhasesTest(unittest.TestCase):
         import numpy as np
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             painter = Painter()
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks())
-        self.assertTrue(got["complete"])
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=10 ** 6))
+        # ずっと通らない検品でも固まらず、手を替えた直しのあと、利用者に聞く所で止まる
+        self.assertFalse(got["complete"])
+        self.assertEqual(got["asked"]["phase"], "顔・手・足の下描き")
+        draft = got["history"][-1]
+        self.assertEqual(len(draft["mends"]), phases.MENDS)
+        self.assertTrue(all(m["outside"] == 0 for m in draft["mends"]))
+        self.assertEqual([r["phase"] for r in got["history"]], phases.NAMES[:5])
         self.assertTrue(painter.masks)
         for m in painter.masks:
             a = np.asarray(m)
@@ -591,7 +607,6 @@ class WindowFlowTest(unittest.TestCase):
                  mock.patch.object(w, "_keep_original", lambda x: x), \
                  mock.patch.object(w, "offer_two_stage_parts", lambda: None), \
                  mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
-                 mock.patch.object(pt, "thumb_weight", lambda _im: {"weight_x": 0.0, "weight_y": 0.5, "ink": 0.2}), \
                  mock.patch.object(phases.Checks, "request", staticmethod(C.request)), \
                  mock.patch.object(phases.Checks, "body", staticmethod(C.body)), \
                  mock.patch.object(phases.Checks, "points", staticmethod(C.points)), \
@@ -750,9 +765,9 @@ class PreviewTest(unittest.TestCase):
             got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), checks=checks(False)[0], on_preview=shown.append)
         self.assertTrue(shown)
         same = [k for k in range(1, len(shown)) if list(shown[k].getdata()) == list(shown[k - 1].getdata())]
-        # 同じ絵を続けて出さない。偽の模型は種によらず同じ絵を描くので、描いている途中の絵（サムネイル 2 枚と下描き）だけは除く
-        self.assertEqual([k for k in same if k > phases.THUMBS], [])
-        self.assertLessEqual(len(shown), got["total"] * 2 + phases.THUMBS)
+        self.assertEqual(same, [])   # 同じ絵を続けて出さない
+        # 出すのは、描いている途中のサムネイルと、絵が変わった工程（サムネイルとアタリは出さない）だけ
+        self.assertLessEqual(len(shown), phases.THUMBS + got["total"])
 
 
 class NoSketchModelTest(unittest.TestCase):

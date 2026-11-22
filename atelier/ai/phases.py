@@ -232,6 +232,14 @@ def diff(a, b, mask=None) -> dict:
     return out
 
 
+GROW_MOST = 0.5   # 広げた囲みが絵のこの割合を超えたら、広げ方を半分にする（私の推測）
+
+
+def _share(mask) -> float:
+    import numpy as np
+    return float((np.asarray(mask.convert("L")) > 0).mean())
+
+
 def _grow(mask, r):
     from PIL import ImageFilter
     return mask if r <= 0 else mask.filter(ImageFilter.MaxFilter(2 * r + 1))
@@ -635,7 +643,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         total = saved.get("total", len(history))
         st.clear()
         st.update(entry[i])
-        say(f"一時停止した「{PHASES[i][0]}」から続けます（累計 {total} 工程まで描いてあります）")
+        say(f"一時停止した工程 {i + 1}/{n}「{PHASES[i][0]}」から続けます（累計 {total} 工程まで描いてあります）")
 
     def progress(state, left=()):
         """止めたときに窓が読む今の状態。裏の糸が止められて返りが無くても、ここから止めた所までの絵と崩れを出す"""
@@ -808,6 +816,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 tries[i] = k + 1
                 strength = MEND[min(k, len(MEND) - 1)]
                 m = _grow(mask, GROW * k)
+                r = GROW * k
+                while r > 0 and _share(m) > max(_share(mask), GROW_MOST):   # 広げすぎて絵全体の描き直しにならないようにする
+                    r //= 2
+                    m = _grow(mask, r)
                 say(f"崩れた所の囲みの中だけを直しています（{k + 1}/{MENDS} 回目、強さ {strength}）: " + "、".join(left[:3]))
                 tell(st["prompt"])
                 tried = _inside(painter.redraw(st["prompt"], st["seed"] + 509 * (k + 1) + 31 * i, cur, m, strength=strength), cur, m)

@@ -166,6 +166,11 @@ class RealModelTest(unittest.TestCase):
                   meta_of(path)["redraws"])
             self.assertGreaterEqual({s["name"]: s for s in rec["stages"]}["描く"]["tries"], 1)
             self.assertTrue(any(l.startswith("担当編集者:") for l in lines))
+            # 描いた絵の中身を見る（塗りつぶし 1 色や空の絵を「描けた」にしない）
+            from PIL import Image, ImageStat
+            im = Image.open(path).convert("RGB")
+            self.assertEqual(im.size, (256, 256))
+            self.assertGreater(max(ImageStat.Stat(im).stddev), 1.0)
 
 
 if __name__ == "__main__":
