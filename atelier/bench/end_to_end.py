@@ -196,7 +196,6 @@ def main():
             raise RuntimeError(f"絵が保存されていない: {path}")
         return {"phases": len(studio.last_phases or [])}
 
-    ok = step("右クリックのメニューを全部開く", right_click) and ok
     ok = step("工程に分けて 1 枚描く", phases_draw) and ok
     # ---- 窓から、利用者が押すのと同じメソッドを通す。窓の写しは出力の置き場に置く ----
     import numpy as np
@@ -401,6 +400,8 @@ def main():
     # 利用者が窓で踏む段。Release を決める段（入れる・起動・取る・描く）とは分けて流す
     # （ATELIER_E2E_CORE_ONLY=1 のときは流さない）。ここで固まると、描けると分かった版まで Release に出なかった
     if not os.environ.get("ATELIER_E2E_CORE_ONLY"):
+        # 右クリックのメニューは、Windows の機械で開いたまま戻らず 30 分で切れたことがある。Release を止めないよう、こちらで見る
+        ok = step("右クリックのメニューを全部開く", right_click) and ok
         ok = step("CharacterDesigner の模型の置き場の模型を一覧に出す", from_character_designer) and ok
         ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
         ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
