@@ -315,7 +315,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 say(f"サムネイル {k + 1}/{THUMBS} を描いています（{tw}x{th}）")
                 tell(st["prompt"])
                 words.append(st["prompt"])
-                img = painter.paint(st["prompt"], s, on_step=on_step, size=(tw, th), **pv)
+                img = painter.paint(st["prompt"], s, on_step=on_step, size=(tw, th))   # サムネイルは途中の絵もキャンバスに出さない（NO_PREVIEW）
                 if THUMB_SCALE >= 1 and THUMB_STEPS >= 1:
                     memo["thumbs"][(st["prompt"], s)] = img
                 req = checks.request(img, st["prompt"])   # 構図を選ぶための比べ。選んだ 1 枚の崩れは確かめる工程が項目ごとに出す
@@ -349,7 +349,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         try:
             tell(st["prompt"])
             words.append(st["prompt"])
-            return {"image": painter.paint(st["prompt"], s, on_step=on_step, size=(w, h), **pv), "words": words}
+            return {"image": painter.paint(st["prompt"], s, on_step=on_step, size=(w, h)), "words": words}   # アタリも途中の絵を出さない（NO_PREVIEW）
         finally:
             unsteps(s0)
 

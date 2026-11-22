@@ -794,15 +794,25 @@ class PreviewTest(unittest.TestCase):
     """精度優先でも、描いている途中の絵と工程ごとの絵を窓に渡す（描いている所を画面に見せる）"""
 
     def test_each_phase_image_is_shown(self):
-        shown = []
+        shown, now, hidden = [], [""], []
         from atelier.ai import phase_tools as pt
+
+        def say(m):
+            if m.startswith("工程 "):
+                now[0] = m.split("「", 1)[1].split("」", 1)[0] if "「" in m else ""
+
+        def show(im):
+            shown.append(im)
+            if any(n in now[0] for n in phases.NO_PREVIEW):
+                hidden.append(now[0])
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
-            got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), checks=checks(False)[0], on_preview=shown.append)
+            got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), say=say, checks=checks(False)[0], on_preview=show)
         self.assertTrue(shown)
+        self.assertEqual(hidden, [])   # 目的・サムネイル・アタリの間は、途中の絵も最後の絵もキャンバスに出さない
         same = [k for k in range(1, len(shown)) if list(shown[k].getdata()) == list(shown[k - 1].getdata())]
         self.assertEqual(same, [])   # 同じ絵を続けて出さない
-        # 出すのは、描いている途中のサムネイルと、絵が変わった工程（サムネイルとアタリは出さない）だけ
-        self.assertLessEqual(len(shown), phases.THUMBS + got["total"])
+        # 出すのは、アタリのあとの描いている途中の絵と、絵が変わった工程だけ
+        self.assertLessEqual(len(shown), 2 * got["total"])
 
 
 class NoSketchModelTest(unittest.TestCase):
