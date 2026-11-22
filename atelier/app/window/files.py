@@ -117,16 +117,6 @@ class FilesMixin:
             self.source_path = str(path)
         self.dirty = False
 
-    def save_project(self, ask: bool = False, wait: bool = False) -> bool:
-        """作業ファイル（レイヤー・赤ペンの印ごと）に保存する。初めてか ask なら置き場を聞く。
-        書くのは裏の糸（PNG に縮めるのに 1 枚 0.1〜0.3 秒かかり、その間描けなかった）。wait なら書き終えるまで待つ
-        （閉じる前・拡大の前など、保存できたかで次を決めるとき）。書き始めたか書けたら True"""
-        from atelier.files import project_file as project
-        path = getattr(self, "project_path", None)
-        if ask or not path:
-            if self.tour_first("project", lambda: self.save_project(ask)):
-                return False
-            path, _ = QFileDialog.getSaveFileName(self, "作業ファイルを保存", "drawing" + project.SUFFIX,
     def new_blank(self, w: int = 1200, h: int = 1600):
         """白い新しいキャンバスにする。前は積み重ねごと消していたので、描いた絵が元に戻すで戻らなかった
         （説明には「戻せます」と書いてあった）。前の絵を 1 手として積み、作業ファイルの道も外す
@@ -148,6 +138,16 @@ class FilesMixin:
         self.project_path, self.source_path = None, None
         self.statusBar().showMessage("新しいキャンバスにしました（元に戻すで前の絵に戻せます）", 4000)
 
+    def save_project(self, ask: bool = False, wait: bool = False) -> bool:
+        """作業ファイル（レイヤー・赤ペンの印ごと）に保存する。初めてか ask なら置き場を聞く。
+        書くのは裏の糸（PNG に縮めるのに 1 枚 0.1〜0.3 秒かかり、その間描けなかった）。wait なら書き終えるまで待つ
+        （閉じる前・拡大の前など、保存できたかで次を決めるとき）。書き始めたか書けたら True"""
+        from atelier.files import project_file as project
+        path = getattr(self, "project_path", None)
+        if ask or not path:
+            if self.tour_first("project", lambda: self.save_project(ask)):
+                return False
+            path, _ = QFileDialog.getSaveFileName(self, "作業ファイルを保存", "drawing" + project.SUFFIX,
                                                   f"作業ファイル (*{project.SUFFIX})")
             if not path:
                 return False
@@ -161,6 +161,7 @@ class FilesMixin:
                 self.notify("保存できませんでした", "error", f"{e}\n保存先に書き込めるか、ディスクに空きがあるかを確かめてください")
                 return False
             self.project_path, self.dirty = path, False
+            self.statusBar().showMessage("保存しました", 3000)   # 「保存しています…」を残すと、終わったのか分からなかった
             self.notify("保存しました", "ok", Path(path).name)
             return True
         self.project_path, self.dirty = path, False
@@ -171,6 +172,7 @@ class FilesMixin:
                 self.dirty = True
                 self.notify("保存できませんでした", "error", f"{err}\n保存先に書き込めるか、ディスクに空きがあるかを確かめてください")
                 return
+            self.statusBar().showMessage("保存しました", 3000)   # 「保存しています…」を残すと、終わったのか分からなかった
             self.notify("保存しました", "ok", Path(path).name)
         self.run_io(lambda: project.write(snap, path), done, "保存")
         return True
@@ -181,7 +183,6 @@ class FilesMixin:
             # 閉じたあとに呼ばれた書き物（閉じる途中の作業の保持など）は、糸を作り直さずにその場で書く（糸が窓ごとに残らないように）
             try:
                 work()
-            self.statusBar().showMessage("保存しました", 3000)   # 「保存しています…」を残すと、終わったのか分からなかった
             except Exception:   # noqa: BLE001  閉じたあとは知らせる先が無い
                 pass
             return
