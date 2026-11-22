@@ -19,6 +19,8 @@ VERSION = 1
 def _reset(w):
     """欄をいったん全部くっつけ直す（別ウィンドウや畳んだ物も戻す）"""
     w.__dict__.pop("_fit_cols", None)
+    if hasattr(w, "return_all"):
+        w.return_all()   # まとめた窓の欄と帯も主の窓へ戻してから並べる
     for d, _ in w.panels.values():
         d.setFloating(False)
         title = d.titleBarWidget()
@@ -308,7 +310,10 @@ def split(w, n: int):
 def snapshot(w) -> dict:
     return {"version": VERSION, "app": "AtelIer",
             "state": base64.b64encode(bytes(w.saveState())).decode(),
-            "geometry": base64.b64encode(bytes(w.saveGeometry())).decode()}
+            "geometry": base64.b64encode(bytes(w.saveGeometry())).decode(),
+            # まとめた窓（別ウィンドウに組んだ欄と帯）と、全画面にした画面
+            "groups": w.groups_snapshot() if hasattr(w, "groups_snapshot") else [],
+            "fullscreen": w.fullscreen_snapshot() if hasattr(w, "fullscreen_snapshot") else {}}
 
 
 def restore(w, data: dict) -> bool:
@@ -322,6 +327,12 @@ def restore(w, data: dict) -> bool:
     for d, _ in w.panels.values():
         if d.isFloating() and hasattr(w, "keep_on_screen"):
             w.keep_on_screen(d)
+    # まとめた窓は主の窓の位置を戻したあとに作る。先に作ると、主の窓の restoreState が
+    # 子の窓の中の欄まで名前で探して取り戻し、まとめた窓から欄が消えた
+    if hasattr(w, "groups_restore"):
+        w.groups_restore(data.get("groups", []))
+    if hasattr(w, "fullscreen_restore"):
+        w.fullscreen_restore(data.get("fullscreen"))
     return bool(ok)
 
 

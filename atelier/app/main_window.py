@@ -102,6 +102,8 @@ from atelier.app.window.ai_results import AiResultsMixin  # noqa: E402
 from atelier.app.window.canvas_menu import CanvasMenuMixin  # noqa: E402
 from atelier.app.window.chat import ChatMixin  # noqa: E402
 from atelier.app.window.files import FilesMixin  # noqa: E402
+from atelier.app.window.fullscreen import FullscreenMixin  # noqa: E402
+from atelier.app.window.group_window import GroupMixin  # noqa: E402
 from atelier.app.window.history import HistoryMixin  # noqa: E402
 from atelier.app.window.image_editing import ImageEditingMixin  # noqa: E402
 from atelier.app.window.layers_and_selection import LayersAndSelectionMixin  # noqa: E402
@@ -118,7 +120,7 @@ from atelier.app.window.tour import TourMixin  # noqa: E402
 __all__ = ['Bridge', 'Job', 'MARK_OK', 'Navigator', 'NoteEdit', 'PANEL', 'PANEL_ORDER', 'PAUSED_HEAD', 'PanelTitle', 'PhaseAsk', 'REDPEN_SHAPES', 'Reference', 'SHAPE_TIPS', 'TOOLS', 'Task', '_BIG_ICON_STYLE', '_big_icon_style', 'crashed_before', 'exec_once', 'fit_size', 'fresh_stop', 'gray_to_pil', 'guarded', 'pid_alive', 'qimage_from_pil', 'qimage_to_pil', 'qimage_to_pil_rgba', 'QFileDialog', 'Window', 'dark', 'main', 'THEME', 'DATA', 'ROOT']
 
 
-class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin, RedpenMixin, CanvasMenuMixin, LayersAndSelectionMixin, ImageEditingMixin, ModelsMixin, HistoryMixin, ModesAndLogosMixin, SettingsAndDebugMixin, ResultsAndProgressMixin, LayoutMixin, TourMixin, QMainWindow):
+class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin, RedpenMixin, CanvasMenuMixin, LayersAndSelectionMixin, ImageEditingMixin, ModelsMixin, HistoryMixin, ModesAndLogosMixin, SettingsAndDebugMixin, ResultsAndProgressMixin, LayoutMixin, TourMixin, FullscreenMixin, GroupMixin, QMainWindow):
     """作画ソフトの並び: 左に頼みの欄、真ん中に絵、右に描いた絵の一覧、下に進み"""
 
     def __init__(self, studio: Studio | None = None):
@@ -715,6 +717,9 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         for k in ("fit", "actual", "zoom_in", "zoom_out", "zoom_ask", None, "rotate_left", "rotate_right", "rotate_dial",
                   "rotate_reset", "flip_view", "view_reset", None, "grid", "op_history"):
             view.addAction(S[k]) if k else view.addSeparator()
+        view.addSeparator()
+        self.build_fullscreen_menu(view)
+        view.addSeparator()
         self.build_symmetry_menu(view.addMenu("対称定規"))
         self.build_ruler_menu(view.addMenu("定規"))
         # 図形の道具。おすすめの配置の道具の帯には出さない（初めはシンプルにする）ので、メニューからも選べるようにする
@@ -879,7 +884,7 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
             d.customContextMenuRequested.connect(lambda pos, d=d, k=key: exec_once(self.area_menu(k), d.mapToGlobal(pos)))
             # 欄の境目をドラッグして上下左右に広げ縮めできる。狭めすぎて中身が潰れない大きさだけ決める
             d.setMinimumSize(160, 80)
-            d.topLevelChanged.connect(lambda floating, d=d: self._as_window(d, floating))
+            d.topLevelChanged.connect(lambda floating, d=d: (self._as_window(d, floating), self.floated_now(d, floating)))
             d.dockLocationChanged.connect(lambda _area, d=d: d.titleBarWidget().expand())
             d.visibilityChanged.connect(lambda on, d=d: self._appear(d, on))
         self.tools = tools
@@ -954,6 +959,7 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         win.addAction(QAction("並びを初めの形に戻す", self, triggered=self.reset_layout))
         win.addAction(QAction("リボンの並びを変える…", self, triggered=self.edit_ribbon_order))
         win.addAction(QAction("すべて別ウィンドウにする", self, triggered=self.float_all))
+        self.build_group_menu(win.addMenu("まとめた窓（欄と帯を組む）"))
         win.addAction(QAction("自由配置（欄をドラッグして好きな所に置く）", self, triggered=self.free_layout))
         self.build_ribbon()
         self.build_bottom()
