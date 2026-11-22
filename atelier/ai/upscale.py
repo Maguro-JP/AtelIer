@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from atelier.files.paths import LLM_HOME, SHARED
-import os
 
 UPSCALE = LLM_HOME / "upscale" if SHARED else LLM_HOME / "gen" / "upscale"
 WEIGHTS = UPSCALE / "RealESRGAN_x4plus_anime_6B.pth"

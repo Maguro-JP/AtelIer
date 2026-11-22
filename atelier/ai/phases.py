@@ -195,7 +195,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
          confirm=None, pause_key: str | None = None, pause_job: dict | None = None) -> dict:
     """12 の工程で 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録, "history": 全部の記録,
     "left": 残った崩れ, "checked": 全工程の検品完了, "complete": 全工程完了, "blocked": 停止理由, "backs": 戻った回数}。
-    検品不能または未解決の崩れが残り、戻り先も無い場合は次工程へ進まず未完成で止める。戻る回数にも上限がある。
+    検品不能または未解決の崩れが残り、戻り先も無い（戻る回数の上限に達した）ときは止めずに次の工程へ進み、
+    残った崩れを "unresolved" と "left" に積んで、全工程のあとに未完成として返す。
     confirm(i, 名前, 絵, 記録) は "go"・"redo"・("words", 足す言葉の訳) を返す。
     pause_key があれば、メモリの見張り・メモリ不足・時間切れで工程が打ち切られたとき、その工程に入ったときの状態を
     atelier/files/pause_keep.py に残して Paused で返す。同じ鍵で呼び直すと、その工程から続ける（前は始めから描き直した）"""
@@ -587,7 +588,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     history: list[dict] = []
     visits, entry = [0] * n, {}
     backs, i = 0, 0
-    blocked = None
+    blocked = None   # 直しきれなかった最初の工程（止めはしない。全工程のあとに未完成として返す）
+    unresolved = []   # 直しきれずに次へ進んだ工程
     from atelier.files import pause_keep as pausekeep
     saved = pausekeep.state(pause_key) if pause_key else None
     if saved:   # 一時停止した工程から続ける。描き終えた工程の絵と記録はそのまま使う
@@ -649,9 +651,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             if kind in (REDO, WORDS):
                 target_hint = 5 if kind == WORDS and isinstance(ans, (tuple, list)) and len(ans) > 1 and str(ans[1]).strip() and i >= 5 else i
                 if backs >= BACKS or visits[target_hint] >= REVISIT:
-                    blocked = {"phase": name, "index": i, "reason": "再試行上限に達しました", "left": list(left), "requested": kind}
-                    say(f"工程 {i + 1}/{n}「{name}」は再試行上限（全体 {BACKS} 回・同一工程 {REVISIT} 回）に達したため停止しました。未完成として保存します")
-                    break
+                    unresolved.append({"phase": name, "index": i, "reason": "再試行上限に達しました", "left": list(left), "requested": kind})
+                    say(f"工程 {i + 1}/{n}「{name}」は描き直しの上限（全体 {BACKS} 回・同じ工程 {REVISIT} 回）に達しました。"
+                        "崩れを残したまま次の工程へ進み、最後に未完成として知らせます")
+                    i += 1
+                    continue
                 backs += 1
                 added = False
                 if kind == WORDS and isinstance(ans, (tuple, list)) and len(ans) > 1 and str(ans[1]).strip():
@@ -691,19 +695,28 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             continue
         if needs_retry:
             reason = "検品できませんでした" if not row["readable"] else "未解決の崩れが残っています"
-            blocked = {"phase": name, "index": i, "reason": reason, "left": list(left)}
-            say(f"工程 {i + 1}/{n}「{name}」で停止しました（{reason}）。未完成として保存します")
-            break
+            # 工程の数は決まっていて必ず終わる（CLAUDE.md）。止めずに残りの工程も描き、最後に未完成として崩れを知らせる。
+            # 前はここで止めていたので、12 工程のうち 2 工程で終わり、窓には「描けました」と出た
+            unresolved.append({"phase": name, "index": i, "reason": reason, "left": list(left)})
+            say(f"工程 {i + 1}/{n}「{name}」: {reason}。崩れを残したまま次の工程へ進み、最後に未完成として知らせます")
         i += 1
     pausekeep.clear(pause_key)   # 完了または未完成で停止したら、残した途中は要らない
     rows = [final[k] for k in range(n) if final.get(k) is not None]
-    complete = i >= n
-    if complete and rows:
+    drawn = i >= n   # 全工程を描いた
+    if drawn and rows:
         last = rows[-1]
         left = last["after"] if last["fixed"] else last["found"]
-    checked = complete and bool(rows) and all(r["readable"] for r in rows)
+    if unresolved:   # 途中の工程で残った崩れも最後に知らせる（最後の工程だけを見ると消えたように見えた）
+        seen = list(left or [])
+        for u in unresolved:
+            seen += [f"工程 {u['index'] + 1}「{u['phase']}」: {x}" for x in (u["left"] or [u["reason"]])]
+        left = seen
+        blocked = unresolved[0]
+    complete = drawn and not unresolved   # 完了は、全工程を描き、どの工程も直しきれたときだけ
+    checked = drawn and bool(rows) and all(r["readable"] for r in rows)
     (keep / "phases.json").write_text(json.dumps({"phases": rows, "history": history, "left": left, "checked": checked,
-                                                  "complete": complete, "blocked": blocked, "backs": backs},
+                                                  "complete": complete, "blocked": blocked, "unresolved": unresolved,
+                                                  "backs": backs},
                                                  ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     return {"image": st["image"], "phases": rows, "history": history, "left": left, "checked": checked,
-            "complete": complete, "blocked": blocked, "backs": backs}
+            "complete": complete, "blocked": blocked, "unresolved": unresolved, "backs": backs}

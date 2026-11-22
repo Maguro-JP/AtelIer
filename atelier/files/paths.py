@@ -48,12 +48,44 @@ def config_file() -> Path:
     return data_home() / "places.json"
 
 
-def chosen_model_dir() -> str:
+STRAY = "cd"   # 前の版がずれて書いた所（data_home() の下）
+CD_APP = "CharacterDesigner"   # 模型を共有するもう 1 つの自作アプリ（AtelIer の流用元）
+
+
+def character_designer_home() -> Path | None:
+    """CharacterDesigner のデータの置き場（CD_HOME > Windows の C:\\ProgramData\\CharacterDesigner）。無ければ None。
+    AtelIer の置き場の名前を変えたとき、CharacterDesigner で選んだ模型の置き場と取った言葉の模型が見えなくなったので、ここを読むだけにして探す"""
+    if os.environ.get("CD_HOME"):
+        d = Path(os.environ["CD_HOME"])
+    elif WINDOWS:
+        d = Path(os.environ.get("ProgramData") or "C:\\ProgramData") / CD_APP
+    else:
+        return None
+    return d if d.is_dir() else None
+
+
+def _model_dir_in(path: Path) -> str:
     try:
         import json
-        return str(json.loads(config_file().read_text(encoding="utf-8")).get("model_dir") or "")
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return ""
+    return str(data.get("model_dir") or "") if isinstance(data, dict) else ""
+
+
+def chosen_model_dir() -> str:
+    """設定で選んだ模型の置き場。AtelIer で選んでいなければ、CharacterDesigner で選んだ置き場を使う（同じ模型を共有するため）"""
+    mine = _model_dir_in(config_file())
+    if mine:
+        return mine
+    cd = character_designer_home()
+    if cd is None:
+        return ""
+    for f in (cd / "places.json", cd / STRAY / "places.json"):   # cd の下は CharacterDesigner の前の版がずれて書いた所
+        chosen = _model_dir_in(f)
+        if chosen and Path(chosen).is_dir():
+            return chosen
+    return ""
 
 
 def set_model_dir(path: str):
@@ -92,6 +124,9 @@ OWN_LLM = HOME / "llm"   # 言葉の模型を動かす部品（llama-cpp-python�
 def legacy_gguf_dirs() -> list[Path]:
     """共有の置き場を決める前に、模型が置かれていた所。読むだけで、ここへは取らない"""
     dirs = [OWN_LLM]
+    cd = character_designer_home()
+    if cd is not None:
+        dirs.append(cd / "llm")   # CharacterDesigner が共有の置き場を決める前に取った言葉の模型
     if WINDOWS:
         dirs.append(Path(os.environ.get("ProgramData") or "C:\\ProgramData") / "AdaptiveAIStudio" / "models")
     if os.environ.get("AAS_HOME"):
@@ -134,7 +169,7 @@ def ensure_shared():
 # 置き場は data_home() の 1 か所。前の版は、手の検品と言葉の読み取りが ATELIER_HOME を「data_home()/cd」に書き換えていたため、
 # それ以降の読み書きが cd の下へずれ、★・非表示・ブロック・点・タグ・絵の ★・模型の置き場・学んだ基準が消えたように見えた。
 # 部品（tools/gen）の置き場は cdhome.HOME を直接向け、環境変数は変えない。
-STRAY = "cd"   # 前の版がずれて書いた所（data_home() の下）
+# 前の版がずれて書いた所（data_home() の下）は STRAY（上で決める。模型の置き場を決める時にも読むため）
 
 
 def use_tools_gen():

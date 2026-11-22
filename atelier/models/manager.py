@@ -53,7 +53,8 @@ def installed() -> list[Item]:
         items.append(Item("manual", m.name, Path(m.repo), m.gb, m.repo))   # 手で置いた物は、置いた人が消す（ここでは消さない）
     files = {m.file: m.name for m in WORDS}
     seen = set()
-    for d in (GGUF, OWN_LLM):
+    from atelier.files.paths import llm_dirs
+    for d in [GGUF, OWN_LLM, *(x for x in llm_dirs() if x not in (GGUF, OWN_LLM))]:   # ほかのアプリの置き場の物も一覧に出す（使い回せるように）
         for f in sorted(d.glob("*.gguf")) if d.is_dir() else []:
             if f.is_symlink() or f.name in seen:
                 continue
@@ -381,7 +382,7 @@ class ModelManager(QDialog):
 
     # ---- 役目ごとの編成（atelier/models/favorites.py）。構図・顔・背景などに使う模型の組を作る・名前を付ける・直す・消す・切り替える ----
     def _sets_row(self):
-        from PySide6.QtWidgets import QPushButton, QWidget
+        from PySide6.QtWidgets import QPushButton
         from atelier.models import favorites as favmodels
         box = QFrame()
         box.setObjectName("card")

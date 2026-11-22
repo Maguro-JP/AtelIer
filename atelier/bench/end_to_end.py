@@ -2,12 +2,19 @@
 
     python -E -s -m atelier.bench.end_to_end <出力の置き場>
 
+手元で段の組み立てだけを見るときは ATELIER_E2E_NO_FETCH=1 を付ける（取る段を飛ばし、torch の要る段は落ちる）。
+
 利用者が踏む順に、本物の経路を通す。
 1. ウィンドウを開き、画面の中に収まっているか
 2. 初回の取得（Fetcher.run）で、描く部品（CPU 版の torch など）を ProgramData に入れ、絵の模型とラフの部品を取る
 3. 取った模型で 1 枚描き、絵が保存されるか
 4. ラフから描く部品が取れているか
 5. 検品の部品（部位分け・人の枠・タグ・体の点・手・足）が初回の取得で入ったか（atelier/qc/parts.py）
+6. 右クリックのメニューと、工程に分けて描く（Studio を直に呼ぶ）
+7. 窓から、利用者が押すのと同じメソッドを通す。
+   CharacterDesigner で選んだ模型の置き場の模型が一覧に出るか、描いた絵がキャンバスの一番上のレイヤーになるか、
+   赤ペンの囲みの中だけが直るか（囲みの外の画素の変わった数を数える）、検品の結果が返るか、
+   作業ファイルに保存して窓を開き直し、レイヤーの数と絵が同じか、精度優先で描いて工程ごとの絵が出るか
 
 模型は数 GB あるので、形が同じで小さい試験用の SDXL（hf-internal-testing/tiny-stable-diffusion-xl-pipe）を使う。絵の出来は見ない。
 結果は report.json に書き、1 つでも落ちたら終了コード 1 で終わる。
@@ -108,7 +115,18 @@ def main():
         return {}
 
     ok = step("ウィンドウを開く", window)
-    ok = step("描く部品と模型を取る", fetch) and ok
+    # 取る前に見る。取ったあとに見ると、取った模型を CharacterDesigner の置き場の模型と取り違える
+    try:
+        from atelier.models.first_setup import has_image
+        report["tiny_before_fetch"] = has_image(tiny)
+    except Exception as e:   # noqa: BLE001  見られなかったことも残し、続けて流す
+        report["tiny_before_fetch"] = f"見られなかった: {e}"
+    if os.environ.get("ATELIER_E2E_NO_FETCH"):
+        # 手元で段の組み立てだけを見るとき。取ると torch と模型（数 GB）が手元に入る
+        report["steps"].append({"name": "描く部品と模型を取る", "ok": False, "skipped": True})
+        ok = False
+    else:
+        ok = step("描く部品と模型を取る", fetch) and ok
     ok = step("1 枚描く", draw) and ok
     ok = step("ラフの部品がそろう", rough_parts) and ok
 
@@ -180,6 +198,217 @@ def main():
 
     ok = step("右クリックのメニューを全部開く", right_click) and ok
     ok = step("工程に分けて 1 枚描く", phases_draw) and ok
+    # ---- 窓から、利用者が押すのと同じメソッドを通す。窓の写しは出力の置き場に置く ----
+    import numpy as np
+    from atelier.ai.engine import Painter, Studio, Words
+    from atelier.app.window.image_convert import qimage_to_pil_rgba
+    from PySide6.QtWidgets import QMessageBox
+
+    asked = report.setdefault("dialogs", [])
+
+    def no_dialog(_parent, title, text, *a, **k):
+        # 見る人のいない機械で、聞く窓が出たまま止まらないようにする。出た窓は report.json に残す
+        asked.append(f"{title}: {text}"[:200])
+        return QMessageBox.No
+    QMessageBox.question = staticmethod(no_dialog)
+
+    def pump(until, sec):
+        end = time.time() + sec
+        while time.time() < end:
+            qapp.processEvents()
+            if until():
+                return True
+            time.sleep(0.05)
+        return until()
+
+    def snap(w, name):
+        for _ in range(5):
+            qapp.processEvents()
+        w.grab().save(str(out / name))
+        return name
+
+    def pixels(w):
+        return np.asarray(qimage_to_pil_rgba(w.canvas.flatten()))
+
+    def layer_names(w):
+        return [layer.name for layer in w.canvas.layers]
+
+    said: list = []
+
+    def open_window():
+        w = app.Window(Studio(Words(Path("")), Painter(TINY, steps=2, size=(256, 256)), out))
+        w.settings.set("phase_confirm", 0)   # 工程ごとに聞く窓を出さない（見る人がいない）
+        notify = w.notify
+
+        def keep(title, *a, **k):
+            detail = a[1] if len(a) > 1 else k.get("detail", "")
+            said.append(f"{title} {detail}".strip())
+            return notify(title, *a, **k)
+        w.notify = keep
+        say = w.say
+
+        def keep_said(text, *a, **k):   # 会話に出した言葉（描けない理由など）も残す
+            said.append(str(text))
+            return say(text, *a, **k)
+        w.say = keep_said
+        w.show()
+        pump(lambda: False, 1)
+        return w
+
+    win: dict = {}
+
+    def press_draw(w, text, way_index):
+        w.way_pick.setCurrentIndex(way_index)   # 0: AI モード、1: 精度優先
+        w.mode.setCurrentIndex(0)
+        w.entry.setText(text)
+        w.send()
+        if w.thread is None:
+            raise RuntimeError("描くを押しても描き始めなかった: " + " / ".join(said[-3:]))
+        if not pump(lambda: w.thread is None, 1800):
+            raise RuntimeError("30 分たっても描き終わらない")
+        pump(lambda: not getattr(w, "bg_pending", 0), 60)
+
+    def from_character_designer():
+        # 入れる前に ProgramData\CharacterDesigner\places.json で模型の置き場を別のフォルダーに向け、そこへ小さな模型を置いた
+        from atelier.files import paths
+        cd = paths.character_designer_home()
+        if cd is None:
+            raise RuntimeError("CharacterDesigner の置き場が無い（atelier-e2e の「CharacterDesigner から移る人の置き場を作る」で作る）")
+        chosen = paths._model_dir_in(cd / "places.json")
+        if not chosen or Path(paths.LLM_HOME) != Path(chosen):
+            raise RuntimeError(f"模型の置き場が CharacterDesigner で選んだ所でない: 選んだ所 {chosen!r}、使う所 {paths.LLM_HOME}")
+        if report.get("tiny_before_fetch") is not True:
+            raise RuntimeError(f"取る前に、CharacterDesigner の置き場（{paths.HUB}）の模型が見えていなかった")
+        w = win.get("w") or open_window()
+        win["w"] = w
+        listed = [m.repo for m in w.have_image_models()]
+        if TINY not in listed:
+            raise RuntimeError(f"CharacterDesigner の置き場の模型が一覧に出ない: {listed}")
+        w.check_ai()
+        snap(w, "cd-models.png")
+        return {"model_dir": chosen, "hub": str(paths.HUB), "listed": listed, "ai": w.ai_label.text(), "shot": "cd-models.png"}
+
+    def draw_in_window():
+        w = win.get("w") or open_window()
+        win["w"] = w
+        press_draw(w, "1girl, red hair", 0)
+        names = layer_names(w)
+        if not w.images:
+            raise RuntimeError("描いた絵が無い: " + " / ".join(said[-3:]))
+        if w.canvas.current != len(names) - 1 or not names[-1].startswith("AI の絵"):
+            raise RuntimeError(f"描いた絵が一番上のレイヤーでない: 選んだ {w.canvas.current}、並び {names}")
+        return {"file": str(w.images[-1]), "layers": names, "shot": snap(w, "draw.png")}
+
+    def redpen_fix():
+        w = win.get("w")
+        if w is None or not w.images:
+            raise RuntimeError("直す絵が無い（描く段が落ちた）")
+        width, height = w.canvas.size_px()
+        box = (width * 0.3, height * 0.3, width * 0.6, height * 0.5)
+        w.add_flaw_mark(box, "blue hair")
+        inside = np.zeros((height, width), bool)
+        for m in w.canvas.redpen.masks():
+            inside |= np.asarray(qimage_to_pil_rgba(m).convert("L")) > 0
+        before, count = pixels(w), len(w.canvas.layers)
+        snap(w, "redpen-marked.png")
+        w.entry.clear()
+        w.fix_marked()
+        if w.thread is None:
+            raise RuntimeError("「囲んだ所を直す」を押しても直し始めなかった: " + " / ".join(said[-3:]))
+        if not pump(lambda: w.thread is None, 1800):
+            raise RuntimeError("30 分たっても直し終わらない")
+        after = pixels(w)
+        changed = (before != after).any(axis=2)
+        outside, within = int((changed & ~inside).sum()), int((changed & inside).sum())
+        top = w.canvas.layers[-1]
+        detail = {"inside_pixels": int(inside.sum()), "changed_inside": within, "changed_outside": outside,
+                  "layers": layer_names(w), "top_is_fix": bool(top.redpen), "shot": snap(w, "redpen-fixed.png")}
+        if len(w.canvas.layers) <= count or not top.redpen:
+            raise RuntimeError(f"直しが一番上の赤ペンのレイヤーに置かれていない: {detail}")
+        if outside:
+            raise RuntimeError(f"囲みの外の画素が {outside} 個変わった: {detail}")
+        if not within:
+            raise RuntimeError(f"囲みの中が 1 画素も変わっていない: {detail}")
+        return detail
+
+    def inspect():
+        w = win.get("w")
+        if w is None or not w.images:
+            raise RuntimeError("検品する絵が無い（描く段が落ちた）")
+        start = len(said)
+        w.inspect_now()
+        if not pump(lambda: not getattr(w, "inspecting", False), 900):
+            raise RuntimeError("15 分たっても検品が終わらない")
+        got = [s for s in said[start:] if "検品" in s]
+        if not got:
+            raise RuntimeError("検品の結果が返らない")
+        if any("止まりました" in s for s in got):
+            raise RuntimeError("検品が止まった: " + " / ".join(got))
+        return {"result": got, "marks": len(w.canvas.redpen.marks), "shot": snap(w, "inspect.png")}
+
+    def save_and_reopen():
+        from PIL import Image
+        w = win.get("w") or open_window()
+        win["w"] = w
+        if not w.canvas.layers or len(w.canvas.layers) < 2:
+            # 描く段が落ちたときも、保存と読み込みだけは見る（模型の要らない絵を開いて置く）
+            png = out / "reopen-source.png"
+            Image.new("RGB", (320, 240), (200, 120, 60)).save(png)
+            w.open_path(str(png))
+            pump(lambda: bool(w.canvas.layers), 10)
+        png2 = out / "reopen-layer.png"
+        Image.new("RGB", (64, 64), (40, 90, 200)).save(png2)
+        w.canvas.add_image_layer(str(png2), "足したレイヤー")
+        path = out / "e2e.atelier"
+        w.project_path = str(path)
+        if not w.save_project(wait=True):
+            raise RuntimeError("作業ファイルに保存できなかった: " + " / ".join(said[-3:]))
+        names, before = layer_names(w), pixels(w)
+        w.close()
+        pump(lambda: False, 1)
+        win.pop("w", None)
+        w2 = open_window()
+        w2.open_path(str(path))
+        pump(lambda: layer_names(w2) == names, 30)
+        detail = {"file": str(path), "bytes": path.stat().st_size, "layers_saved": names, "layers_read": layer_names(w2),
+                  "shot": snap(w2, "reopen.png")}
+        if layer_names(w2) != names:
+            raise RuntimeError(f"開き直したレイヤーが違う: {detail}")
+        after = pixels(w2)
+        if before.shape != after.shape or (before != after).any():
+            diff = int((before != after).any(axis=2).sum()) if before.shape == after.shape else -1
+            raise RuntimeError(f"開き直した絵が違う（違う画素 {diff}）: {detail}")
+        win["w"] = w2
+        return detail
+
+    def precise_draw():
+        w = win.get("w") or open_window()
+        win["w"] = w
+        w._two_parts_asked = True
+        press_draw(w, "1girl, red hair", 1)
+        rows = getattr(w.studio, "last_phases", None) or []
+        phase_layers = [n for n in layer_names(w) if n.startswith("工程 ")]
+        files = [str(r.get("image")) for r in rows if r.get("image")]
+        detail = {"phases": [r.get("phase") for r in rows], "phase_layers": phase_layers, "files": files,
+                  "shot": snap(w, "precise.png")}
+        if not rows or not phase_layers:
+            raise RuntimeError(f"工程ごとの絵が出ない: {detail}")
+        missing = [f for f in files if not Path(f).exists()]
+        if missing:
+            raise RuntimeError(f"工程の絵のファイルが無い: {missing}")
+        return detail
+
+    ok = step("CharacterDesigner の模型の置き場の模型を一覧に出す", from_character_designer) and ok
+    ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
+    ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
+    ok = step("描いた絵を検品する", inspect) and ok
+    ok = step("作業ファイルに保存して開き直す", save_and_reopen) and ok
+    ok = step("精度優先で描き、工程ごとの絵が出る", precise_draw) and ok
+    report["said"] = said[-40:]
+    if win.get("w") is not None:
+        win["w"].close()
+        qapp.processEvents()
+
     from atelier.files.paths import HOME, HUB
     report["data_home"], report["hub"] = str(HOME), str(HUB)
     report["ok"] = ok

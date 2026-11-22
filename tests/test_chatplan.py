@@ -175,7 +175,7 @@ class WordsTest(unittest.TestCase):
         from atelier.panels.ai_panel import PRESETS, PROMPT_SUFFIX
         from atelier.ai.engine import has_japanese
         names = [p[0] for p in PRESETS]
-        self.assertGreaterEqual(len(names), 12)
+        self.assertGreaterEqual(len(names), 10)   # ロゴとエンブレムなど、中身の同じ物は 1 つにまとめた（ai_panel.py の注）
         self.assertEqual(len(names), len(set(names)))
         for v in PROMPT_SUFFIX.values():
             self.assertFalse(has_japanese(v))

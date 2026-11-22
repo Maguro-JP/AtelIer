@@ -1,4 +1,4 @@
-"""頼んだ通りに描けているかを測る台。頼みの文 30 本（chatdraw/tests/test_words.py の SENTENCES）を本物の経路で描かせ、
+"""頼んだ通りに描けているかを測る台。頼みの文 30 本（tests/test_words.py の SENTENCES）を本物の経路で描かせ、
 描いた絵からタグを読んで、頼んだ語のうち描けた語の割合と、作画監督（手・足・顔の検品）の外れの数を数える。
 
     python -m atelier.bench.adherence_bench draw  <置き場> <模型> <組の番号> <組の数> [種]   （今のリポジトリの描く経路で描く）
@@ -23,7 +23,7 @@ SEED = 7
 def sentences() -> list[str]:
     """試験の頼みの 30 本。試験の組を読むと PySide6 が要るので、文の表だけを読む（Actions の描く機械には画面の部品を入れない）"""
     import ast
-    src = (Path(__file__).resolve().parent / "tests" / "test_words.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[2] / "tests" / "test_words.py").read_text(encoding="utf-8")
     for node in ast.parse(src).body:
         if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "SENTENCES" for t in node.targets):
             return list(ast.literal_eval(node.value))

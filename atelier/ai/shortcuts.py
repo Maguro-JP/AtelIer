@@ -405,7 +405,7 @@ def _action(w, menu, s: Shortcut, text: str, store: Store):
 
 def dialog(w, store: Store):
     """★ と登録した指示を扱う窓。ボタンの説明はツールチップに出す"""
-    from PySide6.QtWidgets import (QDialog, QHBoxLayout, QInputDialog, QListWidget, QListWidgetItem, QPushButton,
+    from PySide6.QtWidgets import (QDialog, QInputDialog, QListWidget, QListWidgetItem, QPushButton,
                                    QVBoxLayout)
     from PySide6.QtCore import Qt
 

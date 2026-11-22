@@ -181,11 +181,18 @@ class Menus:
         """初めの並びに戻す。開くたびに作るメニューは次に開いたときに作り直る"""
         self.prefs = {}
         self.store.remove(MENU_KEY)
+        import shiboken6
         for name, m in self.top_menus().items():
             for a in list(m.actions()):
                 m.removeAction(a)
-            for a in self.default_items.get(name, []):
+            # 開くたびに作るメニュー（AI・加工・ロゴ・配置）は、作り直すたびに起動したときの項目を捨てている。
+            # 捨てた項目を足そうとして落ち、メニューが空のまま残ったので、生きている物だけを戻し、残りは作り直させる
+            defaults = self.default_items.get(name, [])
+            alive = [a for a in defaults if shiboken6.isValid(a)]
+            for a in alive:
                 m.addAction(a)
+            if len(alive) < len(defaults):
+                m.aboutToShow.emit()
             self.removed[name] = []
         self.apply()
 

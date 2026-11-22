@@ -16,8 +16,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QFrame, QGridLa
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from atelier.ai.engine import SKETCH, Painter
-from atelier.models.catalog import (IMAGES, PASS, WORDS, ImageModel, WordsModel, offered_images, offered_words, verified_images,
-                             verified_words)
+from atelier.models.catalog import (IMAGES, PASS, WORDS, ImageModel, WordsModel, offered_images, offered_words, verified_images)
 from atelier.files.paths import HUB, OWN_LLM, ensure_shared, find_gguf, llm_target
 
 LLM = OWN_LLM
@@ -209,6 +208,27 @@ def friendly(e: Exception, hub: str) -> str:
     return explain(e)
 
 
+class online:
+    """取る間だけ、Hugging Face の「取らない」設定（HF_HUB_OFFLINE）を外す。
+    検品や仕上げの台本（tools/gen/edit.py など）を先に読むと HF_HUB_OFFLINE=1 が入り、模型の管理から取ろうとしても
+    「つながらない」で取れなかった。外したあとは元に戻す（描く処理は勝手に取りに行かない。環境変数は変えず、同時に動く子の処理には効かせない）"""
+
+    def __enter__(self):
+        try:
+            import huggingface_hub.constants as c
+        except ImportError:
+            self.c = None
+            return self
+        self.c, self.was = c, c.HF_HUB_OFFLINE
+        c.HF_HUB_OFFLINE = False
+        return self
+
+    def __exit__(self, *exc):
+        if self.c is not None:
+            self.c.HF_HUB_OFFLINE = self.was
+        return False
+
+
 class Fetcher(QObject):
     """選んだ模型を、描くのに要る部品まで全部取る。update=True なら、手元にあっても新しい版があるかを見て、あれば取り直す。
     途中で止まっても、取った分は残り、次は続きから取る（Hugging Face の取り方が続きから取る）"""
@@ -217,6 +237,10 @@ class Fetcher(QObject):
     qc_failed: list = []   # 取れなかった検品の部品の名前（取れなくても描くのは止めない）
 
     def run(self, image: ImageModel | None, words: WordsModel | None, update: bool = False, qc: bool = True):
+        with online():
+            self._run(image, words, update, qc)
+
+    def _run(self, image: ImageModel | None, words: WordsModel | None, update: bool, qc: bool):
         try:
             ensure_shared()
             if not engine_ready():

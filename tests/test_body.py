@@ -1,0 +1,22 @@
+"""「女性」の頼みに、体つきの言葉と体の打ち消しを勝手に足さない（atelier/words/body_words.py）。
+足していたときは、頼んでいない体つきで描かれ、体が崩れた。mature female も足さない"""
+import unittest
+
+from atelier.words import body_words as body
+from atelier.words import japanese_terms as jaterms
+
+
+class BodyTest(unittest.TestCase):
+    def test_no_body_words_added(self):
+        self.assertEqual(body.TAGS, "")
+        self.assertEqual(body.NEGATIVE, "")
+
+    def test_woman_is_only_translated(self):
+        tags = jaterms.tags_from("白いビキニの女性")
+        self.assertNotIn("mature female", tags)
+        self.assertNotIn("slender body", tags)
+        self.assertNotIn("adult woman", tags)
+
+
+if __name__ == "__main__":
+    unittest.main()

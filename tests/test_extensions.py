@@ -1,8 +1,10 @@
-"""拡張の登録口（atelier/extensions.py）。本体がキャラクターデザインを読まずに動くこと、拡張を付けると前と同じ物が出ること。
+"""拡張の登録口（atelier/extensions.py）。本体がキャラクターデザインを持たずに動くこと、拡張の口が働くこと。
 
-見るのは、本体のどのファイルもキャラクターデザインのパッケージを読んでいないこと（文字で調べる）、拡張を外した窓に
-キャラクターデザインのメニュー・ファイルの項目・ライブラリーのタブ・モードが無いこと、付けた窓には有ること、
-小さな見本の拡張がメニューを 1 本足せること。
+キャラクターデザインは CharacterDesigner の `character_designer` パッケージに移り、entry points で入る
+（拡張を付けた窓の試験は CharacterDesigner の tests/test_atelier_extension.py）。ここで見るのは、本体のどのファイルも
+キャラクターデザインのパッケージを読んでいないこと（文字で調べる）、同梱の拡張が無いこと、拡張の無い窓に
+キャラクターデザインのメニュー・ファイルの項目・ライブラリーのタブ・モードが無いこと、
+小さな見本の拡張がメニューとモードを足せること、entry points の拡張が読めること。
 """
 from __future__ import annotations
 
@@ -28,21 +30,21 @@ CHARA_MENU = "キャラクターデザイン"
 
 
 class SourceTest(unittest.TestCase):
-    def test_core_does_not_import_the_chara_package(self):
-        """本体（atelier/chara/ の外）は、キャラクターデザインのパッケージを読まない。
-        許すのは atelier/extensions.py の BUNDLED の 1 行だけ（同梱の拡張を文字で持つ。パッケージを移したら消す行）"""
-        # 読み方の形だけを見る（`atelier/chara/...` と置き場を書いた説明は読み込みではないので拾わない）
-        pattern = re.compile(r"atelier\.chara\b|from\s+atelier\s+import\s+[^\n]*\bchara\b|from\s+\.+\s*chara\b|from\s+\.+\s+import\s+[^\n]*\bchara\b")
+    def test_core_does_not_import_character_design(self):
+        """本体は、キャラクターデザインのパッケージ（前の atelier.chara、今の character_designer）を読まない。
+        本体が拡張を読むと、拡張を別のリポジトリに置けなくなるため"""
+        self.assertFalse((ROOT / "atelier" / "chara").exists())
+        # 読み方の形だけを見る（置き場を書いた説明は読み込みではないので拾わない）
+        pattern = re.compile(r"atelier\.chara\b|from\s+atelier\s+import\s+[^\n]*\bchara\b|^\s*(from|import)\s+character_designer\b")
         hits = []
         for path in sorted((ROOT / "atelier").rglob("*.py")):
-            rel = path.relative_to(ROOT).as_posix()
-            if rel.startswith("atelier/chara/"):
-                continue
             for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if pattern.search(line):
-                    hits.append((rel, n, line.strip()))
-        self.assertEqual([(rel, line) for rel, _n, line in hits],
-                         [("atelier/extensions.py", 'BUNDLED = ("atelier.chara.extension",)')], hits)
+                    hits.append((path.relative_to(ROOT).as_posix(), n, line.strip()))
+        self.assertEqual(hits, [])
+
+    def test_nothing_is_bundled(self):
+        self.assertEqual(extensions.BUNDLED, ())
 
 
 class Base(unittest.TestCase):
@@ -134,43 +136,33 @@ class WithoutExtensionTest(Base):
 
 
 class WithExtensionTest(Base):
-    def test_bundled_extension_adds_character_design_as_before(self):
-        from atelier.app import modes
-        extensions.load_bundled(again=True)
-        self.assertEqual([e.name for e in extensions.registered()], ["chara"])
+    def test_load_bundled_with_nothing_bundled(self):
+        extensions.load_bundled(again=True)   # 同梱の拡張が無くても、読み込みは何もせずに終わる
+        self.assertEqual(extensions.registered(), ())
         w = self.window()
-        menus = self.menus(w)
-        self.assertEqual(menus[menus.index(CHARA_MENU) + 1], "ロゴ・スタンプ")   # 前と同じ位置（ロゴ・スタンプの前）
-        self.assertEqual(menus[menus.index(CHARA_MENU) - 1], "AI")
-        self.assertIn("キャラデザを作る…", [a.text() for a in w.chara_menu.actions()])
-        items = self.file_items(w)
-        at = items.index("キャラクターを新しく作る…")
-        self.assertEqual(items[at - 1:at + 5], ["名前を付けて保存…", "キャラクターを新しく作る…", "キャラクターを開く…", "キャラクターを保存",
-                                                "キャラクターを書き出す…", "書き出す"])   # 前と同じ位置（保存と書き出しの間）
-        self.assertEqual(self.library_tabs(w), ["作品", "資料", "キャラクター", "好み"])
-        self.assertEqual(list(modes.MODES), ["illustrator", "designer", "logo"])
-        self.assertEqual(sorted(w.mode_actions), sorted(modes.MODES))
-        shown = [a.text() for a in w.mode_menu.actions()][:3]
-        self.assertEqual(shown, [modes.MODES[k]["name"] for k in modes.MODES])   # 「表示」の「モード」の並びも前と同じ
-        w.set_mode("designer", tour=False)
-        visible = [a.text() for a in w.menuBar().actions() if a.isVisible()]
-        self.assertIn(CHARA_MENU, visible)
-        self.assertNotIn("ロゴ・スタンプ", visible)
-        self.assertEqual(len(modes.tour(w, "designer")), 3)
-        w.set_mode("logo", tour=False)
-        self.assertNotIn(CHARA_MENU, [a.text() for a in w.menuBar().actions() if a.isVisible()])
-        self.assertIn("表情差分をまとめてスタンプにする…", [a.text() for a in w.logo_menu.actions()])
-        # 開いた人物は、描く仕組みを作り直しても渡る
-        path = w.charafile_new({"name": "Akari", "look": "1girl, red hair"})
-        self.assertTrue(Path(path).is_file())
-        self.assertIn("red hair", w._studio_from_settings().character["words"])
-        lib = w.library_panel
-        self.assertEqual([lib.characters.item(i).data(0x0101) for i in range(lib.characters.count())], [path])
-        # 拡張を外すと、次の窓から付かず、足したモードも消える
-        extensions.unregister(extensions.registered()[0])
+        self.assertNotIn(CHARA_MENU, self.menus(w))
+
+    def test_sample_extension_adds_a_mode(self):
+        from atelier.app import modes
+
+        class WithMode:
+            name = "with-mode"
+
+            def attach(self, window) -> None:
+                modes.register("sample", dict(name="見本のモード", sub="見本", tip="見本のモードです", menus=(), hide_panels=()),
+                               after="illustrator")
+                window.add_mode("sample")
+
+            def unload(self) -> None:
+                modes.unregister("sample")
+
+        ext = WithMode()
+        extensions.register(ext)
+        w = self.window()
+        self.assertEqual(list(modes.MODES), ["illustrator", "sample", "logo"])
+        self.assertIn("sample", w.mode_actions)
+        extensions.unregister(ext)   # 外すと、足したモードも消える
         self.assertEqual(list(modes.MODES), ["illustrator", "logo"])
-        w2 = self.window()
-        self.assertNotIn(CHARA_MENU, self.menus(w2))
 
     def test_sample_extension_adds_one_menu(self):
         from PySide6.QtWidgets import QMenu
