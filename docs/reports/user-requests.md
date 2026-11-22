@@ -364,3 +364,4 @@
 | F1 | キャラクターデザインは CharacterDesigner と、服飾は FashionDesigner と一緒に開発する（2026-11-21） | 一部 | docs/knowledge/integration.md に役目と進め方を書いた。CharacterDesigner は atelier/extensions.py の拡張で載る。FashionDesigner との受け渡しは PNG までで、SVG はまだ開けない |
 | F2 | CharacterDesigner から移行できない、描けない（2026-11-22） | 直した（未確認） | 部品・設定の引き継ぎを足した。Windows で描く確かめは atelier-e2e |
 | F3 | 液タブの画面全体を、全画面の描く領域として使えるようにする。そのために、すべての窓（欄・帯）を窓として独立できるようにする（2026-11-22） （欄・帯・チャットは独立させた窓どうしで組み替え・統合もできる） | 着手 | |
+| F4 | Edge が IE からお気に入りを引き継ぐような、CharacterDesigner からの引き継ぎにする。AtelIer を入れるときに CharacterDesigner も入れられ、CharacterDesigner を入れるときに AtelIer があれば拡張も入れる。0.1.1〜0.1.4 が利用者の機械に作った余計な物を片付ける（2026-11-22） | 着手 | |
