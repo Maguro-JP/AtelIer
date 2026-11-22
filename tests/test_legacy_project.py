@@ -62,6 +62,31 @@ class LegacyProjectTest(unittest.TestCase):
                 w.open_path(str(own))
                 wait_bg(qapp, w)
                 self.assertEqual(w.project_path, str(own))
+                # 窓で保存して開き直すと、隠したレイヤーと赤ペン（形・指示・隠す）が元の通りに戻る。
+                # 前は形の印が 1 点になり、隠した印が見え、レイヤーの欄に「赤ペン」が出なかった
+                from PySide6.QtCore import QRectF
+                from PySide6.QtGui import QPainterPath
+                c = w.canvas
+                c.layers[-1].visible = False
+                ring = QPainterPath()
+                ring.addEllipse(QRectF(10, 10, 30, 20))
+                n = c.redpen.add_shape(ring)
+                c.redpen.set_text(n, "目を直す")
+                c.redpen.set_hidden(n, True)
+                layers = [(l.name, l.visible, l.opacity) for l in c.layers]
+                pic = c.flatten()
+                again = Path(d) / ("again" + project_file.SUFFIX)
+                project_file.save(c, again)
+                c.new_canvas(8, 8)
+                w.open_path(str(again))
+                wait_bg(qapp, w)
+                self.assertEqual([(l.name, l.visible, l.opacity) for l in c.layers], layers)
+                self.assertEqual(c.flatten(), pic)
+                self.assertEqual(c.redpen.texts, ["目を直す"])
+                self.assertEqual(c.redpen.hidden, [True])
+                self.assertEqual(c.redpen.shape_of(1).boundingRect(), QRectF(10, 10, 30, 20))
+                rows = [w.layer_list.item(i).text() for i in range(w.layer_list.count())]
+                self.assertTrue(any(r.startswith("赤ペン 1") for r in rows), rows)
             finally:
                 w.dirty = False
                 w.closing_checked = True

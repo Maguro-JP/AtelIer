@@ -30,6 +30,24 @@ def _png(img: QImage) -> bytes:
     return bytes(data)
 
 
+def _path_points(path) -> list | None:
+    """丸・四角などの形の印を点の並びにする。残さないと、開き直したとき形の印が 1 点の印になり、囲みが消えていた"""
+    if path is None:
+        return None
+    return [[[p.x(), p.y()] for p in poly] for poly in path.toSubpathPolygons()]
+
+
+def _points_path(polys):
+    from PySide6.QtGui import QPainterPath, QPolygonF
+    if not polys:
+        return None
+    path = QPainterPath()
+    for poly in polys:
+        path.addPolygon(QPolygonF([QPointF(x, y) for x, y in poly]))
+        path.closeSubpath()
+    return path
+
+
 def snapshot(canvas, extra: dict | None = None) -> dict:
     """保存する中身を写し取る（画面の糸で呼ぶ。画素は写しなので、このあと描き続けても保存の中身は変わらない）。
     PNG に縮めて書くのは write で、裏の糸で回せる"""
@@ -37,6 +55,8 @@ def snapshot(canvas, extra: dict | None = None) -> dict:
     pen = canvas.redpen
     manifest = {"version": VERSION, "app": APP, "size": [w, h], "current": canvas.current,
                 "layers": [], "marks": [[[p.x(), p.y()] for p in pts] for pts in pen.marks], "notes": list(pen.texts),
+                "hidden": [bool(pen.hidden[i]) if i < len(pen.hidden) else False for i in range(len(pen.marks))],
+                "shapes": [_path_points(pen.shape_of(i + 1)) for i in range(len(pen.marks))],
                 **(extra or {})}
     images = []
     for i, layer in enumerate(canvas.layers):
@@ -82,11 +102,16 @@ def apply(canvas, got: tuple[dict, list]) -> dict:
     layers = [Layer(name, img, visible, opacity) for name, img, visible, opacity in parts]
     canvas._reset(layers, min(int(manifest.get("current", 0)), len(layers) - 1))
     pen = canvas.redpen
-    for pts, note in zip(manifest.get("marks", []), manifest.get("notes", [])):
+    marks = manifest.get("marks", [])
+    notes, hidden, shapes = (list(manifest.get(k) or []) for k in ("notes", "hidden", "shapes"))
+    # 前の版の作業ファイルには隠す・形が無いので、足りない分は「見せる・手で描いた印」とする（zip で短い方に合わせると印が消えた）
+    for i, pts in enumerate(marks):
         pen.marks.append([QPointF(x, y) for x, y in pts])
-        pen.texts.append(note)
-        pen.hidden.append(False)
+        pen.texts.append(notes[i] if i < len(notes) else "")
+        pen.hidden.append(bool(hidden[i]) if i < len(hidden) else False)
+        pen.shapes.append(_points_path(shapes[i]) if i < len(shapes) else None)
     pen.update()
+    pen._changed()   # レイヤーの欄に「赤ペン」を出す。update だけでは欄に出ず、隠す・消すができなかった
     return manifest
 
 
