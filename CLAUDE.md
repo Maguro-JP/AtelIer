@@ -144,11 +144,11 @@
 
 作業の前に、次も読む。
 
-1. `docs/decisions.md`（決めたことと理由）
+1. `docs/knowledge/decisions.md`（決めたことと理由）
 2. `docs/STRUCTURE.md`（構成と、CharacterDesigner からの対応表）
 3. `.worklog/` の最新の日付のファイル（手元の経緯。無ければ飛ばす）
 
-決めたことは、その場で `docs/decisions.md` に 1 行足す。試行錯誤は `.worklog/<日付>.md` に書く（git に入れない）。
+決めたことは、その場で `docs/knowledge/decisions.md` に 1 行足す。試行錯誤は `.worklog/<日付>.md` に書く（git に入れない）。
 
 ### 用語
 

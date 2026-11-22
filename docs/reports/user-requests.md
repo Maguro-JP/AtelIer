@@ -361,4 +361,4 @@
 |---|---|---|---|
 | E1 | アプリのウィンドウで起動する CharacterDesigner | 一部 | deliverables.md は app/start.sh と app/launch.py を挙げるが、app/ は #381（e508cf29）で外れ、今は chatdraw のアプリ。deliverables.md の完成条件が今のリポジトリに合っていない |
 | E2 | 仕事の進み具合の表示（経過と何回目か） | 消えた | 0.5.20 の工程ごとの秒（A14）が 0.5.23 で消えた。描いています（i/n）の知らせだけ残る（engine.py:1580） |
-| F1 | キャラクターデザインは CharacterDesigner と、服飾は FashionDesigner と一緒に開発する（2026-11-21） | 一部 | docs/integration.md に役目と進め方を書いた。CharacterDesigner は atelier/extensions.py の拡張で載る。FashionDesigner との受け渡しは PNG までで、SVG はまだ開けない |
+| F1 | キャラクターデザインは CharacterDesigner と、服飾は FashionDesigner と一緒に開発する（2026-11-21） | 一部 | docs/knowledge/integration.md に役目と進め方を書いた。CharacterDesigner は atelier/extensions.py の拡張で載る。FashionDesigner との受け渡しは PNG までで、SVG はまだ開けない |

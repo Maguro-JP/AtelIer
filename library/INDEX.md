@@ -47,7 +47,6 @@
 | [`library/progress/2026-10-12/`](#library-progress-2026-10-12) | 比べた記録 | 14 |
 | [`library/samples/bible/`](#library-samples-bible) | 見本の絵 | 2 |
 | [`library/samples/demi/`](#library-samples-demi) | 見本の絵 | 5 |
-| [`library/samples/fashion/`](#library-samples-fashion) | 見本の絵 | 4 |
 | [`library/samples/handdraw/`](#library-samples-handdraw) | 見本の絵 | 12 |
 | [`library/samples/imgproc/`](#library-samples-imgproc) | 見本の絵 | 7 |
 | [`library/samples/lineart/`](#library-samples-lineart) | 見本の絵 | 5 |
@@ -425,13 +424,6 @@
 |   |   |   |   |   |
 |---|---|---|---|---|
 | <a href="samples/demi/demi3d-angel.png"><img src="samples/demi/demi3d-angel.png" width="150" alt="demi3d-angel.png"></a><br><sub>demi3d-angel.png</sub> | <a href="samples/demi/demi3d-bunnygirl.png"><img src="samples/demi/demi3d-bunnygirl.png" width="150" alt="demi3d-bunnygirl.png"></a><br><sub>demi3d-bunnygirl.png</sub> | <a href="samples/demi/demi3d-catgirl.png"><img src="samples/demi/demi3d-catgirl.png" width="150" alt="demi3d-catgirl.png"></a><br><sub>demi3d-catgirl.png</sub> | <a href="samples/demi/demi3d-foxgirl.png"><img src="samples/demi/demi3d-foxgirl.png" width="150" alt="demi3d-foxgirl.png"></a><br><sub>demi3d-foxgirl.png</sub> | <a href="samples/demi/demi3d-succubus.png"><img src="samples/demi/demi3d-succubus.png" width="150" alt="demi3d-succubus.png"></a><br><sub>demi3d-succubus.png</sub> |
-
-<a id="library-samples-fashion"></a>
-## library/samples/fashion/
-
-|   |   |   |   |
-|---|---|---|---|
-| <a href="samples/fashion/fashion-gorpcore-m.png"><img src="samples/fashion/fashion-gorpcore-m.png" width="150" alt="fashion-gorpcore-m.png"></a><br><sub>fashion-gorpcore-m.png</sub> | <a href="samples/fashion/fashion-hakama-f.png"><img src="samples/fashion/fashion-hakama-f.png" width="150" alt="fashion-hakama-f.png"></a><br><sub>fashion-hakama-f.png</sub> | <a href="samples/fashion/fashion-jirai-f.png"><img src="samples/fashion/fashion-jirai-f.png" width="150" alt="fashion-jirai-f.png"></a><br><sub>fashion-jirai-f.png</sub> | <a href="samples/fashion/fashion-uniform-preppy-f.png"><img src="samples/fashion/fashion-uniform-preppy-f.png" width="150" alt="fashion-uniform-preppy-f.png"></a><br><sub>fashion-uniform-preppy-f.png</sub> |
 
 <a id="library-samples-handdraw"></a>
 ## library/samples/handdraw/

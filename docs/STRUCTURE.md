@@ -30,7 +30,7 @@
 | `packaging/` | Windows の Setup.exe の組み方（CharacterDesigner のまま。AtelIer 用にはまだ直していない） |
 | `tests/` | テスト。見本の絵は `tests/fixtures/` |
 | `scripts/run_tests.py` | テストをファイルごとに別の処理で流す |
-| `docs/` | 決めたこと（decisions.md）、この地図、モデルの一覧（models.md）、画像 |
+| `docs/` | 決めたこと（knowledge/decisions.md）、この地図、モデルの一覧（models.md）、画像 |
 
 ## CharacterDesigner との分け方
 

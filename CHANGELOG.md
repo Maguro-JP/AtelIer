@@ -2,6 +2,11 @@
 
 版の番号は根の `VERSION` に 1 か所だけ置く。画面（`app/web/package.json`）、サーバー（`/openapi.json` の version）、Setup.exe の表示はそこに合わせる。
 
+## 0.1.0（2026-11-21）
+
+- CharacterDesigner の描画アプリ（`chatdraw/`）を、ペイントソフト AtelIer（パッケージ `atelier/`）として独り立ちさせました。キャラクターデザインは CharacterDesigner が拡張として足します。
+- 版の番号は AtelIer として 0.1.0 から数え直しました。下の 0.5.38 までの節は、CharacterDesigner の描画アプリだった頃の記録です。
+
 ## 0.5.38（2026-11-20）
 
 - 描く操作を画面とサーバーで同じ形で呼べる、共通の描画操作の土台を足しました。

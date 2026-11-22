@@ -89,7 +89,7 @@ python -m atelier
 | `atelier/agent/` | チャットと、言葉での操作 |
 | `tools/`、`styles/`、`casts/`、`config/` | アプリが読む道具の台本と基準 |
 | `tests/` | テスト |
-| `docs/` | 決めたこと（[decisions.md](docs/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)） |
+| `docs/` | 決めたこと（[decisions.md](docs/knowledge/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)） |
 
 ## 開発者向け情報
 
