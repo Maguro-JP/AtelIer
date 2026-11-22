@@ -62,8 +62,8 @@ OpenRAIL-M は、生成物の利用を認め、違法・有害な用途を禁じ
 
 利用者の作品のキャラクター設定を、元のリポジトリから読んで指示文にした。既存の他社作品のキャラクターは含まない。
 
-- `casts/rulecrawler-joseki.json` / `rulecrawler-guild.json` / `rulecrawler-shinan.json`: RuleCrawler の3本（迷宮定石・深層ギルド・迷宮指南）。色と服の形は各ゲームの描画コード、性格と世界観は docs/ から
-- `casts/digimon.json`: DigiMon の設定資料「SIGNAL BEASTS」の系統表（名前・配色・形・大きさ・性格）
+- `casts/work-b-joseki.json` / `work-b-guild.json` / `work-b-shinan.json`: 依頼の作品 B の3本（迷宮定石・深層ギルド・迷宮指南）。色と服の形は各ゲームの描画コード、性格と世界観は docs/ から
+- `casts/work-a.json`: 依頼の作品 A の設定資料「SIGNAL BEASTS」の系統表（名前・配色・形・大きさ・性格）
 
 ## 完成絵の重ね（`tools/gen/layers.py`、2026-10-05）
 

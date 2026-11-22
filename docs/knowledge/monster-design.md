@@ -127,7 +127,7 @@ small crystal growing on forehead, main color sand yellow, secondary color white
 - 杉森建 2000年のインタビュー（訳）: https://www.well-played.com.au/pokemon-artist-ken-sugimori-talks-design-in-newly-translated-2000-interview/
 - Pokemon.com Creator Profile（にしだあつこ、杉森建）: https://www.pokemon.com/us/pokemon-news/creator-profile-the-creators-of-pikachu/
 - Wikipedia Charmander（にしだあつこの逆算の発言の引用元を確認）: https://en.wikipedia.org/wiki/Charmander
-- 渡辺けんじ（digi-lab）: https://digi-lab.blog/digimon-continues-to-be-loved-thanks-to-its-creators-commitment-with-digimon-character-designer-kenji-watanabe/
+- 渡辺けんじ（digi-lab）: https://digi-lab.blog/work-a-continues-to-be-loved-thanks-to-its-creators-commitment-with-work-a-character-designer-kenji-watanabe/
 - 渡辺けんじ 20 周年画集のインタビュー（有志の訳）: https://withthewill.net/threads/translated-interview-with-kenji-watanabe-from-20th-anniversary-art-book.19653/
 - 長野拓造・田中美穂（ファミ通 2017）: https://www.famitsu.com/news/201704/18131221.html
 - 鳥山明（『広告批評』1987年7月号の引用）: https://kopenguin.com/post-412/
@@ -150,7 +150,7 @@ small crystal growing on forehead, main color sand yellow, secondary color white
 読めなかったもの: Monster Hunter Rise の開発者インタビュー（403）、Anime News Network の進化のデザインの記事（403）。
 天野喜孝のモンスターの描き方は、確かめた資料が無いため原則に入れていない。
 
-## 6. 検品で分かったこと（DigiMon 29体・58枚、SDXL 系、2026-10-03）
+## 6. 検品で分かったこと（依頼の作品 A 29体・58枚、SDXL 系、2026-10-03）
 
 1回目の検品で 58 枚中 36 枚を落とした。理由ごとの数と、次から指示文に書くこと:
 
@@ -166,7 +166,7 @@ small crystal growing on forehead, main color sand yellow, secondary color white
 - 「two legs」と書くと、鳥でも人の脚の立ち方になりやすい。鳥は脚の数より「鳥の体」と書く方が効いた（推測。描き直しで確かめる）
 - 幼年期・成長期の丸い形（トルネ、ハク、プクリ、ビリ）は通りやすく、完全体の多部位（6翼、4腕、3尾）は通りにくい
 
-## 7. 落とす理由を絞る（DigiMon のベース選び、2026-10-03）
+## 7. 落とす理由を絞る（依頼の作品 A のベース選び、2026-10-03）
 
 決定稿5体のうち3体は、検品で落とした絵だった（設定集の `overruled` に記録）。
 
@@ -178,7 +178,7 @@ small crystal growing on forehead, main color sand yellow, secondary color white
 落とすのは、体の破綻（部位の数、途切れ、融合）と、人型にしてはいけない者が人型になった場合に絞る。
 デザインとしての良し悪しは決定稿を選ぶ段で決める（利用者の方針）。
 
-## 8. 卵（生き物でない物）を描く（DigiMon の7系統の卵、2026-10-03）
+## 8. 卵（生き物でない物）を描く（依頼の作品 A の7系統の卵、2026-10-03）
 
 - モンスターの決まり文句（feral、creature design、作品の「鋭い目」）を付けて描くと、卵に目・くちばし・脚が生えて生き物になった（2枚とも）。
   物は `kind: "item"` で描く。決まり文句は `XL_ITEM_SUFFIX` と `XL_ITEM_NEGATIVE`、作品の共通は `item_common`

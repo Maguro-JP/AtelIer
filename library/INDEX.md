@@ -15,10 +15,10 @@
 | [`bible/worlds/citadel/`](#bible-worlds-citadel) | 設定資料集の人物・場所の絵 | 2 |
 | [`chatdraw/icon/`](#chatdraw-icon) | chatdraw | 2 |
 | [`chatdraw/styleprev/`](#chatdraw-styleprev) | chatdraw | 13 |
-| [`designs/digimon/`](#designs-digimon) | 依頼された作品の決定稿 | 3 |
-| [`designs/digimon/base/`](#designs-digimon-base) | 依頼された作品の決定稿 | 5 |
-| [`designs/digimon/pixel96/`](#designs-digimon-pixel96) | 依頼された作品の決定稿 | 10 |
-| [`designs/rulecrawler/`](#designs-rulecrawler) | 依頼された作品の決定稿 | 3 |
+| [`designs/work-a/`](#designs-work-a) | 依頼された作品の決定稿 | 3 |
+| [`designs/work-a/base/`](#designs-work-a-base) | 依頼された作品の決定稿 | 5 |
+| [`designs/work-a/pixel96/`](#designs-work-a-pixel96) | 依頼された作品の決定稿 | 10 |
+| [`designs/work-b/`](#designs-work-b) | 依頼された作品の決定稿 | 3 |
 | [`docs/images/`](#docs-images) | README・アプリの案内の画面 | 7 |
 | [`library/book/`](#library-book) | 作例集 | 18 |
 | [`library/daily/2026-10-13/`](#library-daily-2026-10-13) | 日ごとの作例 | 3 |
@@ -106,34 +106,34 @@
 | <a href="../chatdraw/styleprev/manga.jpg"><img src="../chatdraw/styleprev/manga.jpg" width="150" alt="manga.jpg"></a><br><sub>manga.jpg（未参照）</sub> | <a href="../chatdraw/styleprev/marker.jpg"><img src="../chatdraw/styleprev/marker.jpg" width="150" alt="marker.jpg"></a><br><sub>marker.jpg（未参照）</sub> | <a href="../chatdraw/styleprev/pencil.jpg"><img src="../chatdraw/styleprev/pencil.jpg" width="150" alt="pencil.jpg"></a><br><sub>pencil.jpg（未参照）</sub> | <a href="../chatdraw/styleprev/pixel.jpg"><img src="../chatdraw/styleprev/pixel.jpg" width="150" alt="pixel.jpg"></a><br><sub>pixel.jpg（未参照）</sub> | <a href="../chatdraw/styleprev/sumie.jpg"><img src="../chatdraw/styleprev/sumie.jpg" width="150" alt="sumie.jpg"></a><br><sub>sumie.jpg（未参照）</sub> | <a href="../chatdraw/styleprev/thick.jpg"><img src="../chatdraw/styleprev/thick.jpg" width="150" alt="thick.jpg"></a><br><sub>thick.jpg（未参照）</sub> |
 | <a href="../chatdraw/styleprev/watercolor.jpg"><img src="../chatdraw/styleprev/watercolor.jpg" width="150" alt="watercolor.jpg"></a><br><sub>watercolor.jpg（未参照）</sub> |
 
-<a id="designs-digimon"></a>
-## designs/digimon/
+<a id="designs-work-a"></a>
+## designs/work-a/
 
 |   |   |   |
 |---|---|---|
-| <a href="../designs/digimon/candidates-chosen-lines.jpg"><img src="../designs/digimon/candidates-chosen-lines.jpg" width="150" alt="candidates-chosen-lines.jpg"></a><br><sub>candidates-chosen-lines.jpg（未参照）</sub> | <a href="../designs/digimon/candidates-gor-yor.jpg"><img src="../designs/digimon/candidates-gor-yor.jpg" width="150" alt="candidates-gor-yor.jpg"></a><br><sub>candidates-gor-yor.jpg（未参照）</sub> | <a href="../designs/digimon/pixel-64-96.png"><img src="../designs/digimon/pixel-64-96.png" width="150" alt="pixel-64-96.png"></a><br><sub>pixel-64-96.png（未参照）</sub> |
+| <a href="../designs/work-a/candidates-chosen-lines.jpg"><img src="../designs/work-a/candidates-chosen-lines.jpg" width="150" alt="candidates-chosen-lines.jpg"></a><br><sub>candidates-chosen-lines.jpg（未参照）</sub> | <a href="../designs/work-a/candidates-gor-yor.jpg"><img src="../designs/work-a/candidates-gor-yor.jpg" width="150" alt="candidates-gor-yor.jpg"></a><br><sub>candidates-gor-yor.jpg（未参照）</sub> | <a href="../designs/work-a/pixel-64-96.png"><img src="../designs/work-a/pixel-64-96.png" width="150" alt="pixel-64-96.png"></a><br><sub>pixel-64-96.png（未参照）</sub> |
 
-<a id="designs-digimon-base"></a>
-## designs/digimon/base/
+<a id="designs-work-a-base"></a>
+## designs/work-a/base/
 
 |   |   |   |   |   |
 |---|---|---|---|---|
-| <a href="../designs/digimon/base/emb-3-xl-9.png"><img src="../designs/digimon/base/emb-3-xl-9.png" width="150" alt="emb-3-xl-9.png"></a><br><sub>emb-3-xl-9.png（未参照）</sub> | <a href="../designs/digimon/base/hak-3-xl-10.png"><img src="../designs/digimon/base/hak-3-xl-10.png" width="150" alt="hak-3-xl-10.png"></a><br><sub>hak-3-xl-10.png（未参照）</sub> | <a href="../designs/digimon/base/kam-3-xl-9.png"><img src="../designs/digimon/base/kam-3-xl-9.png" width="150" alt="kam-3-xl-9.png"></a><br><sub>kam-3-xl-9.png（未参照）</sub> | <a href="../designs/digimon/base/rai-3-xl-7.png"><img src="../designs/digimon/base/rai-3-xl-7.png" width="150" alt="rai-3-xl-7.png"></a><br><sub>rai-3-xl-7.png（未参照）</sub> | <a href="../designs/digimon/base/tor-3-xl-9.png"><img src="../designs/digimon/base/tor-3-xl-9.png" width="150" alt="tor-3-xl-9.png"></a><br><sub>tor-3-xl-9.png（未参照）</sub> |
+| <a href="../designs/work-a/base/emb-3-xl-9.png"><img src="../designs/work-a/base/emb-3-xl-9.png" width="150" alt="emb-3-xl-9.png"></a><br><sub>emb-3-xl-9.png（未参照）</sub> | <a href="../designs/work-a/base/hak-3-xl-10.png"><img src="../designs/work-a/base/hak-3-xl-10.png" width="150" alt="hak-3-xl-10.png"></a><br><sub>hak-3-xl-10.png（未参照）</sub> | <a href="../designs/work-a/base/kam-3-xl-9.png"><img src="../designs/work-a/base/kam-3-xl-9.png" width="150" alt="kam-3-xl-9.png"></a><br><sub>kam-3-xl-9.png（未参照）</sub> | <a href="../designs/work-a/base/rai-3-xl-7.png"><img src="../designs/work-a/base/rai-3-xl-7.png" width="150" alt="rai-3-xl-7.png"></a><br><sub>rai-3-xl-7.png（未参照）</sub> | <a href="../designs/work-a/base/tor-3-xl-9.png"><img src="../designs/work-a/base/tor-3-xl-9.png" width="150" alt="tor-3-xl-9.png"></a><br><sub>tor-3-xl-9.png（未参照）</sub> |
 
-<a id="designs-digimon-pixel96"></a>
-## designs/digimon/pixel96/
+<a id="designs-work-a-pixel96"></a>
+## designs/work-a/pixel96/
 
 |   |   |   |   |   |   |
 |---|---|---|---|---|---|
-| <a href="../designs/digimon/pixel96/emb-3-x3.png"><img src="../designs/digimon/pixel96/emb-3-x3.png" width="150" alt="emb-3-x3.png"></a><br><sub>emb-3-x3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/emb-3.png"><img src="../designs/digimon/pixel96/emb-3.png" width="150" alt="emb-3.png"></a><br><sub>emb-3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/hak-3-x3.png"><img src="../designs/digimon/pixel96/hak-3-x3.png" width="150" alt="hak-3-x3.png"></a><br><sub>hak-3-x3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/hak-3.png"><img src="../designs/digimon/pixel96/hak-3.png" width="150" alt="hak-3.png"></a><br><sub>hak-3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/kam-3-x3.png"><img src="../designs/digimon/pixel96/kam-3-x3.png" width="150" alt="kam-3-x3.png"></a><br><sub>kam-3-x3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/kam-3.png"><img src="../designs/digimon/pixel96/kam-3.png" width="150" alt="kam-3.png"></a><br><sub>kam-3.png（未参照）</sub> |
-| <a href="../designs/digimon/pixel96/rai-3-x3.png"><img src="../designs/digimon/pixel96/rai-3-x3.png" width="150" alt="rai-3-x3.png"></a><br><sub>rai-3-x3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/rai-3.png"><img src="../designs/digimon/pixel96/rai-3.png" width="150" alt="rai-3.png"></a><br><sub>rai-3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/tor-3-x3.png"><img src="../designs/digimon/pixel96/tor-3-x3.png" width="150" alt="tor-3-x3.png"></a><br><sub>tor-3-x3.png（未参照）</sub> | <a href="../designs/digimon/pixel96/tor-3.png"><img src="../designs/digimon/pixel96/tor-3.png" width="150" alt="tor-3.png"></a><br><sub>tor-3.png（未参照）</sub> |
+| <a href="../designs/work-a/pixel96/emb-3-x3.png"><img src="../designs/work-a/pixel96/emb-3-x3.png" width="150" alt="emb-3-x3.png"></a><br><sub>emb-3-x3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/emb-3.png"><img src="../designs/work-a/pixel96/emb-3.png" width="150" alt="emb-3.png"></a><br><sub>emb-3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/hak-3-x3.png"><img src="../designs/work-a/pixel96/hak-3-x3.png" width="150" alt="hak-3-x3.png"></a><br><sub>hak-3-x3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/hak-3.png"><img src="../designs/work-a/pixel96/hak-3.png" width="150" alt="hak-3.png"></a><br><sub>hak-3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/kam-3-x3.png"><img src="../designs/work-a/pixel96/kam-3-x3.png" width="150" alt="kam-3-x3.png"></a><br><sub>kam-3-x3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/kam-3.png"><img src="../designs/work-a/pixel96/kam-3.png" width="150" alt="kam-3.png"></a><br><sub>kam-3.png（未参照）</sub> |
+| <a href="../designs/work-a/pixel96/rai-3-x3.png"><img src="../designs/work-a/pixel96/rai-3-x3.png" width="150" alt="rai-3-x3.png"></a><br><sub>rai-3-x3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/rai-3.png"><img src="../designs/work-a/pixel96/rai-3.png" width="150" alt="rai-3.png"></a><br><sub>rai-3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/tor-3-x3.png"><img src="../designs/work-a/pixel96/tor-3-x3.png" width="150" alt="tor-3-x3.png"></a><br><sub>tor-3-x3.png（未参照）</sub> | <a href="../designs/work-a/pixel96/tor-3.png"><img src="../designs/work-a/pixel96/tor-3.png" width="150" alt="tor-3.png"></a><br><sub>tor-3.png（未参照）</sub> |
 
-<a id="designs-rulecrawler"></a>
-## designs/rulecrawler/
+<a id="designs-work-b"></a>
+## designs/work-b/
 
 |   |   |   |
 |---|---|---|
-| <a href="../designs/rulecrawler/guild-unreviewed.jpg"><img src="../designs/rulecrawler/guild-unreviewed.jpg" width="150" alt="guild-unreviewed.jpg"></a><br><sub>guild-unreviewed.jpg（未参照）</sub> | <a href="../designs/rulecrawler/joseki-explorer-7.png"><img src="../designs/rulecrawler/joseki-explorer-7.png" width="150" alt="joseki-explorer-7.png"></a><br><sub>joseki-explorer-7.png（未参照）</sub> | <a href="../designs/rulecrawler/shinan-unreviewed.jpg"><img src="../designs/rulecrawler/shinan-unreviewed.jpg" width="150" alt="shinan-unreviewed.jpg"></a><br><sub>shinan-unreviewed.jpg（未参照）</sub> |
+| <a href="../designs/work-b/guild-unreviewed.jpg"><img src="../designs/work-b/guild-unreviewed.jpg" width="150" alt="guild-unreviewed.jpg"></a><br><sub>guild-unreviewed.jpg（未参照）</sub> | <a href="../designs/work-b/joseki-explorer-7.png"><img src="../designs/work-b/joseki-explorer-7.png" width="150" alt="joseki-explorer-7.png"></a><br><sub>joseki-explorer-7.png（未参照）</sub> | <a href="../designs/work-b/shinan-unreviewed.jpg"><img src="../designs/work-b/shinan-unreviewed.jpg" width="150" alt="shinan-unreviewed.jpg"></a><br><sub>shinan-unreviewed.jpg（未参照）</sub> |
 
 <a id="docs-images"></a>
 ## docs/images/
