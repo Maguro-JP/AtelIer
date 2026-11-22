@@ -850,24 +850,64 @@ class Canvas(QGraphicsView):
         self.rebuild()
 
     def move_layer(self, step: int):
-        j = self.current + step
-        if 0 <= j < len(self.layers):
-            self.snapshot_all()
-            self.layers[self.current], self.layers[j] = self.layers[j], self.layers[self.current]
-            self.current = j
-            self.rebuild()
-
-    def move_layer_to(self, i: int, j: int):
-        """レイヤー i を j の位置へ動かす（ドラッグでの並べ替え）。元に戻すで戻せる"""
+        """▲▼ で 1 つ動かす。フォルダーの中のレイヤーは続けて並んでいないと合成が崩れるので、
+        フォルダーの端からは先に外へ出し、フォルダーの外からはフォルダーをまとめて飛び越える"""
         n = len(self.layers)
-        if not (0 <= i < n and 0 <= j < n) or i == j:
+        j = self.current + step
+        if not (0 <= j < n):
+            return
+        me = self.layers[self.current]
+        other = self.layers[j].folder
+        if me.folder and other != me.folder:   # 中の端のレイヤーは、並びを変えずに外へ出す
+            self.snapshot_all()
+            me.folder = ""
+            self.rebuild()
+            self.changed.emit()
+            return
+        if not me.folder and other:            # 外からはフォルダーの向こう側へ飛ぶ（中には入れない）
+            members = folder_members(self.layers, other)
+            j = members[-1] if step > 0 else members[0]
+            self.move_layer_to(self.current, j, "")
             return
         self.snapshot_all()
-        layer = self.layers.pop(i)
-        self.layers.insert(j, layer)
+        self.layers[self.current], self.layers[j] = self.layers[j], self.layers[self.current]
         self.current = j
         self.rebuild()
         self.changed.emit()
+
+    def move_layer_to(self, i: int, j: int, folder: str | None = None):
+        """レイヤー i を j の位置へ動かす（ドラッグでの並べ替え）。元に戻すで戻せる。
+        folder を渡すとそのフォルダーに入れる（"" なら外）。None なら両隣から決める。
+        どちらでも、フォルダーの中のレイヤーが続けて並ぶように並べ直す"""
+        n = len(self.layers)
+        if not (0 <= i < n and 0 <= j < n):
+            return
+        layer = self.layers[i]
+        if i == j and (folder is None or folder == layer.folder):
+            return
+        self.snapshot_all()
+        self.layers.pop(i)
+        self.layers.insert(j, layer)
+        if folder is None:
+            up = self.layers[j + 1].folder if j + 1 < n else ""
+            down = self.layers[j - 1].folder if j > 0 else ""
+            folder = up if up == down else layer.folder if layer.folder in (up, down) else ""
+        layer.folder = folder if folder in self.folders else ""
+        self._regroup()
+        self.current = self.layers.index(layer)
+        self.rebuild()
+        self.changed.emit()
+
+    def _regroup(self):
+        """フォルダーの中のレイヤーを、一番下の中のレイヤーの所へ続けて集める（並びの順は保つ）"""
+        out, done = [], set()
+        for layer in self.layers:
+            if not layer.folder:
+                out.append(layer)
+            elif layer.folder not in done:
+                done.add(layer.folder)
+                out.extend(m for m in self.layers if m.folder == layer.folder)
+        self.layers = out
 
     def select(self, i: int):
         if 0 <= i < len(self.layers):
@@ -1059,7 +1099,7 @@ class Canvas(QGraphicsView):
             path, piece, base = None, before, blank(img.width(), img.height())
             center = QRectF(img.rect()).center()
         self.transform_state = {"before": before, "piece": piece, "base": base, "path": path, "center": center,
-                                "rect": self.selection, "params": {}}
+                                "rect": self.selection, "shape": self.selection_shape, "params": {}}
         return True
 
     @staticmethod
@@ -1107,7 +1147,7 @@ class Canvas(QGraphicsView):
         if not st["params"]:
             return False
         self.layers[self.current].image, now = st["before"], self.layers[self.current].image
-        self.snapshot()
+        self._push(("one", self.current, st["before"].copy(), (st["rect"], st["shape"])))
         self.undo_names[-1] = "自由変形"
         self.layers[self.current].image = now
         self._keep_alpha(st["before"])
@@ -1233,8 +1273,12 @@ class Canvas(QGraphicsView):
 
     def _apply(self, entry, other: list):
         if entry[0] == "one":
-            _, i, img = entry
-            other.append(("one", i, self.layers[i].image.copy()))
+            i, img = entry[1], entry[2]
+            if len(entry) > 3:   # 自由変形は選択範囲も一緒に動かすので、選択範囲も入れ替える
+                other.append(("one", i, self.layers[i].image.copy(), (self.selection, self.selection_shape)))
+                self.set_selection(*entry[3])
+            else:
+                other.append(("one", i, self.layers[i].image.copy()))
             self.layers[i].image = img
             self.current = i
             self.items[i].layer = self.layers[i]
@@ -1739,7 +1783,7 @@ class Canvas(QGraphicsView):
             prev = [s for s in segs if s[0] == mi]
             pa = prev[-1][4] if prev else pressure
             off = prev[-1][5] + ((prev[-1][2].x() - prev[-1][1].x()) ** 2 + (prev[-1][2].y() - prev[-1][1].y()) ** 2) ** 0.5 if prev else 0.0
-            segs.append((mi, QPointF(a), QPointF(b), pa, pressure, off, self.carry))
+            segs.append((mi, QPointF(a), QPointF(b), pa, pressure, off, size))   # 抜きの描き直しで同じ太さ（傾き込み）を使う
             fade = self._fade(brush, None) if not erase and self.buffer is not None else None
             dirty, self.carry = stamp(target, brush, self.dabs, a, b, size, color, pa, self.carry, erase=erase,
                                       pressure_b=pressure, offset=off, fade=fade)
@@ -1761,8 +1805,8 @@ class Canvas(QGraphicsView):
             total = last[5] + ((last[2].x() - last[1].x()) ** 2 + (last[2].y() - last[1].y()) ** 2) ** 0.5
             fade = self._fade(brush, total)
             carry = 0.0
-            for _mi, a, b, pa, pb, off, _c in mine:
-                _d, carry = stamp(self.buffer, brush, self.dabs, a, b, self.size, color, pa, carry,
+            for _mi, a, b, pa, pb, off, size in mine:
+                _d, carry = stamp(self.buffer, brush, self.dabs, a, b, size, color, pa, carry,
                                   pressure_b=pb, offset=off, fade=fade)
 
     def spray(self, target: QImage, pos: QPointF, pressure: float = 1.0) -> QRectF:

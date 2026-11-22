@@ -307,7 +307,16 @@ class LayerPanel(QWidget):
             QTimer.singleShot(0, self.refresh)
             return
         j = n - 1 - layer_rows.index(i)
-        QTimer.singleShot(0, lambda: self.canvas.move_layer_to(i, j))
+        # 落とした行のすぐ上がフォルダーの見出しか中のレイヤーなら、そのフォルダーに入れる。ほかは外に出す
+        r = self.list.row(moved)
+        above = self.list.item(r - 1) if r > 0 else None
+        folder = ""
+        if above is not None:
+            if above.data(ROLE_FOLDER) is not None:
+                folder = above.data(ROLE_FOLDER)
+            elif isinstance(above.data(ROLE_INDEX), int) and 0 <= above.data(ROLE_INDEX) < n:
+                folder = self.canvas.layers[above.data(ROLE_INDEX)].folder
+        QTimer.singleShot(0, lambda: self.canvas.move_layer_to(i, j, folder))
 
     def _double(self, item):
         name = item.data(ROLE_FOLDER)
