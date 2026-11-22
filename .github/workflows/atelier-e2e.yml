@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update -q && sudo apt-get install -y -q nsis python3-pil  # build.sh がアイコンの .ico を作るのに使う
+      - run: sudo apt-get update -q && sudo apt-get install -y -q nsis python3-pil  # build.sh が .ico の無いときにアイコンを作るのに使う
       - run: sh packaging/build.sh
       - uses: actions/upload-artifact@v4
         with:

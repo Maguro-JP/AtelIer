@@ -53,13 +53,12 @@ for f in VERSION python/python.exe python/pythonw.exe atelier/app/main_window.py
 done
 [ -z "$missing" ] || { echo "欠けている:$missing" >&2; exit 1; }
 
-echo "== アプリのアイコン（atelier/ai/icon/app.png があるときだけ。選ばれるまでは今のまま）"
-ICONDEF=""
-if [ -f "$SRC/atelier/ai/icon/app.png" ]; then
-  (cd "$ROOT" && python3 -c "import sys; from atelier.ai.logo_maker import make_ico; make_ico(sys.argv[1], sys.argv[2])" \
-    "$SRC/atelier/ai/icon/app.png" "$SRC/atelier/ai/icon/app.ico")
-  ICONDEF="-DICON=$SRC/atelier/ai/icon/app.ico"
+echo "== アプリのアイコン（packaging/make_icon.py が作った atelier/ai/icon/app.ico を窓・ショートカット・インストーラーに使う）"
+# 入れてある .ico をそのまま使う。Actions の機械は書体が違い、作り直すと形が変わるため。無いときだけ作る
+if [ ! -f "$SRC/atelier/ai/icon/app.ico" ]; then
+  python3 "$ROOT/packaging/make_icon.py" "$SRC/atelier/ai/icon"
 fi
+ICONDEF="-DICON=$SRC/atelier/ai/icon/app.ico"
 
 echo "== Setup.exe"
 makensis -V2 $ICONDEF -DSRC="$SRC" -DOUT="$OUT/AtelIer-Setup.exe" -DVERSION="$VERSION" "$ROOT/packaging/installer.nsi"

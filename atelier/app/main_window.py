@@ -1081,7 +1081,7 @@ def main():
     from atelier.ui import window_fit as fit
     fit.install(app)
     from atelier.ai import logo_maker as logo
-    if logo.icon_png() is not None:   # 選ばれたアイコンがあるときだけ替える。無い間は今のまま
+    if logo.icon_png() is not None:   # AtelIer のアイコン（packaging/make_icon.py が作る）。無いときは Qt の既定のまま
         from PySide6.QtGui import QIcon
         app.setWindowIcon(QIcon(str(logo.icon_png())))
     from atelier import extensions

@@ -1,7 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="AtelIer のアイコン">
   <title>AtelIer</title>
-  <rect width="256" height="256" rx="48" fill="#17181b"/>
-  <text x="128" y="176" text-anchor="middle" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
-        font-size="150" font-weight="700" fill="#ff5a1f">AI</text>
-  <rect x="48" y="200" width="160" height="10" rx="5" fill="#e5322d"/>
+  <!-- packaging/make_icon.py と同じ形。A は文字、I はペンにして、ペン先から赤い線を引く -->
+  <rect width="256" height="256" rx="52" fill="#17181b"/>
+  <rect x="36" y="198" width="160" height="12" rx="6" fill="#e5322d"/>
+  <text x="28" y="190" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="176" font-weight="700" fill="#ff5a1f">A</text>
+  <rect x="182" y="34" width="40" height="112" rx="8" fill="#ff5a1f"/>
+  <rect x="182" y="124" width="40" height="22" fill="#ffffff"/>
+  <polygon points="182,146 222,146 206,198 202,204 198,198" fill="#ffffff"/>
+  <circle cx="202" cy="198" r="6" fill="#e5322d"/>
 </svg>

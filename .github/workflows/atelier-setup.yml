@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: NSIS
-        run: sudo apt-get update -q && sudo apt-get install -y -q nsis python3-pil  # python3-pil は build.sh がアイコンの .ico を作るのに使う
+        run: sudo apt-get update -q && sudo apt-get install -y -q nsis python3-pil  # python3-pil は build.sh が .ico の無いときにアイコンを作るのに使う
       - name: Setup.exe を組む
         run: sh packaging/build.sh
       # Release はここでは出さない。Windows で動くのを確かめた版だけを atelier-e2e の release が出す

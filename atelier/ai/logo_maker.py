@@ -311,7 +311,7 @@ def _save_small(im: Image.Image, path: Path) -> Path:
 
 # ---- アプリのアイコン ----
 
-ICON_DIR = Path(__file__).parent / "icon"     # 選ばれたアイコンの絵（app.png）を置く所。無い間は今のアイコンのまま
+ICON_DIR = Path(__file__).parent / "icon"     # AtelIer のアイコン（app.png、app.ico）を置く所。packaging/make_icon.py が作る
 ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
 

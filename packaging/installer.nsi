@@ -23,8 +23,8 @@ InstallDirRegKey HKLM "Software\${APP}" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
-; アプリのアイコン。build.sh が atelier/ai/icon/app.png（利用者が選んだ絵）から .ico を作ったときだけ ICON を渡す。
-; 無い間は今まで通り pythonw.exe のアイコンのまま
+; アプリのアイコン（packaging/make_icon.py が作る AtelIer のアイコン）。build.sh が ICON を渡す。
+; 渡されないときだけ pythonw.exe のアイコンにする
 !ifdef ICON
   !define MUI_ICON "${ICON}"
   !define MUI_UNICON "${ICON}"
