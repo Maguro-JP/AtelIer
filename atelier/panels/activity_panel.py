@@ -195,6 +195,11 @@ class ActivityPanel(QWidget):
     def status(self, msg: str, step: int | None = None, total: int | None = None):
         import re
         from atelier.ai.phases import WORDS_NOTE
+        from atelier.ui.phase_display import relabel
+        shown = relabel(msg)
+        if shown is None:   # 描かない工程（目的）は見せない。番号は描く工程だけで数える
+            return
+        msg = shown
         if msg.startswith(WORDS_NOTE):
             # 模型に渡す言葉は今の文を置き換えず、詳細のツールチップにだけ積む（会話にも出さない）
             self.words_log.append((f"工程 {self.phase[0]}/{self.phase[1]}「{self.phase[2]}」: " if self.phase else "") + msg)

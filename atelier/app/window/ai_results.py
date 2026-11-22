@@ -83,7 +83,10 @@ class AiResultsMixin:
         if image is not None:
             self.canvas.show_overlay(qimage_from_pil(image))
         left = row["after"] if row.get("fixed") else row.get("found", [])
-        text = (f"工程 {i + 1}「{name}」が終わりました。\n決めた物: {row.get('decides', '')}\n"
+        from atelier.ui.phase_display import number
+        j = number(i + 1, name)
+        text = ((f"工程 {j}「{name}」" if j else f"「{name}」") + "が終わりました。"
+                + f"\n決めた物: {row.get('decides', '')}\n"
                 + ("崩れは見つかりませんでした" if not left else "残った崩れ: " + "、".join(left[:4])))
         box = QMessageBox(QMessageBox.Question, "工程ごとに確かめる", text, parent=self)
         box.setObjectName("phase_confirm")
@@ -196,6 +199,8 @@ class AiResultsMixin:
         rows = getattr(self.studio, "last_phases", None) if self.job_kind == "draw" else None
         if not rows:
             return
+        from atelier.ui.phase_display import drawn
+        rows = drawn(rows)   # 描かない工程（目的）は番号にもレイヤーにも出さない
         self.canvas.add_phase_layers([(f"工程 {i}: {r['phase']}", r["image"]) for i, r in enumerate(rows, 1) if r.get("image")])
         for r in rows:
             left = r["after"] if r["fixed"] else r["found"]
@@ -224,8 +229,9 @@ class AiResultsMixin:
         try:
             if got.get("image") and self.canvas.layers:
                 self.put_result(got["image"], f"止めた所までの絵（工程 {total}「{got.get('phase', '')}」）")
-                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in
-                                              enumerate(zip(got.get("names", []), got.get("images", [])), 1)])
+                from atelier.ui.phase_display import hidden
+                pairs = [(nm, im) for nm, im in zip(got.get("names", []), got.get("images", [])) if not hidden(nm)]
+                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in enumerate(pairs, 1)])
                 self._refresh_layers()
         except (OSError, ValueError) as e:
             self.say(f"止めた所までの絵をレイヤーに置けませんでした（{e}）")
