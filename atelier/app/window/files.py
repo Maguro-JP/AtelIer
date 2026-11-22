@@ -127,6 +127,27 @@ class FilesMixin:
             if self.tour_first("project", lambda: self.save_project(ask)):
                 return False
             path, _ = QFileDialog.getSaveFileName(self, "作業ファイルを保存", "drawing" + project.SUFFIX,
+    def new_blank(self, w: int = 1200, h: int = 1600):
+        """白い新しいキャンバスにする。前は積み重ねごと消していたので、描いた絵が元に戻すで戻らなかった
+        （説明には「戻せます」と書いてあった）。前の絵を 1 手として積み、作業ファイルの道も外す
+        （外さないと、続けて保存したとき前の作業ファイルを白い絵で上書きした）"""
+        from PySide6.QtGui import QColor
+        from atelier.paint.canvas import Layer, blank
+        c = self.canvas
+        if not c.layers:
+            c.new_canvas(w, h)
+        else:
+            c.snapshot_all()
+            c._clear_marks()   # replace_with_image と同じく、前の絵の赤ペンの枠を残さない
+            c.layers = [Layer("背景", blank(w, h, QColor("white"))), Layer("レイヤー 1", blank(w, h))]
+            c.current = 1
+            c.sym_center = None
+            c.set_selection(None)
+            c.rebuild()
+            c.fit()
+        self.project_path, self.source_path = None, None
+        self.statusBar().showMessage("新しいキャンバスにしました（元に戻すで前の絵に戻せます）", 4000)
+
                                                   f"作業ファイル (*{project.SUFFIX})")
             if not path:
                 return False
@@ -160,6 +181,7 @@ class FilesMixin:
             # 閉じたあとに呼ばれた書き物（閉じる途中の作業の保持など）は、糸を作り直さずにその場で書く（糸が窓ごとに残らないように）
             try:
                 work()
+            self.statusBar().showMessage("保存しました", 3000)   # 「保存しています…」を残すと、終わったのか分からなかった
             except Exception:   # noqa: BLE001  閉じたあとは知らせる先が無い
                 pass
             return
