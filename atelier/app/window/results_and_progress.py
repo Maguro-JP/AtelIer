@@ -50,18 +50,29 @@ class ResultsAndProgressMixin:
         if sel is not None:
             masks.append(sel)
         img = QImage(path)
-        if not masks or img.isNull() or img.hasAlphaChannel():
-            # Studio.fix は直した所だけを不透明にして返す。印で上書きすると、隠した印の所（直していない所）まで出た
+        if not masks or img.isNull():
             return self.put_result(path, name)
-        img = img.convertToFormat(QImage.Format_ARGB32)
+        had_alpha = img.hasAlphaChannel()
+        img = img.convertToFormat(QImage.Format_ARGB32_Premultiplied if had_alpha else QImage.Format_ARGB32)
         alpha = QImage(img.size(), QImage.Format_Grayscale8)
         alpha.fill(0)
         q = QPainter(alpha)
         q.setCompositionMode(QPainter.CompositionMode_Lighten)
-        for m in masks:   # 印ごとの直す所を重ねる（白が直す所）
+        for m in masks:   # 見えている印ごとの直す所を重ねる（白が直す所。隠した印は空なので出ない）
             q.drawImage(0, 0, m.scaled(img.size()))
         q.end()
-        img.setAlphaChannel(alpha)
+        if had_alpha:
+            # Studio.fix は直した所だけを不透明にして返すが、継ぎ目をなじませる縁が囲みの外へ数画素はみ出し、
+            # 囲みの外が変わった（窓で直して 2,114 画素）。返った透明度を囲みの中だけに絞り、囲みの外は 1 画素も変えない
+            cut = QImage(img.size(), QImage.Format_ARGB32)
+            cut.fill(0xFFFFFFFF)
+            cut.setAlphaChannel(alpha)
+            q = QPainter(img)
+            q.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+            q.drawImage(0, 0, cut)
+            q.end()
+        else:
+            img.setAlphaChannel(alpha)
         fd, tmp = tempfile.mkstemp(suffix=".png")
         os.close(fd)
         try:

@@ -34,6 +34,9 @@ class RedPen(QGraphicsItem):
         self.drawing: list[QPointF] | None = None
         self.size = (0, 0)
         self.undone: list[tuple] = []   # 元に戻した印（やり直すで戻す）
+        # 印の操作の並び。("add",) は足した印、("rm", 番号, 点, 指示, 形) は 1 つずつ消した印。
+        # 元に戻すは最後の操作を戻す。前は最後の印を外すだけで、消した印は戻らず、残っていた別の印まで消えた
+        self.ops: list[tuple] = []
         self.on_change = None   # 印が増えた・消えたときに呼ぶ（レイヤーの欄に「赤ペン」を出し入れする）
         self.setZValue(1e9 - 2)
         self.setAcceptHoverEvents(True)
@@ -100,6 +103,7 @@ class RedPen(QGraphicsItem):
         self.shapes.append(path)
         self.hidden.append(False)
         self.undone.clear()
+        self.ops.append(("add",))
         self.update()
         self._changed()
         return len(self.marks)
@@ -116,6 +120,7 @@ class RedPen(QGraphicsItem):
     def end(self):
         self.drawing = None
         self.undone.clear()
+        self.ops.append(("add",))
         self.update()
         self._changed()
 
@@ -124,7 +129,22 @@ class RedPen(QGraphicsItem):
             self.on_change()
 
     def undo(self) -> bool:
-        """最後の印を外す（やり直すで戻せる）"""
+        """最後の操作を戻す。1 つずつ消した直後なら消した印を戻し、そうでなければ最後の印を外す（やり直すで戻せる）"""
+        last = self.ops.pop() if self.ops else ("add",)
+        if last[0] == "rm":
+            _k, n, pts, note, shape = last
+            n = min(n, len(self.marks) + 1)
+            self._fill_shapes()
+            self.marks.insert(n - 1, pts)
+            self.texts.insert(n - 1, note)
+            self.shapes.insert(n - 1, shape)
+            while len(self.hidden) < len(self.marks) - 1:
+                self.hidden.append(False)
+            self.hidden.insert(n - 1, False)
+            self.undone.append(("remove", n))
+            self.update()
+            self._changed()
+            return True
         if not self.marks:
             return False
         self.undone.append((self.marks.pop(), self.texts.pop(), self.shapes.pop() if self.shapes else None))
@@ -136,7 +156,14 @@ class RedPen(QGraphicsItem):
     def redo(self) -> bool:
         if not self.undone:
             return False
+        if self.undone[-1] and self.undone[-1][0] == "remove":   # 戻した「1 つ消す」をもう一度消す
+            _k, n = self.undone.pop()
+            undone = list(self.undone)
+            self.remove(n)
+            self.undone = undone
+            return True
         pts, note, *rest = self.undone.pop()
+        self.ops.append(("add",))
         self.marks.append(pts)
         self.texts.append(note)
         self.shapes.append(rest[0] if rest else None)
@@ -149,7 +176,7 @@ class RedPen(QGraphicsItem):
         """番号 n（1 から）の印だけを消す。元に戻すで戻せる"""
         if 1 <= n <= len(self.marks):
             self._fill_shapes()
-            self.undone.append((self.marks.pop(n - 1), self.texts.pop(n - 1), self.shapes.pop(n - 1)))
+            self.ops.append(("rm", n, self.marks.pop(n - 1), self.texts.pop(n - 1), self.shapes.pop(n - 1)))
             if n - 1 < len(self.hidden):   # 隠す印の並びが短いときに消すと、ここで落ちていた
                 self.hidden.pop(n - 1)
             self.focus = 0
@@ -157,6 +184,7 @@ class RedPen(QGraphicsItem):
             self._changed()
 
     def clear(self):
+        self.ops.clear()
         self.marks.clear()
         self.texts.clear()
         self.shapes.clear()
