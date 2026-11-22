@@ -42,9 +42,15 @@ jobs:
       - id: mode
         name: 頼みの形
         run: |
-          echo "twostage=$(python3 -c "import json;print(str(json.load(open('$GITHUB_WORKSPACE/config/draw-request.json')).get('mode')=='twostage').lower())")" >> "$GITHUB_OUTPUT"
+          req="$GITHUB_WORKSPACE/config/draw-request.json"
           reuse="${{ inputs.composition_run }}"
-          [ -n "$reuse" ] || reuse=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/config/draw-request.json')).get('composition_run',''))")
+          if [ -f "$req" ]; then
+            echo "twostage=$(python3 -c "import json;print(str(json.load(open('$req')).get('mode')=='twostage').lower())")" >> "$GITHUB_OUTPUT"
+            [ -n "$reuse" ] || reuse=$(python3 -c "import json;print(json.load(open('$req')).get('composition_run',''))")
+          else
+            # 頼みの無いブランチ: 構図を使い回す描き直しだけは、構図の段が残した頼み（request-compose.json）で仕上げを描く
+            echo "twostage=$([ -n "$reuse" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
       - name: 置き場を空ける
         if: steps.mode.outputs.reuse == ''
@@ -100,6 +106,9 @@ jobs:
           git fetch -q origin draw-results
           mkdir -p "$RUNNER_TEMP/comp"
           git show "origin/draw-results:$run/1-composition.png" > "$RUNNER_TEMP/comp/1-composition.png"
+          # 頼みが消えていても仕上げを描けるように、構図の段が残した頼みも取る（無ければ取らない）
+          git show "origin/draw-results:$run/request-compose.json" > "$RUNNER_TEMP/comp/request-compose.json" 2>/dev/null \
+            || rm -f "$RUNNER_TEMP/comp/request-compose.json"
           echo "DRAW_COMPOSITION=$RUNNER_TEMP/comp/1-composition.png" >> "$GITHUB_ENV"
       - id: cpu
         name: CPU の型の速さ（遅い機械なら出し直す）
@@ -127,7 +136,7 @@ jobs:
           tries=$(( ${{ inputs.tries || '0' }} + 1 ))
           [ "$tries" -le 20 ] || { echo "20 回描き直しても通りませんでした"; exit 1; }   # 通らないまま緑にしない
           base=${{ inputs.seed }}
-          [ -n "$base" ] || base=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/config/draw-request.json')).get('seed',7))")
+          [ -n "$base" ] || base=$(python3 -c "import json,os;p='$GITHUB_WORKSPACE/config/draw-request.json';print(json.load(open(p)).get('seed',7) if os.path.isfile(p) else 7)")
           curl -sS -f -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/draw-one.yml/dispatches" \
             -d "{\"ref\":\"$GITHUB_REF_NAME\",\"inputs\":{\"attempt\":\"1\",\"composition_run\":\"\",\"seed\":\"$((base + 1))\",\"tries\":\"$tries\"}}"

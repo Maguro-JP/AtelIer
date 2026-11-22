@@ -2279,6 +2279,12 @@ class Studio:
         say("頼みを描く言葉に直しています")
         sentence = self.words.to_prompt(text, tags=False)
         tags = self.words.to_prompt(text, tags=True)
+        # 仕上げ（SDXL）に、1 つの模型で描くときと同じ打ち消しを渡す（禁止ワードと「帽子なし」の hat）。前は空で、禁止した物が描かれた
+        negative = list(getattr(self.words, "negative", []) or [])
+        if negative:
+            say("描かない物: " + ", ".join(negative))
+        avoid = english_only(", ".join(dict.fromkeys(t.strip() for a in [getattr(self.painter, "avoid", "")] + negative
+                                                     for t in str(a or "").split(",") if t.strip())))
         from atelier.ai import composition  # 意図の言葉が書かれていたときだけ構図を足す
         sentence, _ = composition.add(text, sentence, tags=False)
         tags, note = composition.add(text, tags, tags=True)
@@ -2304,7 +2310,7 @@ class Studio:
             sentence, tags = vary_background(sentence0, s_k, tags=False), emphasize(vary_background(tags0, s_k), missing_all)
             keep = self.out / ".stages" / f"{time.strftime('%Y%m%d-%H%M%S')}-{s_k}"
             path = twostage.run_stages(sentence, tags, s_k, comp.repo, render.repo, tuple(size or (832, 1216)), keep, variant,
-                                       say=say, stopped=lambda: self.painter.stop)
+                                       say=say, stopped=lambda: self.painter.stop, negative=avoid)
             result = twostage.read_result(keep, variant["name"])
             left = list(result.get("bad", [])) + [f"描かれていない: {m}" for m in result.get("missing", [])]
             missing_all += [m for m in result.get("missing", []) if m not in missing_all]
