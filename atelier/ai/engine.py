@@ -2204,6 +2204,15 @@ class Studio:
             return ans
         return confirm
 
+    phase_answer = None   # 精度優先が止めて聞いた工程に、窓の 4 つのボタンで選んだ答え（再開の 1 回だけ使う）
+
+    def _phase_answer(self, as_tags):
+        """窓で選んだ答えを取り出す（使ったら消す）。足した言葉は頼みと同じく訳してから模型に渡す"""
+        ans, self.phase_answer = self.phase_answer, None
+        if isinstance(ans, (tuple, list)) and len(ans) > 1 and ans[0] == "words":
+            return ("words", self.words.to_prompt(str(ans[1]), tags=as_tags))
+        return ans
+
     def _draw_phases(self, text, seed, style, size, say, on_preview, meta):
         """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程ごとに描く・測る・1 回だけ直す・崩れが決まった工程へ戻る。
         渡す言葉は頼みの訳と作風だけで、背景や構図の言葉は足さない。phase_confirm（アプリが入れる）があれば工程ごとに確かめる"""
@@ -2235,7 +2244,7 @@ class Studio:
         try:
             got = phases.draw(self.painter, prompt, seed, size, keep, say=say, on_preview=on_preview,
                               on_step=lambda i, n: say(f"描いています（{i}/{n}）"), confirm=self._phase_confirm(as_tags),
-                              ask=getattr(self, "phase_ask", None),
+                              ask=getattr(self, "phase_ask", None), answer=self._phase_answer(as_tags),
                               pause_key=pausekeep.key("phases", text, seed, style, tuple(size) if size else None, model), pause_job=job)
         finally:
             if hasattr(self.painter, "avoid"):

@@ -242,6 +242,8 @@ class RedpenMixin:
                 self._refresh_layers()
         self.note_box.hide()
         self.canvas.setFocus()
+        if getattr(self, "_phase_pen", None) and hasattr(self, "phase_pen_done"):
+            self.phase_pen_done()   # 精度優先が止めて待っている工程を、囲んだ所の中だけを直して続ける
 
     def on_mouse_back(self):
         """マウスの戻るボタン。打っている欄があればその欄の元に戻す、無ければ絵の元に戻す"""

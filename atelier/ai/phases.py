@@ -71,7 +71,7 @@ COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれ�
 DIFF_MIN = 0.5       # 前の絵との画素の差の平均（0〜255）がこれ未満なら「変わらなかった」として数えない（私の推測）
 MEND = (0.45, 0.55, 0.65, 0.75, 0.85, 0.95)   # 囲みの直しの強さ。変わらなかった・同じ崩れが続いた回ごとに 1 段上げる
 GROW = 12            # 囲みを広げる画素の数（1 段ごと）
-RESTART, GO_ON = "restart", "go"
+RESTART, GO_ON, REDPEN = "restart", "go", "redpen"   # REDPEN の答えは ("redpen", 囲みの白黒の絵の道)
 MENDS = 3            # 同じ工程で手を替えて囲みを直す回数。消えなければ工程を足し続けずに利用者に聞く   # ask の答え: 構図から描き直す / 残ったまま進む
 WORDS_NOTE = "模型に渡す言葉: "   # この頭の知らせは会話に出さず、進み具合の欄の詳細にだけ置く（atelier/panels/activity_panel.py）
 GO, REDO, WORDS = "go", "redo", "words"   # 工程の確かめの答え
@@ -246,13 +246,15 @@ def _grow(mask, r):
 
 
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
-         confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None) -> dict:
+         confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None, answer=None) -> dict:
     """12 の工程で 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録, "history": 全部の記録,
     "left": [], "checked": True, "complete": True, "backs": 戻った回数, "total": 累計の工程の数, "need": 要る工程の数}。
     返るのは全部の工程が検品を通ったときだけ。崩れが残る間は直しの工程を足して続け、止めるのは利用者の「止める」（Stopped）だけ。
     confirm(i, 名前, 絵, 記録) は "go"・"redo"・("words", 足す言葉の訳) を返す。
     pause_key があれば、メモリの見張り・メモリ不足・時間切れで工程が打ち切られたとき、その工程に入ったときの状態を
-    atelier/files/pause_keep.py に残して Paused で返す。同じ鍵で呼び直すと、その工程から続ける（前は始めから描き直した）"""
+    atelier/files/pause_keep.py に残して Paused で返す。同じ鍵で呼び直すと、その工程から続ける（前は始めから描き直した）。
+    囲みで直せない崩れが残って ask が無いときも、同じく残して asked で返す。窓の 4 つの選び方のボタンが answer を付けて呼び直すと、
+    止めた工程で answer を ask の答えとして受けて続ける（前は直し方を文で出すだけで、選んでも続きから進めなかった）"""
     from PIL import Image
     from atelier.ai.engine import Stopped, emphasize
     from atelier.qc import hand_check as handcheck
@@ -642,6 +644,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         i, backs, visits, final, history, entry = saved["i"], saved["backs"], saved["visits"], saved["final"], saved["history"], saved["entry"]
         total = saved.get("total", len(history))
         memo["check"] = bool(saved.get("check"))
+        if saved.get("asked") and answer is not None:   # 止めて聞いた工程に、窓で選んだ答えを渡す（一度だけ）
+            given = [answer]
+            ask = lambda *_a: given.pop() if given else None   # noqa: E731
         st.clear()
         st.update(entry[i])
         say(f"一時停止した工程 {i + 1}/{n}「{PHASES[i][0]}」から続けます（累計 {total} 工程まで描いてあります）")
@@ -700,9 +705,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
 
     left = []
     asked = None          # 利用者に聞いて止まったときの中身
-    passed_over = []      # 利用者が「このまま進む」を選んだ崩れ
-    fixes = 0             # 絵が変わった直しの回数
-    tries: dict[int, int] = {}   # 工程ごとの、手を替えた直しの回数
+    passed_over = list((saved or {}).get("passed_over", []))   # 利用者が「このまま進む」を選んだ崩れ（再開しても記録に残す）
+    fixes = int((saved or {}).get("fixes", 0))   # 絵が変わった直しの回数
+    tries: dict[int, int] = dict((saved or {}).get("tries", {}))   # 工程ごとの、手を替えた直しの回数
     try:
         while i < n:
             stop()
@@ -883,12 +888,47 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 tries[i] = 0
                 memo["check"] = True
                 continue
+            if kind == REDPEN and isinstance(ans, (tuple, list)) and len(ans) > 1:
+                try:
+                    pen = Image.open(str(ans[1])).convert("L").resize(cur.size) if cur is not None else None
+                except OSError:
+                    pen = None
+                if pen is not None and max(pen.getextrema()) > 0:
+                    # 測り直すと検品が崩れを見逃して先へ進むことがあるので、囲んだ所はすぐ直す（利用者が直したいと選んだ所）
+                    say("赤ペンで囲んだ所の中だけを直します（利用者が選びました）")
+                    tell(st["prompt"])
+                    strength = MEND[0]
+                    tried = _inside(painter.redraw(st["prompt"], st["seed"] + 977 * (visits[i] + 1) + 31 * i, cur, pen,
+                                                   strength=strength), cur, pen)
+                    dd = diff(cur, tried, pen)
+                    mrow = {"phase": name, "mend": "赤ペン", "strength": strength, "found": list(left), "diff": dd["mean"],
+                            "outside": dd["outside"], "inside": dd["inside"], "words": [st["prompt"]], "readable": True,
+                            "image": None, "changed": (dd["mean"] or 0) >= DIFF_MIN, "visit": visits[i], "pen": True}
+                    if mrow["changed"]:
+                        fixes += 1
+                        save_row(tried, f"{name}-赤ペンの直し", mrow)
+                        st["image"] = tried
+                    row.setdefault("mends", []).append(mrow)
+                    pen = None
+                    tries[i] = 0
+                    memo["check"] = True
+                    visits[i] += 1
+                    continue
+                pen = None
             if kind == GO_ON:
                 passed_over += [f"{name}: {x}" for x in left]
                 tries.pop(i, None)
                 i += 1
                 continue
             asked = {"phase": name, "index": i, "left": list(left), "why": why, "choices": choices}
+            if pause_key:   # 窓のボタンで選んだ答えを持って、この工程から続けられるように残す（描き終えた工程は描き直さない）
+                entry[i] = dict(st)
+                tries[i] = MENDS   # 再開したら直しを繰り返さずに、選んだ答えをすぐ使う
+                pausekeep.save(pause_key, "phases", f"「{name}」で崩れが残って止まり、直し方を待っています", pause_job,
+                               {"i": i, "backs": backs, "visits": visits, "final": final, "history": history, "entry": entry,
+                                "need": n + fixes, "total": total, "check": True, "asked": asked, "tries": tries,
+                                "passed_over": passed_over, "fixes": fixes})
+                asked["key"] = pause_key
             break
     except Stopped:
         progress("stopped", left)
@@ -898,7 +938,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     rows = [final[k] for k in range(n) if final.get(k) is not None]
     unresolved = (list(asked["left"]) if asked else []) + passed_over
     complete = not unresolved
-    if complete:
+    if complete or (not asked and pause_key):
         pausekeep.clear(pause_key)
     progress("done" if complete else "asked", unresolved)
     (keep / "phases.json").write_text(json.dumps({"phases": rows, "history": history, "left": unresolved, "checked": True,
