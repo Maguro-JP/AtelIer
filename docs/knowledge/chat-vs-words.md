@@ -3,7 +3,7 @@
 描くワード（AI の欄の頼みの欄と、描くワードの登録）は、描画の模型への設定。チャットは、言語の模型への指示。
 描くワードを文からワードに直すときに言語の模型が入るだけで、チャットに書いた言葉は描くワードではない。
 そこで、チャットの文で描くワードの欄を書き換えるのは、チャットで「描くワードを〜に変えて」「描くワードに〜を足して」
-「描くワードから〜を消して」「描くワードを空にして」と頼まれたときだけにした（`chatdraw/chatwords.py`）。
+「描くワードから〜を消して」「描くワードを空にして」と頼まれたときだけにした（`atelier/words/chat_words.py`）。
 そのときは何をどう変えたかをチャットに 1 行で返す。
 
 ## 描くワードの欄（`Window.entry`）を書き換えている所
@@ -25,4 +25,4 @@ chatpanel.py・chatintent.py・chatplan.py・commands.py は欄に触らない�
 | `draw_again`・`_prompt_from`・`redo_from`・`edit_image` | 履歴の絵から戻す | 描いたときの描くワードに戻す | 変えない（絵の設定を戻す操作） |
 | `open_favorites` の使う | 作風の登録の窓 | 欄に足す | 変えない |
 
-試験は `chatdraw/tests/test_autosel.py` の `test_chat_draw_keeps_words` と `test_chat_changes_words_only_when_asked`。
+試験は `tests/test_autosel.py` の `test_chat_draw_keeps_words` と `test_chat_changes_words_only_when_asked`。

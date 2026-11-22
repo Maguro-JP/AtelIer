@@ -1,7 +1,7 @@
 # 独自の作画監督をおまかせに入れた前と後
 
-アプリのおまかせ（chatdraw/omakase.py）の検品に、tools/gen で作ってきた数字の作画監督（measure.py と faceform.py、基準は styles/anime-norms.json）を
-chatdraw/origqc.py から足した。見つけた外れは全部、直す囲み（顔・髪・人物）を付けて返し、おまかせが囲みの中だけを直して検品し直す。
+アプリのおまかせ（atelier/ai/omakase.py）の検品に、tools/gen で作ってきた数字の作画監督（measure.py と faceform.py、基準は styles/anime-norms.json）を
+atelier/qc/original_qc.py から足した。見つけた外れは全部、直す囲み（顔・髪・人物）を付けて返し、おまかせが囲みの中だけを直して検品し直す。
 利用者が付けた ★ は normlearn.py に「通す」として記録し、基準を学び直す。学んだ基準はアプリのデータの置き場（learn/norms.user.json）に置き、次のおまかせの検品から効く。
 
 ## 測った絵

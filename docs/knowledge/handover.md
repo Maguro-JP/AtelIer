@@ -57,7 +57,7 @@
 - `tools/gen/baseline.py`
 - `tools/gen/bible.py`
 - `tools/gen/brushes.py`
-- `tools/gen/cdhome.py`
+- `tools/gen/data_home.py`
 - `tools/gen/charsheet.py`
 - `tools/gen/cleanup.py`
 - `tools/gen/demi.py`

@@ -6,7 +6,7 @@
 - 絵: 見本の絵を 256x384 に縮めて開き、顔のあたり（90,20〜160,100）を赤ペンか選択範囲で囲んだ
 - 模型: 試験用の小さな SDXL（hf-internal-testing/tiny-stable-diffusion-xl-pipe、2 歩）を本物の Painter に読ませた。重みが乱数なので、AI が描く加工の出来は測れない。見たのは押して最後まで通るか・囲みの外を変えないか・顔の目が動かないか
 - 画風は線の ControlNet を小さな SDXL の UNet から作った（test_finish_quality と同じ）
-- 差は 1 画素の RGB の差が 2 を超えた画素の数。顔は chatdraw/facefeat の目の色の距離（eye）と目の位置の動き（move、顔の高さに対する割合）。eye 20 か move 0.08 を超えたら顔の崩れとした（この線は推測で、まだ学んだ基準ではない）
+- 差は 1 画素の RGB の差が 2 を超えた画素の数。顔は atelier/ai/face_features の目の色の距離（eye）と目の位置の動き（move、顔の高さに対する割合）。eye 20 か move 0.08 を超えたら顔の崩れとした（この線は推測で、まだ学んだ基準ではない）
 - 大きさの変わる加工は、2 倍は縮め戻して、広げるは元の絵が入る所を切り出して比べた。2 倍の差と顔の数字には縮めの差が乗る
 - 窓は開かずに返し、確かめの窓（confirm.ask）は進める側で答えた
 - 欄・履歴・ライブラリー・帯のメニューの中の加工は、キャンバスで掛けた物と同じ id が run_shortcut に届くかだけを見た
@@ -26,17 +26,17 @@
 
 | 項目 | 起きたこと | 場所 |
 |---|---|---|
-| 囲んだ所を直す（印に指示が無く、書く欄も空） | 何も起きない。知らせも出ない | chatdraw/app.py `send()` の `if self.thread or not text and not (pen.marks and all(pen.texts))` で黙って返る |
-| 囲んだ所を直す（印に指示あり） | 165 秒で通り、崩れ 2 件で隠したレイヤーを置いた。小さな模型の絵なので崩れの判定は正しい見込み。出来は確かめていない | chatdraw/app.py `fix_marked` → `send()` |
-| 綺麗にする > 線と塗りを整える | 新しいレイヤーは出来るが 0 画素。囲み無しでも 0 画素（finishers.run を直接呼んでも同じ） | chatdraw/finishers.py の retouch |
-| ディテール > ディテール追加 | 634 画素変わり、目の色 80.3・位置 0.195 動いた | chatdraw/finishers.py の detail（顔を戻す工程の外） |
-| 描き直して整える > 軽く描き直して仕上げる | 目の色 37.7。小さな模型の乱数の絵なので、崩れが仕組みのせいかは分からない | chatdraw/finishers.py |
-| 拡大 > 1 枚にして 2 倍に拡大 | 目の色 23.9（縮め戻しの差が乗る。線の際どい所） | chatdraw/finishers.py の拡大 |
-| 拡大 > レイヤーのまま 2 倍に拡大 | 囲みを見ずに全体を 2 倍にする。目の色 23.1（縮め戻しの差） | chatdraw/app.py `upscale_canvas` |
-| 画風 5 つ | 全部「形が変わりすぎる」で掛けなかった。小さな模型の乱数のため。本物の模型で確かめていない | chatdraw/restyle.py |
-| 質感 > 宝石、空気感 > 霞と遠近 | 囲みの中の目の色が 27.9・58.4 変わった | chatdraw/finishers.py（エフェクトのレイヤーが目の上にかかる） |
-| 清書 > ラフを清書する | 目の色 136.9。線画にする加工なので色が変わるのは本来の動きの見込み | chatdraw/finishers.py |
-| 加工 > 線画にする・ドット絵にする・透過・ちびキャラにする | 囲みを見ずに絵全体を変えたレイヤーを置く（囲みの外 3 万〜9 万画素） | chatdraw/app.py `make_lineart` `make_pixel` `make_transparent` `make_chibi` |
+| 囲んだ所を直す（印に指示が無く、書く欄も空） | 何も起きない。知らせも出ない | atelier/app/main_window.py `send()` の `if self.thread or not text and not (pen.marks and all(pen.texts))` で黙って返る |
+| 囲んだ所を直す（印に指示あり） | 165 秒で通り、崩れ 2 件で隠したレイヤーを置いた。小さな模型の絵なので崩れの判定は正しい見込み。出来は確かめていない | atelier/app/main_window.py `fix_marked` → `send()` |
+| 綺麗にする > 線と塗りを整える | 新しいレイヤーは出来るが 0 画素。囲み無しでも 0 画素（finishers.run を直接呼んでも同じ） | atelier/ai/finishers.py の retouch |
+| ディテール > ディテール追加 | 634 画素変わり、目の色 80.3・位置 0.195 動いた | atelier/ai/finishers.py の detail（顔を戻す工程の外） |
+| 描き直して整える > 軽く描き直して仕上げる | 目の色 37.7。小さな模型の乱数の絵なので、崩れが仕組みのせいかは分からない | atelier/ai/finishers.py |
+| 拡大 > 1 枚にして 2 倍に拡大 | 目の色 23.9（縮め戻しの差が乗る。線の際どい所） | atelier/ai/finishers.py の拡大 |
+| 拡大 > レイヤーのまま 2 倍に拡大 | 囲みを見ずに全体を 2 倍にする。目の色 23.1（縮め戻しの差） | atelier/app/main_window.py `upscale_canvas` |
+| 画風 5 つ | 全部「形が変わりすぎる」で掛けなかった。小さな模型の乱数のため。本物の模型で確かめていない | atelier/ai/restyle.py |
+| 質感 > 宝石、空気感 > 霞と遠近 | 囲みの中の目の色が 27.9・58.4 変わった | atelier/ai/finishers.py（エフェクトのレイヤーが目の上にかかる） |
+| 清書 > ラフを清書する | 目の色 136.9。線画にする加工なので色が変わるのは本来の動きの見込み | atelier/ai/finishers.py |
+| 加工 > 線画にする・ドット絵にする・透過・ちびキャラにする | 囲みを見ずに絵全体を変えたレイヤーを置く（囲みの外 3 万〜9 万画素） | atelier/app/main_window.py `make_lineart` `make_pixel` `make_transparent` `make_chibi` |
 
 ## 確かめられない物
 
@@ -413,7 +413,7 @@
 
 | 項目 | 前 | 後 | 直した所 |
 |---|---|---|---|
-| 囲んだ所を直す（指示が無い、赤ペン・選択範囲とも） | 何も起きない | 知らせを出し、AI の欄の「指示」を開いて書く欄に合わせる | chatdraw/app.py `send()` `_ask_for_fix_text` |
+| 囲んだ所を直す（指示が無い、赤ペン・選択範囲とも） | 何も起きない | 知らせを出し、AI の欄の「指示」を開いて書く欄に合わせる | atelier/app/main_window.py `send()` `_ask_for_fix_text` |
 | 綺麗にする > 線と塗りを整える | 0 画素 | 654 画素、囲みの外 0、目の色 1.5・位置 0.0098 | にじみ消しのあとに塗りのむらを均す（finishers の retouch） |
 | ディテール > ディテール追加 | 目の色 80.3・位置 0.195 | 赤ペン 558 画素・目の色 1.2、選択範囲 23 画素・目の色 0.25。囲みの外 0 | 顔の囲みを元の画素のまま残す（finishers.hold_face）。1 つだけ掛けたときも顔の印を測る（run_chain） |
 | 質感 > 宝石 | 目の色 27.9 | 4139 画素、目の色 0.39、囲みの外 0 | 同じ |
@@ -425,14 +425,14 @@
 | 拡大 > レイヤーのまま 2 倍に拡大 | 囲みの外 73824 | 試験の測り方（LANCZOS で縮め戻す）では 13641。囲みの外は 1 画素を 2×2 に並べるだけにしたので、BOX で縮め戻すと 0（test_fixfx） | `upscale_canvas` |
 
 線画・ドット絵・ちびキャラは顔を囲んだので、囲みの中の目の色が変わるのは加工の仕事（試験は「顔の崩れ」と出す）。
-画風 5 つは小さな模型では測れないので、本物の模型で 1 枚掛けて数字を出す道を足した（.github/workflows/restyle-verify.yml、chatdraw/restyle_verify.py）。
+画風 5 つは小さな模型では測れないので、本物の模型で 1 枚掛けて数字を出す道を足した（.github/workflows/restyle-verify.yml、atelier/bench/restyle_verify.py）。
 線画の画風は色を除くのが仕事で明るさの形の変わりが必ず大きく出るので、形の変わりでは止めず、元の線の残りだけで見る。
 
 ## 赤ペンの印の右クリック（「赤ペン n の中だけ加工」に出す物）
 
 印の右クリックに出す加工を選ぶため、広げるのほかの全部の加工を、顔のあたりの印 1 つ（BOX）だけに `Window.run_shortcut_on_mark` で掛けて測った。
 試験は `chatdraw/tests/test_function_check.py` の `MarkMenuCheck`（FC_RUN=1 RP_RUN=1 で手で流す）。模型は上と同じ小さな SDXL。
-出す条件は、囲みの外 0 画素・囲みの中が変わる・目の色の差 1.5 以下の 3 つ。出す物は `chatdraw/app.py` の `MARK_OK`。
+出す条件は、囲みの外 0 画素・囲みの中が変わる・目の色の差 1.5 以下の 3 つ。出す物は `atelier/app/main_window.py` の `MARK_OK`。
 
 | 項目 | 秒 | 差の画素 | 囲みの外 | 目の色 | 出す |
 |---|---|---|---|---|---|

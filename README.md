@@ -10,7 +10,7 @@
 
 CharacterDesigner の描画アプリから、キャラクターデザイン以外の部品を移して作っています。いまは移している途中で、まだ直していない所は [docs/STRUCTURE.md](docs/STRUCTURE.md) に書いています。
 
-キャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）は、CharacterDesigner が拡張として足します。AtelIer を入れたあとに CharacterDesigner のパッケージを入れると、起動したときに entry points（`atelier.extensions`）で見つかり、「キャラクターデザイン」のメニューとモードが出ます。拡張の口は `atelier/extensions.py`、つながり方は [docs/integration.md](docs/integration.md) に書いています。
+キャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）は、CharacterDesigner が拡張として足します。AtelIer を入れたあとに CharacterDesigner のパッケージを入れると、起動したときに entry points（`atelier.extensions`）で見つかり、「キャラクターデザイン」のメニューとモードが出ます。拡張の口は `atelier/extensions.py`、つながり方は [docs/integration.md](docs/knowledge/integration.md) に書いています。
 
 ## 主な機能
 
@@ -91,8 +91,9 @@ python -m atelier
 | `atelier/ai/`、`atelier/models/`、`atelier/words/`、`atelier/qc/` | AI で描く・直す、モデルの管理、頼みの言葉、検品 |
 | `atelier/agent/` | チャットと、言葉での操作 |
 | `tools/`、`styles/`、`casts/`、`config/` | アプリが読む道具の台本と基準 |
+| `library/feedback/` | 検品の精度を測る絵と人の判定 |
 | `tests/` | テスト |
-| `docs/` | 決めたこと（[decisions.md](docs/knowledge/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)） |
+| `docs/` | 決めたこと（[decisions.md](docs/knowledge/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)）、ライセンス（[third-party.md](docs/third-party.md)） |
 
 ## 開発者向け情報
 

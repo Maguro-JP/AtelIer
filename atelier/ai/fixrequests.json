@@ -1,5 +1,5 @@
 {
-  "note": "修正依頼の一覧。name は利用者に見せる名前（赤ペンの指示の欄に書く文）、prompt は絵の模型に渡す言葉、strength は直しの強さ（0〜1。小さいほど元の絵のまま）。tool がある物は模型を使わず chatdraw/edittools.py の道具で直す。根拠は docs/knowledge/fix-requests.md",
+  "note": "修正依頼の一覧。name は利用者に見せる名前（赤ペンの指示の欄に書く文）、prompt は絵の模型に渡す言葉、strength は直しの強さ（0〜1。小さいほど元の絵のまま）。tool がある物は模型を使わず atelier/ai/edit_tools.py の道具で直す。根拠は docs/knowledge/fix-requests.md",
   "parts": ["手・指", "足", "目", "顔", "髪", "服", "背景", "全体"],
   "requests": [
     {"part": "手・指", "name": "指を 5 本に", "prompt": "hand with five fingers, correct finger count, anatomically correct hand", "strength": 0.7},

@@ -1252,7 +1252,7 @@ def run(name: str, image, mask=None, say=None, face=_NO_FACE):
         import numpy as np
         from PIL import Image
         out = Image.fromarray(repair(np.asarray(src), np.asarray(out.convert("RGB"))))
-    # 最後に絵の全体を 1 回だけ測って知らせる（境目・囲みの外・作画監督。chatdraw/seamfix.whole_check）。絵は変えず、繰り返しに繋げない
+    # 最後に絵の全体を 1 回だけ測って知らせる（境目・囲みの外・作画監督。atelier/ai/seam_fix.whole_check）。絵は変えず、繰り返しに繋げない
     # 囲みの無い加工（絵全体）には境目も囲みの外も無いので測らない（832×1216 で 3 秒ほどかかる）
     if mask is not None and getattr(out, "mode", "") == "RGB" and out.size == src.size and not LAST_QC.get("rejected"):
         from atelier.ai import seam_fix as seamfix

@@ -1,11 +1,11 @@
 # 模型ごとの頼み方（札との照らし合わせ）
 
-描くアプリ（chatdraw）の模型の一覧（`chatdraw/catalog.json`）と世代の表（`chatdraw/models.py` の `FAMILIES`）を、
+描くアプリ（chatdraw）の模型の一覧（`atelier/models/catalog.json`）と世代の表（`atelier/models/catalog.py` の `FAMILIES`）を、
 各模型の札（Hugging Face のモデルカード）の使い方と 1 件ずつ照らした表。2026-11-01 に札を引いて照らした。
 
 頼み方が札と違うと、模型は頼んだ物を描かないか、崩れた絵を出した。世代の決まり文句（タグの後ろの `masterpiece, best quality`、
 24 工程、CFG 5）を全部の模型に当てていたので、札が別の質のタグ・工程・描き方を指定する模型ほど外れた。
-直しは描く仕組み（`engine.prompt_args`、`use_scheduler`、`fit_tokens`）と目録の値に入れ、試験は `chatdraw/tests/test_perfamily.py`。
+直しは描く仕組み（`engine.prompt_args`、`use_scheduler`、`fit_tokens`）と目録の値に入れ、試験は `tests/test_perfamily.py`。
 
 ## 世代ごとの決まり
 

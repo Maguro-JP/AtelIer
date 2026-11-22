@@ -1,7 +1,7 @@
 # LoRA と学習セット
 
 アプリ（chatdraw）で LoRA を重ねる仕組みと、参考画像の組（学習セット）を作るときに調べたこと。
-作りは `chatdraw/lora.py`、`chatdraw/loradialog.py`、`chatdraw/refs.py` の RefSets、試験は `chatdraw/tests/test_lora.py`。
+作りは `atelier/ai/lora.py`、`atelier/panels/lora_dialog.py`、`atelier/ai/references.py` の RefSets、試験は `tests/test_lora.py`。
 
 ## ComfyUI の LoraLoader の作り
 

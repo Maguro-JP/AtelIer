@@ -5,7 +5,7 @@
 | 配布サイト | 取得の仕組み | アプリで使うか | 根拠と確かめたこと |
 |---|---|---|---|
 | Hugging Face | 公開の API とファイルの道 | 使う（前から） | 目録の模型はここから取る |
-| Civitai | 公開の REST API（探す: /api/v1/models、取る: 版の downloadUrl。キーの要る模型は token を付ける） | 使う（chatdraw/civitai.py） | 本物の API で、探す（20 件、0.8 秒）と、小さな LoRA 1 つ（16MB、1.5 秒）の取得を確かめた。規約の本文は読んでいない。模型ごとの使い方の許し（商用の可否）は API の allowCommercialUse を窓に出す |
+| Civitai | 公開の REST API（探す: /api/v1/models、取る: 版の downloadUrl。キーの要る模型は token を付ける） | 使う（atelier/models/civitai.py） | 本物の API で、探す（20 件、0.8 秒）と、小さな LoRA 1 つ（16MB、1.5 秒）の取得を確かめた。規約の本文は読んでいない。模型ごとの使い方の許し（商用の可否）は API の allowCommercialUse を窓に出す |
 | SeaArt | 公開の取得の API は見つからなかった（/api/v1/models は 404）。サイトの説明（llms.txt）では、模型はサイトの中で描くために使う | 使わない | 取る仕組みが無い。規約の本文は読んでいない |
 | Anifusion | サイトの中で描くサービス。模型を取る API は見つからなかった（/api/models は 404） | 使わない | 取る仕組みが無い。規約の本文は読んでいない |
 | Tensor.Art | 回線の手前で 403 になり、調べられなかった | 使わない（未調査） | 確かめていない |

@@ -1,6 +1,6 @@
 # アプリのアイコンの候補（FLUX.2 klein 4B、ロゴの経路）
 
-GitHub Actions の draw-one（実行 41323297024、頼みの mode: logo）で、chatdraw/logo.py の draw_logo を通して描いた。1024x1024、1 枚 約 165 秒（CPU）。
+GitHub Actions の draw-one（実行 41323297024、頼みの mode: logo）で、atelier/ai/logo_maker.py の draw_logo を通して描いた。1024x1024、1 枚 約 165 秒（CPU）。
 背景は四隅からつながった白を抜き、ここでは白い地に重ねて JPEG にした。透明の PNG は draw-results ブランチの 41323297024/ にある。
 
 言葉: logo mark, simple flat vector emblem, bold clean shapes, centered, single icon, solid plain white background, minimal, high contrast, crisp edges, no text, symbol inspired by CharacterDesigner, app icon for an anime character design tool, paintbrush and pencil, friendly character face silhouette, rounded square, violet, pink and white color scheme

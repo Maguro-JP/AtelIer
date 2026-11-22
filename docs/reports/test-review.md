@@ -10,7 +10,7 @@
 
 - 要る: 82 ファイル
 - まとめる: 92 ファイル（ファイルは今 184 です）
-- 要らない: 10 ファイル（cdhome, cycle_refs, ensemble, folds, hub_defaults, modeldoc, pick_pose, record_policy, structure, zukan）
+- 要らない: 10 ファイル（data_home, cycle_refs, ensemble, folds, hub_defaults, modeldoc, pick_pose, record_policy, structure, zukan）
 - 要らない物を外して減る秒: 3.2 秒です（模型の要らない 159 ファイル全体で 367.8 秒）
 
 ## 本物の経路で見ている試験が 1 つも無い操作

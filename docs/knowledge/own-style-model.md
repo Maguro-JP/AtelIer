@@ -5,8 +5,8 @@
 
 ## 流れ
 
-1. ★ を付ける: 履歴とライブラリーの絵を右クリックして「★ お気に入りにする」。印はデータの置き場の `favorites.json` に絵の道で持つ（`chatdraw/ownstyle.py`）
-2. 集める: 「学習用に集める」で、★ の絵をデータの置き場の `datasets/<日時>/` に `0000.png` と `0000.txt`（説明）の組で写す。説明は wd-vit-tagger-v3（`chatdraw/requestcheck.py` と同じ読む模型）のタグを確からしい順に並べたもの。読む模型が無ければ描いたときの言葉（絵の隣の .json の prompt）を使う
+1. ★ を付ける: 履歴とライブラリーの絵を右クリックして「★ お気に入りにする」。印はデータの置き場の `favorites.json` に絵の道で持つ（`atelier/ai/own_style.py`）
+2. 集める: 「学習用に集める」で、★ の絵をデータの置き場の `datasets/<日時>/` に `0000.png` と `0000.txt`（説明）の組で写す。説明は wd-vit-tagger-v3（`atelier/qc/request_check.py` と同じ読む模型）のタグを確からしい順に並べたもの。読む模型が無ければ描いたときの言葉（絵の隣の .json の prompt）を使う
 3. 学ぶ（まだ作っていない）: 今の土台の模型に合わせて LoRA を学ぶ。下の「学習」
 4. 置く: 出来た `.safetensors` を `C:\LLM\lora\` に置く（`LLM_HOME` を替えたときはその下の `lora`）
 5. 使う: AI の欄の「模型」で LoRA を選び、強さ（0〜150%、既定 80%）を決める。初めは「LoRA なし」。`Painter` が `load_lora_weights` と `set_adapters` で重ね、同じ LoRA は 2 度読まない。読めなければ外して描くのを続け、理由を `lora_note` に残す

@@ -1,4 +1,4 @@
-# 1 回で描く形と工程に分けた形（chatdraw/phases.py）の比べ
+# 1 回で描く形と工程に分けた形（atelier/ai/phases.py）の比べ
 
 模型: cagliostrolab/animagine-xl-4.0、20 工程、832x1216、CPU（Actions の phase-bench）。
 言葉: `1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer`（1 回で描く形は今の流れどおり背景の言葉が足される）。

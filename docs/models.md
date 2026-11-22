@@ -46,7 +46,7 @@
 |---|---|---|
 | `.safetensors` のファイル 1 つ | 配布サイトでよく見る形。1 つ 約 7GB | `models/` に置く |
 | diffusers 形式のフォルダー | 中に `model_index.json` がある | `models/` に置く |
-| Hugging Face の名前（例 `cagliostrolab/animagine-xl-4.0`） | 置かずに名前で指定する | `config/models.json` に書く。初めて使うときだけ取る |
+| Hugging Face の名前（例 `cagliostrolab/animagine-xl-4.0`） | 置かずに名前で指定する | config/models.json（git に入れない）に書く。初めて使うときだけ取る |
 
 `.ckpt`・`.pt`・`.bin` は使いません。読むときに中のプログラムが動きうる形式で、危ないためです。同じ模型の `.safetensors` 版を探してください。
 
@@ -79,7 +79,7 @@
 
 ## 決めておくこと
 
-- `models/` と `config/models.json` は git に入れません（模型は大きく、割り当ては使う人ごとに違うため）。見本は `config/models.example.json` です。
+- `models/` と config/models.json は git に入れません（模型は大きく、割り当ては使う人ごとに違うため）。見本は `config/models.example.json` です。
 - 新しい模型に替えるときは、今の模型と同じ言葉・同じ種で並べて描き、検品の点数（`qc.score`）で比べてから既定を替えます。
 
 <!-- modeldoc:begin -->

@@ -134,7 +134,7 @@ def square(img: Image.Image, size: int = 1024, margin: int = 64) -> Image.Image:
 
 
 def fonts() -> list[Path]:
-    """文字に使えるフォント。アプリに同梱するのは chatdraw/fonts の自由に配れる物（OFL など。ライセンスの文と一緒に置く）だけ。
+    """文字に使えるフォント。アプリに同梱するのは atelier/ai/fonts の自由に配れる物（OFL など。ライセンスの文と一緒に置く）だけ。
     OS に入っているフォントはその PC の上で使うだけで、アプリには入れない（配る許しが無いため）"""
     found = sorted((Path(__file__).parent / "fonts").glob("*.[ot]tf"))
     for d in (Path("C:/Windows/Fonts"), Path("/usr/share/fonts"), Path("/System/Library/Fonts")):

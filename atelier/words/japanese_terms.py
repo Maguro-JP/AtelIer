@@ -62,7 +62,7 @@ for _k, _v in {"魔女": "witch", "天使": "angel", "悪魔": "demon", "吸血�
                "月": "moon", "炎": "fire", "水中": "underwater", "宇宙": "space"}.items():
     TERMS.setdefault(_k, _v)
 
-# 頼みの 30 本の試験（chatdraw/tests/test_words.py）で落ちた語と、その周りのよく使う語。表に無いと、言葉の模型が無いときに
+# 頼みの 30 本の試験（tests/test_words.py）で落ちた語と、その周りのよく使う語。表に無いと、言葉の模型が無いときに
 # 黙って捨てられ、頼みと違う絵が出た（紅茶を運ぶメイドが、何も持たないメイドになった）
 for _k, _v in {"紅茶": "tea", "お茶": "tea", "コーヒー": "coffee", "ケーキ": "cake", "パン": "bread",
                "りんご": "apple", "アイス": "ice cream", "お弁当": "bento", "運ん": "carrying", "運ぶ": "carrying",

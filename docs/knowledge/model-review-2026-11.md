@@ -1,6 +1,6 @@
 # 模型の見直し（2026-11-14）
 
-言語の模型（チャットと訳、`chatdraw/models.py` の `WORDS`）と絵の模型（`chatdraw/catalog.json`）を、Hugging Face の API で 2026-11 までの物を調べた。
+言語の模型（チャットと訳、`atelier/models/catalog.py` の `WORDS`）と絵の模型（`atelier/models/catalog.json`）を、Hugging Face の API で 2026-11 までの物を調べた。
 大きさは配布の重みの合計。足した模型は点を 0（確かめていない）にした。絵の模型は `config/verify-models.txt` に入れ、毎週の model-verify が描いて確かめる。
 言語の模型は model-verify が扱わないので、点 0 のまま推奨にしない（`offered_words` は点の届いた物だけを出す）。
 

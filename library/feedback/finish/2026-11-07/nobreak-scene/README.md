@@ -1,6 +1,6 @@
 # 加工が元の絵を壊さないかの確かめ（背景つき）
 
-元の絵: `library/feedback/check/2026-10-17/r2-bartender-scene/r2-bartender-scene-s24.jpg`（種は 24）。模型を使わない加工（chatdraw/finishers.py）を元の大きさのまま掛けた。目の色の差・髪の色の差は RGB の距離、目の動きは顔の高さに対する割合。前と後の顔の特徴の検品（chatdraw/facefeat.py）が戻した所は無い。
+元の絵: `library/feedback/check/2026-10-17/r2-bartender-scene/r2-bartender-scene-s24.jpg`（種は 24）。模型を使わない加工（atelier/ai/finishers.py）を元の大きさのまま掛けた。目の色の差・髪の色の差は RGB の距離、目の動きは顔の高さに対する割合。前と後の顔の特徴の検品（atelier/ai/face_features.py）が戻した所は無い。
 
 | 絵 | 判定 | 加工 | SSIM | 目の色の差 | 目の動き | 髪の色の差 | 残っている崩れ |
 |---|---|---|---|---|---|---|---|

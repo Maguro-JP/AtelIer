@@ -251,7 +251,7 @@ class ImageEditingMixin:
         from atelier.ai.restyle import STYLES
         from PySide6.QtGui import QIcon
         menu.setToolTipsVisible(True)
-        # 予想図: 見本の 1 枚を本物の絵の模型でその画風に変えた小さな絵（chatdraw/styleprev/）。名前だけでは仕上がりが分からないので横に出す
+        # 予想図: 見本の 1 枚を本物の絵の模型でその画風に変えた小さな絵（atelier/app/styleprev/）。名前だけでは仕上がりが分からないので横に出す
         # QMenu は絵の大きさを小さな絵の寸法（16 画素）で描き、スタイルシートの icon-size は効かなかった。その寸法だけを大きくする
         # メニューに独自のスタイル（QProxyStyle）を付けると、右クリックでアプリごと落ちた（0.5.30）。スタイルは付けず、
         # 小さな絵はメニューの絵の欄に、大きな絵はカーソルを合わせたときのツールチップに出す
