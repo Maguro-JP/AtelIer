@@ -58,7 +58,9 @@ class Painter(FakePainter):
     def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
         self.log.append(("redraw", seed, kw.get("strength")))
         self.masks = getattr(self, "masks", []) + [mask]
-        return image.copy()
+        # 本物の模型と同じく絵全体を返し、囲みの中だけでなく外も少し変える（外を元に戻すのは phases の役目）
+        from PIL import ImageChops
+        return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 9))
 
 
 BAD_TIMES = 3   # 崩れを返し続ける検品が、何回目で通るか（必ず通る回を持たせ、試験を終わらせる）

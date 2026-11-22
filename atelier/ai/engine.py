@@ -2235,6 +2235,7 @@ class Studio:
         try:
             got = phases.draw(self.painter, prompt, seed, size, keep, say=say, on_preview=on_preview,
                               on_step=lambda i, n: say(f"描いています（{i}/{n}）"), confirm=self._phase_confirm(as_tags),
+                              ask=getattr(self, "phase_ask", None),
                               pause_key=pausekeep.key("phases", text, seed, style, tuple(size) if size else None, model), pause_job=job)
         finally:
             if hasattr(self.painter, "avoid"):
@@ -2244,7 +2245,12 @@ class Studio:
         # phases.draw が返るのは全部の工程が検品を通ったときだけ（崩れが残る間は工程を足して続け、止めたときは Stopped で抜ける）
         self.last_passed = bool(checked and not left and got.get("complete"))
         self.last_left = list(left)
-        say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
+        if got.get("complete"):
+            say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
+        else:   # 囲みで直せなかった崩れが残った。描き直し続けずに止め、残った崩れと直し方の候補を利用者に出す
+            ask = got.get("asked") or {}
+            say(f"「{ask.get('phase', '')}」で崩れが残ったので止めました（累計 {got.get('total')} 工程）: " + "、".join(left[:4])
+                + "。直し方: " + "、".join(ask.get("choices") or ["赤ペンで囲んで直す", "言葉を足して直す", "構図から描き直す"]))
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,
                                                    model=getattr(self.painter, "model", ""), way="phases", stages=str(keep),
                                                    phases=got["phases"], passed=checked and not left))
