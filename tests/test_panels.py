@@ -549,3 +549,28 @@ class DetachTest(unittest.TestCase):
             self.assertTrue(w.__dict__.get("_hand_placed"))   # 戻した配置は自動で整えない
             w.return_all()
             done(w)
+
+
+class StressFixTest(unittest.TestCase):
+    """狭い窓で絵が潰れない・緊急停止が 1 つ・ツアーの札が欄の下に隠れない"""
+
+    def test_narrow_canvas_one_stop_tour_on_top(self):
+        with TemporaryDirectory() as tmp:
+            w = fresh(tmp, (800, 760))
+            spin(5)
+            self.assertGreater(w.canvas.width(), 380)   # 前は 160 ほどに潰れた
+            stops = [b for b in w.all_bars().values() if not b.isHidden() and w.emergency_stop in b.actions()]
+            self.assertEqual(len(stops), 1)
+            w.start_tour()
+            spin(3)
+            w.panels["chat"][0].raise_()   # 欄を前に出しても
+            end = time.time() + 0.5
+            while time.time() < end:
+                spin(2)
+                time.sleep(0.02)
+            kids = [c for c in w.children() if isinstance(c, type(w.tour))]
+            self.assertTrue(kids)
+            order = [c for c in w.children() if hasattr(c, "isVisible") and c.isWidgetType() and c.isVisible()]
+            self.assertIs(order[-1], w.tour)   # 案内は一番上
+            w.tour.finish()
+            done(w)
