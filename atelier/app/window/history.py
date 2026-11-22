@@ -203,7 +203,7 @@ class HistoryMixin:
             self._tl_before = self.recorder.frames[-1]
         phase = getattr(job, "phase", None)
         if phase is not None and hasattr(phase, "connect"):
-            phase.connect(lambda img: self.recorder.add(img) if hasattr(img, "convert") else None)
+            phase.connect(lambda img: self.recorder.add_strokes(img) if hasattr(img, "convert") else None)
 
     def _record_result(self, path: str):
         """AI の絵が仕上がった。途中の絵が届かなかった（1 回で描いた）ときは、仕上がった絵から線画→塗り→仕上げを逆算して残す"""

@@ -19,7 +19,7 @@ from collections import deque
 import numpy as np
 from PIL import Image, ImageChops, ImageFilter
 
-WORK_SIDE = 512          # 筆の運びを計算する大きさ（長い辺）。見せるだけなので縮めて速くする
+WORK_SIDE = 384          # 筆の運びを計算する大きさ（長い辺）。見せるだけなので縮めて速くする
 DIFF_MIN = 10            # これより小さい色の差は「変わっていない」とする（縮めたときの揺れ）
 LINE_END, BIG_END, SMALL_END = 0.30, 0.62, 0.84   # 各段が終わる時刻（0〜1）。残りが仕上げ
 BIG_AREA = 0.004         # 絵の面積に対するこの割合より大きい塊を「大きな塗り」にする
@@ -86,11 +86,7 @@ class Plan:
             at = 0.0
             for i in order:
                 span = LINE_END * float(sizes[i]) / total
-                m = lab == i + 1
-                d = dist[m].astype(np.float32)
-                d = d / max(1.0, d.max())
-                t[m] = at + span * d
-                tips.extend(self._tips(m, dist, at, span))
+                tips.extend(self._lay(t, lab, dist, objs[i], i + 1, at, span))
                 at += span
         # 塗り: 平塗りの色で塊に分ける（色を 32 段に丸めてつながった所）
         q = (flat // 32).astype(np.int32)
@@ -107,11 +103,12 @@ class Plan:
             cx = ndimage.mean(np.indices((h, w))[1], blobs, index=np.arange(1, nb + 1))
             big_px = BIG_AREA * w * h
             seeds = np.zeros((h, w), bool)
+            bobjs = ndimage.find_objects(blobs)
             for i in range(nb):   # 塊の真ん中に一番近い、塊の中の点から塗り広げる
-                m = blobs == i + 1
-                ys, xs = np.nonzero(m)
-                j = int(np.argmin((ys - cy[i]) ** 2 + (xs - cx[i]) ** 2))
-                seeds[ys[j], xs[j]] = True
+                sl = bobjs[i]
+                ys, xs = np.nonzero(blobs[sl] == i + 1)
+                j = int(np.argmin((ys + sl[0].start - cy[i]) ** 2 + (xs + sl[1].start - cx[i]) ** 2))
+                seeds[ys[j] + sl[0].start, xs[j] + sl[1].start] = True
             dist = _dist_from_seeds(blobs > 0, seeds)
             for lo, hi, pick in ((LINE_END, BIG_END, area >= big_px), (BIG_END, SMALL_END, area < big_px)):
                 ids = [i for i in np.argsort(-area) if pick[i]]
@@ -119,11 +116,7 @@ class Plan:
                 at = lo
                 for i in ids:
                     span = (hi - lo) * float(area[i]) / tot
-                    m = blobs == i + 1
-                    d = dist[m].astype(np.float32)
-                    d = d / max(1.0, d.max())
-                    t[m] = at + span * d
-                    tips.extend(self._tips(m, dist, at, span))
+                    tips.extend(self._lay(t, blobs, dist, bobjs[i], i + 1, at, span))
                     at += span
         t[diff & ~np.isfinite(t)] = SMALL_END
         self.t = t
@@ -132,16 +125,22 @@ class Plan:
         self.tips = tips
 
     @staticmethod
-    def _tips(m: np.ndarray, dist: np.ndarray, at: float, span: float, steps: int = 6):
-        """塊の中を筆先が通る点（距離の段ごとの真ん中）"""
-        d = dist[m]
+    def _lay(t, lab, dist, sl, ident, at: float, span: float, steps: int = 6):
+        """1 つの線・塊に描く時刻を入れ、筆先が通る点（距離の段ごとの真ん中）を返す。
+        塊ごとに絵全体を見ると数千の塊で遅かったので、塊の外枠の中だけを見る"""
+        m = lab[sl] == ident
+        d = dist[sl][m].astype(np.float32)
+        top = max(1.0, float(d.max()))
+        sub = t[sl]
+        sub[m] = at + span * d / top
         ys, xs = np.nonzero(m)
-        top = max(1, int(d.max()))
         out = []
+        if span * 400 < 1 and len(d) < 30:   # 小さな点は筆先を飛ばさない（ちらつく）
+            return out
         for k in range(steps + 1):
-            sel = np.abs(d - top * k / steps) <= max(1, top / steps / 2)
+            sel = np.abs(d - top * k / steps) <= max(1.0, top / steps / 2)
             if sel.any():
-                out.append((at + span * k / steps, float(xs[sel].mean()), float(ys[sel].mean())))
+                out.append((at + span * k / steps, float(xs[sel].mean() + sl[1].start), float(ys[sel].mean() + sl[0].start)))
         return out
 
     def empty(self) -> bool:
@@ -168,12 +167,12 @@ class Plan:
         return x / self.scale, y / self.scale
 
 
-def strokes(before: Image.Image | None, after: Image.Image, n: int = 18) -> list[Image.Image]:
+def strokes(before: Image.Image | None, after: Image.Image, n: int = 18, work_side: int = 256) -> list[Image.Image]:
     """タイムラプスに残す筆の運び（n 枚、最後の 1 枚は次の絵そのもの）"""
-    plan = Plan(before, after, work_side=640)
+    plan = Plan(before, after, work_side=work_side)
     if plan.empty():
         return [after.convert("RGB")]
-    return [plan.frame(i / n) for i in range(1, n)] + [after.convert("RGB")]
+    return [plan.frame(i / n).resize(after.size, Image.BILINEAR) for i in range(1, n)] + [after.convert("RGB")]
 
 
 class Player:
@@ -197,6 +196,7 @@ class Player:
         self.t = 0.0
         self.token = 0
         self.tip_item = None
+        self.shown: Image.Image | None = None   # 重ね絵として見せたままの途中の絵（次の移りの出発点）
 
         class _Touch(QObject):   # 見せている途中にキャンバスを触ったら、すぐ最後の絵にする（邪魔しない）
             def eventFilter(s, obj, e):
@@ -211,12 +211,18 @@ class Player:
     def active(self) -> bool:
         return self.timer.isActive()
 
+    def visible(self) -> Image.Image | None:
+        """今キャンバスの上に見えている途中の絵（無ければ None）。見せている途中なら最後まで飛ばしてから返す"""
+        self.finish()
+        return self.shown
+
     def show(self, before: Image.Image | None, after: Image.Image, keep: bool = False):
         self.finish()
         self.token += 1
         tok = self.token
         self.final = after
         self.keep = keep
+        self.shown = None
         # 計算の間は前の絵を重ねておく（置いた絵がいきなり見えないように）
         self._overlay(before if before is not None else Image.new("RGB", after.size, "white"))
 
@@ -257,17 +263,18 @@ class Player:
         self.plan = None
         self._tip(None)
         if self.final is not None and self.keep:
-            self._overlay(self.final, full=True)
+            self._overlay(self.final)
+            self.shown = self.final
         else:
             self.canvas.show_overlay(None)
+            self.shown = None
         self.final = None
 
-    def _overlay(self, im: Image.Image, full: bool = False):
+    def _overlay(self, im: Image.Image):
         from atelier.app.window.image_convert import qimage_from_pil
         self.canvas.show_overlay(qimage_from_pil(im))
 
     def _tip(self, pos):
-        from PySide6.QtCore import Qt
         from PySide6.QtGui import QBrush, QColor, QPen
         from PySide6.QtWidgets import QGraphicsEllipseItem
         if self.tip_item is None:
@@ -288,4 +295,3 @@ class Player:
         self.tip_item.setRect(-r, -r, 2 * r, 2 * r)
         self.tip_item.setPos(pos[0] * w / fw, pos[1] * h / fh)
         self.tip_item.setVisible(True)
-        _ = Qt

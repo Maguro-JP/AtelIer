@@ -27,30 +27,75 @@ MAX_SIDE, MAX_FRAMES = 640, 1200
 
 class Recorder:
     def __init__(self):
-        self.frames: list[Image.Image] = []
+        self._frames: list[Image.Image] = []   # 外からは frames で読む（裏で作っている筆の運びを待ってから返す）
         self.enabled = True
         self._job_start: int | None = None   # AI が描き始めたときの枚数（途中の絵が届いたかを見る）
+        self._strokes = None   # 筆の運びを作っている裏の糸
+        self._tail = None      # 最後に頼んだ運びの行き先
 
     def begin_job(self):
         """AI が描き始めた。描き終えた所（end_job）で、途中の絵が 1 枚も届いていなければ逆算して足す"""
-        self._job_start = len(self.frames)
+        self._job_start = len(self._frames)
 
     def add_phases(self, images):
         """工程に分けて描いた絵（下絵、線画、塗り、仕上げなど）を順に足す"""
         for im in images:
             self.add(im)
 
+    def add_strokes(self, img: Image.Image, n: int = 10):
+        """前の写しから img へ、筆で描き込んでいく運び（brush_reveal.strokes）を足す。
+        工程の絵だけをつなぐと、線がいきなり出てくる記録になったので、移りの間を筆の運びで埋める"""
+        if not self.enabled:
+            return
+        import threading
+        from atelier.paint.brush_reveal import strokes
+        prev = self._strokes
+        busy = prev is not None and prev.is_alive()
+        before = self._tail if busy else (self._frames[-1] if self._frames else None)   # 作り途中の運びの行き先から続ける
+        im = img.convert("RGB")
+        im.thumbnail((MAX_SIDE, MAX_SIDE))
+        self._tail = im
+
+        def work():   # 運びの計算は 1 秒ほどかかるので裏の糸で行い、画面を止めない。順番は前の計算を待って守る
+            try:
+                frames = strokes(before, im, n=n)
+            except Exception:   # 運びを作れなくても記録は残す
+                frames = [im]
+            if prev is not None:
+                prev.join()
+            for f in frames:
+                self.add(f)
+        self._strokes = threading.Thread(target=work, daemon=True)
+        self._strokes.start()
+
+    def flush(self):
+        """裏で作っている筆の運びが記録に入るのを待つ（書き出しと再生の前）"""
+        import threading
+        t = self._strokes
+        if t is not None and t is not threading.current_thread():
+            t.join()
+
+    @property
+    def frames(self) -> list[Image.Image]:
+        self.flush()
+        return self._frames
+
+    @frames.setter
+    def frames(self, v):
+        self._frames = v
+
     def end_job(self, final: Image.Image, before: Image.Image | None = None) -> str:
         """AI の絵が仕上がった。途中の絵が 2 枚以上届いていればそのまま、足りなければ逆算した工程を足す。
         返りは使った作り方（"preview" か "reconstruct"、記録しないときは ""）"""
         start, self._job_start = self._job_start, None
+        self.flush()   # 工程の筆の運びを数に入れてから、途中の絵が届いたかを見る
         if not self.enabled:
             return ""
-        got = len(self.frames) - (start if start is not None else len(self.frames))
+        got = len(self._frames) - (start if start is not None else len(self._frames))
         if got >= 2:
             self.add(final)
             return "preview"
-        self.add_phases(reconstruct(final, before))
+        self.add_strokes(final, n=RECON_LINE + RECON_FLAT + RECON_FINISH)   # 線画→塗り→仕上げの筆の運び
         return "reconstruct"
 
     def add(self, img: Image.Image):
@@ -58,23 +103,24 @@ class Recorder:
             return
         im = img.convert("RGB")
         im.thumbnail((MAX_SIDE, MAX_SIDE))
-        if self.frames and self.frames[-1].size == im.size and self.frames[-1].tobytes() == im.tobytes():
+        if self._frames and self._frames[-1].size == im.size and self._frames[-1].tobytes() == im.tobytes():
             return   # 何も変わっていない写しは足さない
-        self.frames.append(im)
-        if len(self.frames) > MAX_FRAMES:
-            self.frames = self.frames[::2]
+        self._frames.append(im)
+        if len(self._frames) > MAX_FRAMES:
+            self._frames = self._frames[::2]
 
     def clear(self):
-        self.frames.clear()
+        self._frames.clear()
 
     def export(self, path: str | Path, seconds: float = 15.0) -> int:
         """全体が seconds 秒ほどになる GIF に書き出す。書いた枚数を返す"""
-        if not self.frames:
+        self.flush()
+        if not self._frames:
             return 0
-        step = max(1, len(self.frames) // 600)   # 600 枚を超える分は間引く
-        frames = self.frames[::step]
-        if frames[-1] is not self.frames[-1]:
-            frames.append(self.frames[-1])
+        step = max(1, len(self._frames) // 600)   # 600 枚を超える分は間引く
+        frames = self._frames[::step]
+        if frames[-1] is not self._frames[-1]:
+            frames.append(self._frames[-1])
         size = frames[-1].size
         frames = [f if f.size == size else f.resize(size) for f in frames]
         per = max(20, int(seconds * 1000 / len(frames)))
@@ -85,12 +131,13 @@ class Recorder:
     def export_video(self, path: str | Path, seconds: float = 15.0) -> tuple[int, Path]:
         """動画に書き出す。返りは (書いた枚数, 書いた先)。MP4 を書けない環境では、同じ名前の .webp（動く WebP）に書く"""
         path = Path(path)
-        if not self.frames:
+        self.flush()
+        if not self._frames:
             return 0, path
-        size = self.frames[-1].size
+        size = self._frames[-1].size
         w, h = size[0] // 2 * 2, size[1] // 2 * 2   # H.264 は偶数の大きさしか受けない
-        fps = max(1, min(30, round(len(self.frames) / seconds)))
-        frames = [f if f.size == (w, h) else f.resize((w, h)) for f in self.frames]
+        fps = max(1, min(30, round(len(self._frames) / seconds)))
+        frames = [f if f.size == (w, h) else f.resize((w, h)) for f in self._frames]
         frames += [frames[-1]] * (fps * 2)   # 最後の絵で 2 秒止める
         how = video_backend()
         if how == "imageio":
@@ -221,6 +268,7 @@ class TimelapseDialog(QDialog):
         self.setWindowTitle("タイムラプス")
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.rec, self.out_dir = recorder, out_dir
+        recorder.flush()
         lay = QVBoxLayout(self)
         self.view = QLabel(alignment=Qt.AlignCenter)
         self.view.setMinimumSize(320, 320)

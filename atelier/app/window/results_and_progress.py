@@ -24,7 +24,10 @@ class ResultsAndProgressMixin:
         if self.thread is None:
             return
         q = qimage_from_pil(img)
-        self.canvas.show_overlay(q)
+        if self.reveal_on():   # 前の途中の絵から筆で描き込んで見せる（描く処理は裏で続く）
+            self.reveal().show(self.reveal().visible(), img, keep=True)
+        else:
+            self.canvas.show_overlay(q)
         self.progress_popup.set_thumb(q)   # 進みのポップアップにも途中の絵を小さく出す
         self.recorder.add(img)
 
@@ -34,8 +37,36 @@ class ResultsAndProgressMixin:
         if self.settings.get("result_place") == "別ファイル":
             self.open_in_new_file(path)
             return False
-        self.canvas.place_result(path, name, replace=replace)
+        if not self.reveal_on():
+            self.canvas.place_result(path, name, replace=replace)
+            return True
+        from atelier.app.window.image_convert import qimage_to_pil
+        before = self.reveal().visible()   # 途中の絵を見せていたら、そこから描き込む
+        if before is None and self.canvas.layers:
+            before = qimage_to_pil(self.canvas.flatten())
+        self.canvas.place_result(path, name, replace=replace)   # 絵は先に置く（見せ終えた画素は置いた絵そのもの）
+        self.reveal().show(before, qimage_to_pil(self.canvas.flatten()), keep=False)
         return True
+
+    def reveal_on(self) -> bool:
+        return self.settings.get("ai_reveal") != "すぐ置く"
+
+    def reveal(self):
+        """AI の絵を筆で描き込んで見せる再生役（atelier/paint/brush_reveal.py）"""
+        if getattr(self, "_reveal", None) is None:
+            from atelier.paint.brush_reveal import Player
+            self._reveal = Player(self.canvas)
+        return self._reveal
+
+    def clear_overlay(self):
+        """途中の絵の重ね絵を外す。筆で描き込んで見せている途中なら外さない（見せ終えたら自分で外す）"""
+        r = getattr(self, "_reveal", None)
+        if r is not None and r.active() and not r.keep:
+            return
+        if r is not None:
+            r.finish()
+            r.shown = None
+        self.canvas.show_overlay(None)
 
     def _put_fix(self, path: str, name: str) -> bool:
         """囲んだ所の直しは、直した所だけのレイヤーにして置く。絵全体の写しを重ねると、
@@ -139,7 +170,7 @@ class ResultsAndProgressMixin:
         if not worker.isRunning():
             worker.quit()
         self.thread, self._worker = None, None
-        self.canvas.show_overlay(None)
+        self.clear_overlay()
         if self.activity.started is not None:
             self.activity.end("止めました")
         self.stop_button.setEnabled(False)
@@ -258,7 +289,7 @@ class ResultsAndProgressMixin:
             return
         if getattr(self, "_fix_hid", None):
             self._end_fix_only()
-        self.canvas.show_overlay(None)
+        self.clear_overlay()
         why = (why or "うまくいきませんでした").strip().splitlines()[0]   # 何が起きたかを 1 行で出す（「描けませんでした」の決まり文句は出さない）
         if why.startswith(PAUSED_HEAD) or "一時停止" in why:   # 止めて捨てずに残した。進みの欄に「再開」を出す
             self.offer_paused()

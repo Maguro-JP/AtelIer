@@ -21,7 +21,7 @@ class AiResultsMixin:
         絵を置くのを先にする。前は検品の知らせを先に出していて、そこで落ちると絵が置かれず、途中の絵か何も無いままだった"""
         if self._stale():
             return
-        self.canvas.show_overlay(None)
+        # 途中の絵はここでは外さない。置く所（put_result）が、見えている途中の絵から筆で描き込む
         if self.job_kind == "fix":
             self._on_fixed(path)
             return
@@ -181,7 +181,7 @@ class AiResultsMixin:
     def show_final(self):
         """描き終えたら、1 枚目の絵をキャンバスに出して履歴で選ぶ。途中の絵（重ねた下描き）は必ず消す。
         途中の絵の知らせが絵の知らせより後に届くと、仕上がった絵の上に途中の絵が残り、出来た絵が見えなかった"""
-        self.canvas.show_overlay(None)
+        self.clear_overlay()
         if not self.batch or self.job_kind != "draw" or self.pin_action.isChecked():
             return
         path = self.batch[0]
