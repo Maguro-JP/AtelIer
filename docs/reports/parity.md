@@ -66,9 +66,9 @@ CharacterDesigner の `chatdraw/`（195ef66 の 1 つ前、4a9e809）から移�
 
 | 機能 | 流用元の担い手 | AtelIer の担い手 | 試験 | 結果 |
 |---|---|---|---|---|
-| 手・足の指を数える | handcheck.py | qc/hand_check.py | test_finger_count、test_feet_count、test_hands_auto | 確かめられない（「編集 > 検品する」をライブラリーの絵と小さな模型の絵に掛けると、どちらも「手: 手を読めませんでした」と検品できなかった所に出た。読める手のある絵が無く、指を数える所までは通っていない） |
-| 体・脚の検品 | bodycheck.py | qc/body_check.py | test_legcount、test_legs_fused、test_qc_legs | 確かめられない（同じ操作で「骨から離れた腕・脚: 体の点を読めない」と出た。体の点を読める絵が無い） |
-| 左右の検品 | mirrorcheck.py | qc/mirror_check.py | test_mirrorcheck | 確かめられない（読める顔・体のある絵が無く、左右を比べる所まで届かない） |
+| 手・足の指を数える | handcheck.py | qc/hand_check.py | test_finger_count、test_feet_count、test_hands_auto | 動く（操作: library/feedback/body の全身のイラスト r64-front と、Actions で描いた 45003177026/1-composition.png をキャンバスに出し「編集 > 検品する」を押した。どちらも「検品: 崩れ 4 か所を赤ペンで囲みました」と出て、レイヤーの欄に赤ペン 4 件が並んだ。手は 2〜3 個、足は 2 個を見つけた。指の本数まで数えたのは composition の足 1 だけで「指が多い（6 本。5 本のはず）」、ほかの手・足は「指を数えられない（重なって隠れている／つぶれている）」で崩れとして囲んだ。手の指を本数として数えた所はまだ見ていない） |
+| 体・脚の検品 | bodycheck.py | qc/body_check.py | test_legcount、test_legs_fused、test_qc_legs | 動く（同じ 2 枚で、体の点を読んで body_bad が空（体・脚の崩れ無し）と返った。前に出た「体の点を読めない」は出なかった。崩れのある体で囲む所は見ていない） |
+| 左右の検品 | mirrorcheck.py | qc/mirror_check.py | test_mirrorcheck | 動く（同じ 2 枚で顔を 1 つ読み、左右を比べて gated・flaws とも空で返った。左右の崩れを囲む所は見ていない） |
 | 頼んだ物が描けたかの検品 | requestcheck.py | qc/request_check.py | test_count_extra、test_extra_items、test_held_items | 動く（小さな模型で「a girl」を描き「検品する」を押すと、19.7 秒で「頼んでいない物: hat、weapon、witch hat」と知らせに出た。ライブラリーの絵では「体が多い（人 12 人、頼んだのは 1 人）」と出た） |
 | 崩れの検品（読めない物は崩れ） | sanity.py | qc/sanity.py | test_sanity、test_qc、test_qc_counts | 動く（読めない手・顔・体を「検品できなかった所」として知らせに並べ、「崩れは見つかりませんでした」とは出さなかった） |
 | 検品の手動実施（右クリック、赤ペンで出す） | qcmanual.py | qc/manual_check.py | test_qcmanual | 動く（ライブラリーの絵 walk.png を開いて「検品する」を押すと、43.5 秒で結果が右下の知らせに出た。場所の分かる崩れが無く、赤ペンの印は付かなかった） |
@@ -103,14 +103,14 @@ CharacterDesigner の `chatdraw/`（195ef66 の 1 つ前、4a9e809）から移�
 | 音声入力 | voice.py | agent/voice.py | test_voicechat | 確かめられない（マイクのボタンを押すと「声で入力するには faster-whisper と sounddevice を入れてください」と出た。部品が入っていない） |
 | 描くワード・禁止ワードの登録 | wordpanel.py | panels/word_panel.py | test_words、test_free_dict | 動く（全部押しの台本（メニュー・帯・欄のボタン 776 個を順に押す）でAI の欄の登録のボタンを押し、例外は出なかった） |
 | 単語辞書と学び | worddict.py、wordlearn.py | words/dictionary.py、words/learning.py | test_free_dict、test_normlearn | 動く（「設定 > 単語辞書…」で WordDialog が 560×420 で開いた。学びは確かめていない） |
-| 模型に渡した言葉をツールチップに出す | sent.py | files/sent.py | test_sent、test_panels（TooltipTest） | 確かめられない（ツールチップはカーソルを合わせる操作で、台本では送っていない） |
+| 模型に渡した言葉をツールチップに出す | sent.py | files/sent.py | test_sent、test_panels（TooltipTest） | 動く（操作: 書く欄に QHelpEvent（カーソルを合わせたときと同じ ToolTip の出来事）を送り、QToolTip に「描いてほしい絵を日本語か英語で書き、…」が出た。描いていないので、模型に渡した言葉の行は出ていない） |
 
 ## 描く道具・レイヤー・画面
 
 | 機能 | 流用元の担い手 | AtelIer の担い手 | 試験 | 結果 |
 |---|---|---|---|---|
-| ブラシと描く道具 | brush.py、canvas.py | paint/brush.py、paint/canvas.py | test_brushtools、test_paint_tools、test_handdraw_paint | 確かめられない（道具の選びは押したが、線を引くマウスの入力は台本で送っていない） |
-| ブラシの見本 | brushpreview.py | panels/brush_preview.py | test_brushtools | 確かめられない（同上） |
+| ブラシと描く道具 | brush.py、canvas.py | paint/brush.py、paint/canvas.py | test_brushtools、test_paint_tools、test_handdraw_paint | 動く（操作: QTest の mousePress・mouseMove 31 回・mouseRelease でキャンバスにペンの線を引くと、描くレイヤーの色のある画素（2 画素おきに数えた）が 0 から 3016 に増え、Ctrl+Z で 0 に戻った。E・B・I・H のキーで道具が eraser・pen・eyedropper・hand に替わった） |
+| ブラシの見本 | brushpreview.py | panels/brush_preview.py | test_brushtools | 確かめていない（線を引くのは通したが、見本の欄は見ていない） |
 | 図形の補助、対称 | assist.py | paint/drawing_assist.py | test_shapeassist、test_layertools | 動く（全部押しの台本（メニュー・帯・欄のボタン 776 個を順に押す）で「表示 > 対称定規」「表示 > 定規」の全部を押し、例外は出なかった。線を引いての確かめはしていない） |
 | レイヤー（コピー、切り取り、ロック、重ね順） | canvas.py、layerpanel.py | paint/canvas.py、panels/layer_panel.py | test_layertools、test_layercrash、test_toplayer | 動く（全部押しの台本（メニュー・帯・欄のボタン 776 個を順に押す）で「レイヤー」のメニュー 17 個とレイヤーの欄のボタンを押し、例外は出なかった） |
 | AI の絵はキャンバスを置き換え、元に戻すで戻る | app.py | app/window/ai_results.py | test_uifix（LayerTest）、test_chatdraw | 動く（小さな模型で描くと「AI の絵 1」が一番上のレイヤーに置かれ、「描けました（元に戻すで前の絵に戻せます）」と出た。元に戻すは押していない） |
@@ -122,13 +122,13 @@ CharacterDesigner の `chatdraw/`（195ef66 の 1 つ前、4a9e809）から移�
 | AI の欄のタブ（模型、描くワード、登録、禁止ワード、登録） | aipanel.py | panels/ai_panel.py | test_aitabs、test_aiui | 動く（窓の写しで「指示」のタブに絵の模型、描くワードの順に並んでいるのを見た。下の登録までは欄の高さで流す棒の中） |
 | テーマとテーマの編集 | themes.py、themeedit.py | ui/themes.py、ui/theme_editor.py | test_usability | 動く（テーマを「ナイト」「ペーパー」に替え、窓の写しで色が替わるのを見た。編集の窓は押していない） |
 | メニューの編集・リボン | menuedit.py、ribbon.py | ui/menu_editor.py、ui/ribbon.py | test_menuedit、test_ribbonfamily、test_menuaudit | 動く（「ウィンドウ > メニューを編集…」「帯を編集…」「リボンの並びを変える…」の窓が開いた） |
-| スクロールで値が変わらない | wheelguard.py | ui/wheel_guard.py | test_uifix | 確かめられない（ホイールの入力を台本で送っていない） |
-| 文字入力中にショートカットに取られない | typeguard.py | ui/type_guard.py | test_typeguard、test_tabkey | 確かめられない（キーの入力を台本で送っていない） |
-| キーの割り当て、マウスの戻る・進む | keys.py | app/key_bindings.py | test_shortcuts、test_backui | 確かめられない（「設定 > キーの設定…」の窓は開いた。キーとマウスの入力は送っていない） |
+| スクロールで値が変わらない | wheelguard.py | ui/wheel_guard.py | test_uifix | 動く（操作: 焦点の無い「枚数」の数の欄と「描き方」の選ぶ欄にホイールを上へ 3 回送り、値は 1 と 0 のまま変わらなかった。キャンバスへのホイール 3 回では拡大率が 0.128 から 0.195 に上がった） |
+| 文字入力中にショートカットに取られない | typeguard.py | ui/type_guard.py | test_typeguard、test_tabkey | 動く（操作: 書く欄に焦点を置いて QTest.keyClicks で e と b を打つと、欄に「eb」が入り、道具は pen のままだった） |
+| キーの割り当て、マウスの戻る・進む | keys.py | app/key_bindings.py | test_shortcuts、test_backui | 一部動く（キャンバスで E・B・I・H・Ctrl+Z を送り、道具の切り替えと元に戻すが効いた。割り当てを変える操作とマウスの戻る・進むは送っていない） |
 | ツアー | tour.py、tours.py | ui/tour.py、ui/tours.py | test_usability | 動く（「使い方ツアー」で 1/5 から 5/5 まで「次へ」で進んだ。テーマの機能の案内も出た） |
 | 進みのポップアップ・知らせ | notice.py、popup.py | ui/notice.py、ui/popup.py | test_confirm、test_chatdraw | 動く（検品と描いた結果が右下の知らせに出たのを窓の写しで見た） |
 | 確かめの窓（直す前に聞く） | confirm.py | ui/confirm.py | test_confirm | 確かめられない（直す操作は別の作業が見ている） |
-| 多言語 | i18n.py | ui/i18n.py | test_usability | 確かめられない（言葉を替える操作を通していない） |
+| 多言語 | i18n.py | ui/i18n.py | test_usability | 動く（操作: 言語を English にして開き直すと、メニューが File・Edit・View・AI・Logos and Stamps・加工・Settings・Selection・Layer・Window・Layout・Help に替わった。「加工」だけは訳が無く日本語のまま） |
 | 表示の範囲（全体表示のタブ） | app.py | app/window/layout.py | test_viewtools | 動く（全部押しの台本（メニュー・帯・欄のボタン 776 個を順に押す）で「表示」の拡大・回転などを押し、例外は出なかった） |
 | 関係するディレクトリを開く | folders.py | files/folders.py | test_module_paths | 動く（「ファイル > ディレクトリを開く」の 6 個で、それぞれの置き場を開く呼び出しが出た） |
 | 落ちたあとの記録、デバッグモード | crashlog.py、debuglog.py | app/crash_log.py、app/debug_log.py | test_crashlog、test_backui | 動く（「ヘルプ > 落ちた記録を開く」「記録の置き場を開く」で crash.log と置き場を開く呼び出しが出た。デバッグモードは押していない） |
@@ -138,7 +138,7 @@ CharacterDesigner の `chatdraw/`（195ef66 の 1 つ前、4a9e809）から移�
 
 | 機能 | 流用元の担い手 | AtelIer の担い手 | 試験 | 結果 |
 |---|---|---|---|---|
-| 頼んだ言葉の履歴と頼み直し | app.py | app/window/history.py | test_chatdraw（UsabilityFixTest） | 動く（描いたあと履歴に 1 件入り、右クリックに「この設定で描き直す」「頼みの言葉を書く欄に入れる」が出た。アプリを開き直すと履歴は 0 件だった（流用元と同じかは見ていない）） |
+| 頼んだ言葉の履歴と頼み直し | app.py | app/window/history.py | test_chatdraw（UsabilityFixTest） | 動く（描いたあと履歴に 1 件入り、右クリックに「この設定で描き直す」「頼みの言葉を書く欄に入れる」が出た。アプリを開き直すと履歴は 0 件だった。流用元（origin/main の chatdraw/）も同じで、履歴の欄はその回に描いた絵を activity.add で足すだけで、起動のときに読み直す所が無い。両方の Window を作って 1 件足し、閉じて作り直すと、どちらも 1 件から 0 件になった。移したときに壊れた物ではない） |
 | ライブラリー（右クリックから「一覧から外す」を除く） | librarypanel.py、library.py | panels/library_panel.py、files/library.py | test_works、test_panels | 動く（ライブラリーに 5 件が並び、右クリックに「消す（ごみ箱へ）…」があり「一覧から外す」は無かった） |
 | ごみ箱（消す、戻す） | trash.py | files/trash.py | test_cleanup、test_panels（TrashTest） | 動く（「ファイル > ごみ箱…」で窓が開き「ごみ箱は空です」と出た。消して戻す所は通していない） |
 | タイムラプス（描いたあとの逆算、録画、GIF） | timelapse.py | paint/timelapse.py | test_detailtimelapse、test_video_io | 直した（操作: アプリを起動し、64×96 の絵を AI の結果として置いた。直す前は Pillow 12 の MinFilter(1) が浮動小数点の例外を出し、AI の絵を置くたびにアプリごと落ちていた（流用元でも同じ）。直したあとは窓が残り、「AI の絵 1」が一番上のレイヤーに置かれ、履歴にも出たのを窓の写しで見た。test_detailtimelapse の残り 1 件は torch。8/9） |
