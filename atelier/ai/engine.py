@@ -302,8 +302,11 @@ def dtype_note(dtype) -> str:
     return ""
 
 
-def native_size(size, family: str):
+def native_size(size, family: str, trained_area: int | None = None):
     """世代ごとに学んだ大きさへ、同じ縦横比のまま合わせる。
+    trained_area は模型そのものが学んだ画素の数（trained_area_of）。SDXL で世代の数の半分より小さい模型だけ、その数に合わせる。
+    試験用の小さな SDXL（学んだのは 256×256）を約 100 万画素で描かせていて、全部の解像度に注意のある UNet の計算が
+    画素の数の 2 乗で増え、1 歩に 1,400 秒かかっていた。普通の SDXL（1024×1024）は今までどおり世代の数で描く。
     SD1.5 は 512 前後で学んでいるので約 0.6 倍で描く（1216 のままだと人が 2 人に割れた）。
     新しい世代（DiT）は 1024×1024 前後の画素の数で学んでいるので、その数にそろえ、縦横を 16 の倍数にする"""
     from atelier.models.catalog import family as fam
@@ -316,13 +319,38 @@ def native_size(size, family: str):
         # キャンバスの大きさのまま渡していたため、小さいキャンバスでは崩れ、大きいキャンバスでは人が 2 人に割れた。
         # 画素の数が学んだ数から 15% より離れていれば、縦横比のまま学んだ数に合わせる。倍数にもそろえる（8 の倍数でないと落ちた）
         m = f.multiple
-        k = (f.size[0] * f.size[1] / (w * h)) ** 0.5
+        area = f.size[0] * f.size[1]
+        if trained_area and trained_area * 2 < area:
+            area = trained_area
+        k = (area / (w * h)) ** 0.5
         if 1 / 1.15 <= k * k <= 1.15:
             k = 1.0
         return (max(256, round(w * k / m) * m), max(256, round(h * k / m) * m))
     k = (f.size[0] * f.size[1] / (w * h)) ** 0.5
     m = f.multiple
     return (max(256, round(w * k / m) * m), max(256, round(h * k / m) * m))
+
+
+def trained_area_of(model: str, pipe=None) -> int | None:
+    """模型が学んだ画素の数（UNet の sample_size × 8）。読んだ模型からか、置き場の unet/config.json から。分からなければ None"""
+    try:
+        unet = getattr(pipe, "unet", None) if pipe is not None else None
+        if unet is not None:
+            side = int(unet.config.sample_size) * int(getattr(pipe, "vae_scale_factor", 8))
+            return side * side
+        import json
+        cfg = Path(model) / "unet" / "config.json"
+        if not cfg.is_file():
+            from huggingface_hub import try_to_load_from_cache
+            got = try_to_load_from_cache(model, "unet/config.json", cache_dir=str(HUB))
+            if not isinstance(got, str):
+                return None
+            cfg = Path(got)
+        side = int(json.loads(cfg.read_text(encoding="utf-8"))["sample_size"]) * 8
+        return side * side
+    except Exception:   # noqa: BLE001  分からなければ世代の数で描く
+        return None
+
 
 QUANT_SHARE = 0.45   # 本体（transformer）を 4 ビットに縮めたときの、模型全体の大きさの目安（言葉の部品はそのまま）
 
@@ -1024,7 +1052,7 @@ class Painter:
         gb, family, single, fp32 = self._weights()
         cuda = mb.has_cuda()
         b = b or mb.budget()
-        want = native_size(size or self.size, family)
+        want = native_size(size or self.size, family, trained_area_of(self.model, self._pipe))
         loaded_as = getattr(self, "placed", None) if self._pipe is not None else None
         return mb.choose(gb, want, family, b, cuda, loaded_as=loaded_as, single_file=single, fp32=fp32,
                          light=self.low_memory, step=getattr(fam(family), "multiple", 64),
@@ -1197,11 +1225,17 @@ class Painter:
             from atelier.ai.memory_budget import exclusive
             exclusive(("painter", id(self)), self.unload)   # 模型はいつも 1 つだけ。ほかの模型を降ろしてから読む
             self._pipe = self._read()
+            if plan is not None and tuple(plan.want) != self._native_want(size):
+                self.memory_guard(size)   # 置き場に設定が無く、読んでから学んだ大きさが分かったときは、その大きさで決め直す
             self._cpu_dtype_fix()
             from atelier.models.catalog import image_model
             use_vpred(self._pipe, image_model(self.model)) or use_scheduler(self._pipe, image_model(self.model))
             self._place(self._pipe)
         return self._pipe
+
+    def _native_want(self, size=None):
+        from atelier.models.catalog import image_model
+        return tuple(native_size(size or self.size, image_model(self.model).family, trained_area_of(self.model, self._pipe)))
 
     def _read(self):
         """模型を読む。形（1 つのファイル、Hugging Face の部品のフォルダー、手で置いたフォルダー）と世代で、部品と引数を決める"""
@@ -1434,7 +1468,7 @@ class Painter:
         info = image_model(self.model)
         f = fam(info.family)
         asked = tuple(size or self.size)
-        size = native_size(asked, info.family)
+        size = native_size(asked, info.family, trained_area_of(self.model, pipe))
         # SDXL は学んだ大きさで描いて、頼んだ大きさ（キャンバス）に戻す。新しい世代は今までどおり学んだ大きさのまま返す
         want = asked if info.family == "sdxl" else size
         if plan is not None and base is None and not f.edit:
