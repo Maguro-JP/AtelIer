@@ -1,5 +1,6 @@
 """工程に分けて描く（atelier/ai/phases.py）を偽の模型と偽の検品で通す。
-工程は人の描き方の 12。崩れが残る間は直しの工程を足して続け、全部通ったときだけ完了として返す（上限で次へ進まない）。
+工程は人の描き方の 12。崩れは前の工程へ戻らず、今の絵の崩れた所の囲みの中だけを直す（外は 1 画素も変えない）。
+手を替えて直しても消えない崩れと囲めない崩れは、工程を足し続けずに利用者に聞いて止まる。累計は絵が変わった回だけを数える。
 偽の検品は必ず「何回目かで通る」形にして、試験が終わらなくならないようにする"""
 import os
 import sys
@@ -105,6 +106,12 @@ def checks(always_bad: bool):
 
 N = len(phases.PHASES)
 
+
+def changed(got):
+    """絵が変わった回の数（工程の記録と、その中の直しの回）"""
+    return sum(bool(r.get("changed")) + bool(r.get("first_changed")) + sum(bool(m.get("changed")) for m in r.get("mends", []))
+               for r in got["history"])
+
 def hand_only_checks(bad_times=BAD_TIMES):
     """体・構図・依頼物は合格させ、手の検品だけを bad_times 回不合格にする。下描きの限定修正を単独で試す。"""
     seen = {"hands": 0}
@@ -159,16 +166,19 @@ class PhasesTest(unittest.TestCase):
         self.assertEqual(got["left"], [])
         self.assertEqual(len(got["phases"]), N)
         self.assertIn("phases.json", files)
-        self.assertGreater(got["backs"], 0)
-        self.assertTrue(any(s.startswith("直しを ") and "工程足しました" in s for s in said))   # 直しの工程が足された
-        self.assertGreater(got["need"], N)    # 要る工程の数が直しの分だけ増える
-        self.assertGreater(got["total"], N)   # 累計も増える
-        self.assertEqual(got["total"], len(got["history"]))
-        self.assertGreaterEqual(got["need"], got["total"])
+        self.assertEqual(got["backs"], 0)   # 前の工程へ戻らない（戻って描き直すと途中で別の絵になった）
+        self.assertGreater(got["fixes"], 0)
+        self.assertEqual(got["need"], N + got["fixes"])
+        self.assertEqual(got["total"], changed(got))   # 絵が変わった回だけを数える
+        mends = [m for r in got["history"] for m in r.get("mends", [])]
+        self.assertTrue(mends and all(r["outside"] == 0 for r in mends), mends)   # 囲みの外は 1 画素も変えない
+        self.assertEqual(len([f for f in files if f.endswith(".png") and f[:3].isdigit()]), got["total"])
+        order = [phases.NAMES.index(r["phase"]) for r in got["history"]]
+        self.assertEqual(order, list(range(N)))   # 工程は 1 つずつ順に進み、同じ工程の名前が続けて並ばない
         self.assertTrue(all(r["readable"] and not (r["after"] if r["fixed"] else r["found"]) for r in got["phases"]))
         self.assertEqual(painter.steps, 20)
         self.assertTrue(any(s.startswith("工程 1/") for s in said))
-        self.assertTrue(any(f"（累計 {got['total']} 工程）" in s for s in said))
+        self.assertTrue(any(f"累計 {got['total']} 工程）" in s for s in said))
 
     def test_thumbnails_small_and_picked(self):
         got, painter, *_ = self.run_phases(always_bad=False)
@@ -189,8 +199,8 @@ class PhasesTest(unittest.TestCase):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks())
         self.assertTrue(got["complete"])
         self.assertEqual(sum(1 for x in painter.log if x[0] == "refine"), 1, painter.log)
-        fixes = [x[2] for x in painter.log if x[0] == "redraw" and x[2] in phases.FIXES]
-        self.assertGreaterEqual(len(fixes), 2, painter.log)
+        fixes = [m["strength"] for r in got["history"] if r["phase"] == "顔・手・足の下描き" for m in r.get("mends", [])]
+        self.assertGreaterEqual(len(fixes), 1, got["history"])
         self.assertEqual(fixes, sorted(fixes))   # 直しを重ねるたびに強くする
 
     def test_clean_after_first_fix(self):
@@ -241,16 +251,18 @@ class PhasesTest(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(Painter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=NoLandmarks)
         self.assertTrue(got["complete"])   # 読めない検品は崩れとして直し、読めて通るまで続ける
-        unread = [r for r in got["history"] if not r["readable"]]
-        self.assertTrue(unread)
-        self.assertGreater(got["total"], N)
+        unread = [m for r in got["history"] for m in r.get("mends", []) if "検品できませんでした" in m["found"]]
+        self.assertTrue(unread)   # 読めなかった絵は崩れとして囲んで直した
+        self.assertGreater(got["fixes"], 0)
 
     def test_without_line_or_fix_still_finishes(self):
         painter = Painter()
         painter.abilities = (False, False)
         got, painter, *_ = self.run_phases(always_bad=True, painter=painter)
-        self.assertEqual(len(got["phases"]), N)
-        self.assertTrue(got["complete"])
+        # 囲みの中だけを直せない模型では、全体を描き直して直したことにせず、残った崩れと直し方を出して止まる（終わらない回り方にしない）
+        self.assertFalse(got["complete"])
+        self.assertIsNotNone(got["asked"])
+        self.assertIn("赤ペンで囲んで直す", got["asked"]["choices"])
         self.assertFalse(any(x[0] == "redraw" for x in painter.log))
 
     def test_fix_masks_are_regions_only(self):
@@ -290,7 +302,7 @@ class PhasesTest(unittest.TestCase):
         self.assertTrue(got["complete"])
         wear = [r for r in got["history"] if r["phase"] == "服・髪・持ち物"]
         self.assertTrue(any(any("blue ribbon" in word for word in r["words"]) for r in wear), wear)
-        self.assertTrue(any("直しを" in msg and "描き直しを頼まれました" in msg for msg in said))
+        self.assertTrue(any("描き直しを頼まれたので「服・髪・持ち物」から順に進めます" in msg for msg in said))
 
     def test_studio_way_phases(self):
         from atelier.ai import phase_tools as pt
@@ -490,8 +502,7 @@ class ManualRedoTest(unittest.TestCase):
             got = phases.draw(Painter(), "1girl", 1, (64, 96), Path(d), checks=checks(False)[0], confirm=confirm)
         self.assertTrue(got["complete"])
         self.assertGreaterEqual(got["backs"], 3)
-        self.assertGreaterEqual(got["need"], N + 3)
-        self.assertGreaterEqual(got["total"], N + 3)
+        self.assertEqual(got["total"], changed(got))   # 頼まれた描き直しも、絵が変わった回だけ数える
 
 
 class StopFlagTest(unittest.TestCase):
@@ -542,7 +553,7 @@ class BrokenChecksTest(unittest.TestCase):
             got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), checks=Boom)
         self.assertEqual(len(raised), BAD_TIMES)   # 落ちずに描き続け、検品できなかった絵は直して描き直した
         self.assertTrue(got["complete"])
-        self.assertGreater(got["total"], len(phases.PHASES))
+        self.assertGreater(got["fixes"], 0)
         self.assertIsNotNone(got["image"])
 
 
@@ -705,8 +716,9 @@ class MissingBackRouteTest(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(Painter(), "1girl", 9, (64, 96), Path(d), checks=C, say=said.append)
         self.assertTrue(got["complete"])
-        self.assertGreater(got["backs"], 0)
-        self.assertTrue(any("直しを" in msg and "extra person" in msg for msg in said), said)
+        self.assertEqual(got["backs"], 0)   # 構図へ勝手に戻らない
+        self.assertTrue(any("次の工程から囲んで直します" in msg for msg in said), said)   # サムネイルは描き直し続けずに次へ進む
+        self.assertEqual([r["phase"] for r in got["history"]], phases.NAMES)
 
 
 class CountLimitTest(unittest.TestCase):
@@ -735,8 +747,12 @@ class PreviewTest(unittest.TestCase):
         shown = []
         from atelier.ai import phase_tools as pt
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
-            phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), checks=checks(False)[0], on_preview=shown.append)
-        self.assertGreaterEqual(len(shown), len(phases.PHASES))
+            got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), checks=checks(False)[0], on_preview=shown.append)
+        self.assertTrue(shown)
+        same = [k for k in range(1, len(shown)) if list(shown[k].getdata()) == list(shown[k - 1].getdata())]
+        # 同じ絵を続けて出さない。偽の模型は種によらず同じ絵を描くので、描いている途中の絵（サムネイル 2 枚と下描き）だけは除く
+        self.assertEqual([k for k in same if k > phases.THUMBS], [])
+        self.assertLessEqual(len(shown), got["total"] * 2 + phases.THUMBS)
 
 
 class NoSketchModelTest(unittest.TestCase):
@@ -755,5 +771,6 @@ class NoSketchModelTest(unittest.TestCase):
             p = Dit()
             C, _seen = checks(False)
             got = phases.draw(p, "1girl, red scarf", 1, (64, 64), Path(d), checks=C)
-        self.assertEqual(len(got["phases"]), len(phases.PHASES))
         self.assertTrue(any(x[0] == "refine" for x in p.log), p.log)
+        self.assertFalse(got["complete"])   # 直せない崩れは聞いて止まる（全体の描き重ねを直しとして使わない）
+        self.assertIsNotNone(got["asked"])

@@ -699,7 +699,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             if not memo["check"] and not (saved and saved["i"] == i and entry.get(i)):
                 entry[i] = dict(st)   # 利用者の「この工程を描き直す」は、この工程に入ったときの土台から描く
             saved = None
-            say(f"工程 {i + 1}/{n}「{name}」（直し {fixes} 回、累計 {total} 工程）: {PHASES[i][1]}（見る物: {PHASES[i][2]}）")
+            if not memo["check"]:   # 直したあとの測り直しは同じ工程の中の事なので、工程の始めの知らせを出し直さない
+                say(f"工程 {i + 1}/{n}「{name}」（直し {fixes} 回、累計 {total} 工程）: {PHASES[i][1]}（見る物: {PHASES[i][2]}）")
             progress("drawing", last_left.get(i, []))
             tones.clear()
             t0 = time.time()
@@ -745,6 +746,16 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 row["show"] = str(p_show)
             if img is not None and not changed and before is not None:
                 say(f"「{name}」は絵を変えなかったので、工程として数えません")
+            if check_round and history:
+                # 測り直しは同じ工程の記録に重ねる（工程の名前が記録に続けて並ばないように）。直しの回は mends に残す
+                prev = next((r for r in reversed(history) if r["phase"] == name and not r.get("mend")), None)
+                if prev is not None:
+                    row["mends"] = list(prev.get("mends", [])) + [r for r in history if r.get("mend") and r["phase"] == name]
+                    row["first_changed"] = prev.get("first_changed", prev.get("changed"))   # 工程の 1 回目で絵が変わったか
+                    row["image"] = row["image"] or prev.get("image")
+                    row["found_first"] = prev.get("found_first", prev["found"])
+                    history.remove(prev)
+                    history[:] = [r for r in history if not (r.get("mend") and r["phase"] == name)]
             final[i] = row
             history.append(row)
             if not row["readable"] and "検品できませんでした" not in left:
@@ -777,6 +788,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             if not left:
                 last_left.pop(i, None)
                 tries.pop(i, None)
+                i += 1
+                continue
+            if i <= 1:
+                # 目的とサムネイルは 1 回で次へ進む（サムネイルを描き直し続けて先へ進まなかった）。
+                # サムネイルの崩れは、そのあとの工程の検品がもう一度見つけ、そこで囲んで直す
+                say(f"「{name}」の崩れは、次の工程から囲んで直します")
+                row["carried"] = list(left)
                 i += 1
                 continue
             last_left[i] = list(left)

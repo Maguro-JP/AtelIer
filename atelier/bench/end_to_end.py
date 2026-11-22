@@ -186,8 +186,8 @@ def main():
         return {"items": len(seen)}
 
     def phases_draw():
-        # 工程に分けて描く。検品を通るまで工程を足して続けるので、小さな模型（砂嵐の絵）では終わらない。
-        # 決めた時間だけ描かせて利用者と同じ「止める」の旗を立て、工程が足されたことと止めた所までの記録を見る
+        # 工程に分けて描く。小さな模型（砂嵐の絵）でも、工程は 1→2→3 と順に進み、同じ工程を描き直し続けない。
+        # 直しは囲みの外を 1 画素も変えず、直せない崩れは利用者に聞く所で止まる。決めた時間が来たら「止める」の旗を立てる
         import json
         import threading
         from atelier.ai.engine import Painter, Studio, Stopped, Words
@@ -210,8 +210,21 @@ def main():
         detail = {"stopped": stopped, "total": got.get("total"), "need": got.get("need"), "image": got.get("image")}
         if stopped and not (got.get("state") == "stopped" and got.get("image") and Path(got["image"]).exists()):
             raise RuntimeError(f"止めた所までの絵が残っていない: {detail}")
-        if stopped and not (got.get("need", 0) > 12):
-            raise RuntimeError(f"崩れが残ったのに工程が足されていない: {detail}")
+        rec = json.loads((Path(keep) / "phases.json").read_text(encoding="utf-8")) if keep else {}
+        hist = rec.get("history", [])
+        order = [r["phase"] for r in hist]
+        detail.update({"order": order, "asked": rec.get("asked"),
+                       "outside": [m.get("outside") for r in hist for m in r.get("mends", [])]})
+        if any(a == b for a, b in zip(order, order[1:])):
+            raise RuntimeError(f"同じ工程を続けて描き直した: {detail}")
+        from atelier.ai.phases import NAMES
+        idx = [NAMES.index(x) for x in order]
+        if idx != list(range(len(idx))):
+            raise RuntimeError(f"工程が順に進んでいない（戻った・飛んだ）: {detail}")
+        if any(o not in (0, None) for o in detail["outside"]):
+            raise RuntimeError(f"直しが囲みの外を変えた: {detail}")
+        if not stopped and not rec.get("complete") and not rec.get("asked"):
+            raise RuntimeError(f"崩れが残ったのに利用者に聞かずに終わった: {detail}")
         return detail
 
     ok = step("工程に分けて 1 枚描く", phases_draw) and ok
@@ -379,8 +392,8 @@ def main():
         return detail
 
     def precise_draw():
-        # 精度優先は検品を通るまで工程を足して続ける。小さな模型では終わらないので、決めた時間だけ描かせて「止める」を押し、
-        # 「止めました（工程 k で止めました）」が出て「描けました」が出ないこと、止めた所までの絵がレイヤーにあることを見る
+        # 精度優先は工程を 1 つずつ順に進め、直せない崩れが残れば利用者に聞く所で止まる。決めた時間で終わらなければ「止める」を押す。
+        # 工程の知らせが順に並ぶこと（同じ工程が続けて始まらない）と、「描けました」が検品を通らずに出ないことを見る
         w = win.get("w") or open_window()
         win["w"] = w
         w._two_parts_asked = True
@@ -393,7 +406,11 @@ def main():
             raise RuntimeError("描くを押しても描き始めなかった: " + " / ".join(said[-3:]))
         pump(lambda: w.thread is None, float(os.environ.get("ATELIER_E2E_PHASE_SECONDS", "180")))
         ran = said[n0:]
-        added = [m for m in ran if "直しを" in str(m) and "要る工程" in str(m)]
+        import re as _re
+        begun = [int(x.group(1)) for x in (_re.match(r"工程 (\d+)/\d+「", str(m)) for m in ran) if x]
+        if any(b <= a for a, b in zip(begun, begun[1:])):
+            raise RuntimeError(f"工程が順に進んでいない（同じ工程の繰り返し・戻り）: {begun}")
+        added = begun
         if w.thread is not None:
             w.stop()
         pump(lambda: False, 3)
@@ -403,9 +420,10 @@ def main():
         if any("描けました" in str(m) for m in ran) and not any("全部の工程が検品を通りました" in str(m) for m in ran):
             raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
         if not any("全部の工程が検品を通りました" in str(m) for m in ran):
-            if not any(str(m).startswith("止めました（工程") for m in ran):
-                raise RuntimeError(f"「止めました（工程 k で止めました）」が出ない: {detail}")
-            if not any(n.startswith("止めた所までの絵") for n in layers):
+            asked = any("崩れが残ったので止めました" in str(m) for m in ran)
+            if not asked and not any(str(m).startswith("止めました（工程") for m in ran):
+                raise RuntimeError(f"「止めました（工程 k で止めました）」も、聞く所で止まった知らせも出ない: {detail}")
+            if not asked and not any(n.startswith("止めた所までの絵") for n in layers):
                 raise RuntimeError(f"止めた所までの絵がレイヤーに無い: {detail}")
         return detail
 
