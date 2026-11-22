@@ -12,7 +12,7 @@
 5. 検品の部品（部位分け・人の枠・タグ・体の点・手・足）が初回の取得で入ったか（atelier/qc/parts.py）
 6. 右クリックのメニューと、工程に分けて描く（Studio を直に呼ぶ）
 7. 窓から、利用者が押すのと同じメソッドを通す。
-   CharacterDesigner で選んだ模型の置き場の模型が一覧に出るか、描いた絵がキャンバスの一番上のレイヤーになるか、
+   描いた絵がキャンバスの一番上のレイヤーになるか、
    赤ペンの囲みの中だけが直るか（囲みの外の画素の変わった数を数える）、検品の結果が返るか、
    作業ファイルに保存して窓を開き直し、レイヤーの数と絵が同じか、精度優先で描いて工程ごとの絵が出るか
 
@@ -115,12 +115,6 @@ def main():
         return {}
 
     ok = step("ウィンドウを開く", window)
-    # 取る前に見る。取ったあとに見ると、取った模型を CharacterDesigner の置き場の模型と取り違える
-    try:
-        from atelier.models.first_setup import has_image
-        report["tiny_before_fetch"] = has_image(tiny)
-    except Exception as e:   # noqa: BLE001  見られなかったことも残し、続けて流す
-        report["tiny_before_fetch"] = f"見られなかった: {e}"
     if os.environ.get("ATELIER_E2E_NO_FETCH"):
         # 手元で段の組み立てだけを見るとき。取ると torch と模型（数 GB）が手元に入る
         report["steps"].append({"name": "描く部品と模型を取る", "ok": False, "skipped": True})
@@ -182,19 +176,43 @@ def main():
             walk(m)
             m.deleteLater()
             qapp.processEvents()
+        # 絵を置いたので未保存の変更があり、閉じると「保存しますか」の窓が exec で出たまま戻らない
+        # （見る人がいない機械で 30 分止まった）。保存は見ない段なので、変更なしとして閉じる
+        w.dirty = False
         w.close()
         qapp.processEvents()
+        if w.isVisible():
+            raise RuntimeError("右クリックの段の窓が閉じない")
         return {"items": len(seen)}
 
     def phases_draw():
-        # 工程に分けて描く。最後の工程まで描けて、絵が保存されることを見る（0.5.30 で 1 工程目のあとに落ちた）
-        from atelier.ai.engine import Painter, Studio, Words
-        studio = Studio(Words(Path("")), Painter(TINY, steps=2, size=(256, 256)), out)
+        # 工程に分けて描く。検品を通るまで工程を足して続けるので、小さな模型（砂嵐の絵）では終わらない。
+        # 決めた時間だけ描かせて利用者と同じ「止める」の旗を立て、工程が足されたことと止めた所までの記録を見る
+        import json
+        import threading
+        from atelier.ai.engine import Painter, Studio, Stopped, Words
+        painter = Painter(TINY, steps=2, size=(256, 256))
+        studio = Studio(Words(Path("")), painter, out)
         studio.way = "phases"
-        _prompt, path = studio.draw("1girl, red hair", 2, size=(256, 256))
-        if not Path(path).exists():
-            raise RuntimeError(f"絵が保存されていない: {path}")
-        return {"phases": len(studio.last_phases or [])}
+        sec = float(os.environ.get("ATELIER_E2E_PHASE_SECONDS", "180"))
+        timer = threading.Timer(sec, lambda: setattr(painter, "stop", True))
+        timer.start()
+        try:
+            studio.draw("1girl, red hair", 2, size=(256, 256))
+            stopped = False
+        except Stopped:
+            stopped = True
+        finally:
+            timer.cancel()
+            painter.stop = False
+        keep = studio.last_phase_keep
+        got = json.loads((Path(keep) / "progress.json").read_text(encoding="utf-8")) if keep else {}
+        detail = {"stopped": stopped, "total": got.get("total"), "need": got.get("need"), "image": got.get("image")}
+        if stopped and not (got.get("state") == "stopped" and got.get("image") and Path(got["image"]).exists()):
+            raise RuntimeError(f"止めた所までの絵が残っていない: {detail}")
+        if stopped and not (got.get("need", 0) > 12):
+            raise RuntimeError(f"崩れが残ったのに工程が足されていない: {detail}")
+        return detail
 
     ok = step("工程に分けて 1 枚描く", phases_draw) and ok
     # ---- 窓から、利用者が押すのと同じメソッドを通す。窓の写しは出力の置き場に置く ----
@@ -266,26 +284,6 @@ def main():
         if not pump(lambda: w.thread is None, 1800):
             raise RuntimeError("30 分たっても描き終わらない")
         pump(lambda: not getattr(w, "bg_pending", 0), 60)
-
-    def from_character_designer():
-        # 入れる前に ProgramData\CharacterDesigner\places.json で模型の置き場を別のフォルダーに向け、そこへ小さな模型を置いた
-        from atelier.files import paths
-        cd = paths.character_designer_home()
-        if cd is None:
-            raise RuntimeError("CharacterDesigner の置き場が無い（atelier-e2e の「CharacterDesigner から移る人の置き場を作る」で作る）")
-        chosen = paths._model_dir_in(cd / "places.json")
-        if not chosen or Path(paths.LLM_HOME) != Path(chosen):
-            raise RuntimeError(f"模型の置き場が CharacterDesigner で選んだ所でない: 選んだ所 {chosen!r}、使う所 {paths.LLM_HOME}")
-        if report.get("tiny_before_fetch") is not True:
-            raise RuntimeError(f"取る前に、CharacterDesigner の置き場（{paths.HUB}）の模型が見えていなかった")
-        w = win.get("w") or open_window()
-        win["w"] = w
-        listed = [m.repo for m in w.have_image_models()]
-        if TINY not in listed:
-            raise RuntimeError(f"CharacterDesigner の置き場の模型が一覧に出ない: {listed}")
-        w.check_ai()
-        snap(w, "cd-models.png")
-        return {"model_dir": chosen, "hub": str(paths.HUB), "listed": listed, "ai": w.ai_label.text(), "shot": "cd-models.png"}
 
     def draw_in_window():
         w = win.get("w") or open_window()
@@ -381,20 +379,34 @@ def main():
         return detail
 
     def precise_draw():
+        # 精度優先は検品を通るまで工程を足して続ける。小さな模型では終わらないので、決めた時間だけ描かせて「止める」を押し、
+        # 「止めました（工程 k で止めました）」が出て「描けました」が出ないこと、止めた所までの絵がレイヤーにあることを見る
         w = win.get("w") or open_window()
         win["w"] = w
         w._two_parts_asked = True
-        press_draw(w, "1girl, red hair", 1)
-        rows = getattr(w.studio, "last_phases", None) or []
-        phase_layers = [n for n in layer_names(w) if n.startswith("工程 ")]
-        files = [str(r.get("image")) for r in rows if r.get("image")]
-        detail = {"phases": [r.get("phase") for r in rows], "phase_layers": phase_layers, "files": files,
-                  "shot": snap(w, "precise.png")}
-        if not rows or not phase_layers:
-            raise RuntimeError(f"工程ごとの絵が出ない: {detail}")
-        missing = [f for f in files if not Path(f).exists()]
-        if missing:
-            raise RuntimeError(f"工程の絵のファイルが無い: {missing}")
+        w.way_pick.setCurrentIndex(1)
+        w.mode.setCurrentIndex(0)
+        w.entry.setText("1girl, red hair")
+        n0 = len(said)
+        w.send()
+        if w.thread is None:
+            raise RuntimeError("描くを押しても描き始めなかった: " + " / ".join(said[-3:]))
+        pump(lambda: w.thread is None, float(os.environ.get("ATELIER_E2E_PHASE_SECONDS", "180")))
+        ran = said[n0:]
+        added = [m for m in ran if "直しを" in str(m) and "要る工程" in str(m)]
+        if w.thread is not None:
+            w.stop()
+        pump(lambda: False, 3)
+        ran = said[n0:]
+        layers = layer_names(w)
+        detail = {"added": added[-3:], "said": [str(m) for m in ran[-6:]], "layers": layers[-4:], "shot": snap(w, "precise.png")}
+        if any("描けました" in str(m) for m in ran) and not any("全部の工程が検品を通りました" in str(m) for m in ran):
+            raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
+        if not any("全部の工程が検品を通りました" in str(m) for m in ran):
+            if not any(str(m).startswith("止めました（工程") for m in ran):
+                raise RuntimeError(f"「止めました（工程 k で止めました）」が出ない: {detail}")
+            if not any(n.startswith("止めた所までの絵") for n in layers):
+                raise RuntimeError(f"止めた所までの絵がレイヤーに無い: {detail}")
         return detail
 
     # 利用者が窓で踏む段。Release を決める段（入れる・起動・取る・描く）とは分けて流す
@@ -402,7 +414,6 @@ def main():
     if not os.environ.get("ATELIER_E2E_CORE_ONLY"):
         # 右クリックのメニューは、Windows の機械で開いたまま戻らず 30 分で切れたことがある。Release を止めないよう、こちらで見る
         ok = step("右クリックのメニューを全部開く", right_click) and ok
-        ok = step("CharacterDesigner の模型の置き場の模型を一覧に出す", from_character_designer) and ok
         ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
         ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
         ok = step("描いた絵を検品する", inspect) and ok

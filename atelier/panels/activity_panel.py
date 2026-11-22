@@ -200,6 +200,11 @@ class ActivityPanel(QWidget):
         p = re.match(r"工程 (\d+)/(\d+)「([^」]+)」", msg)
         if p:   # 工程に分けて描く（atelier/ai/phases.py）。どの工程かを覚え、帯は全体の進みで出す
             self.phase = (int(p.group(1)), int(p.group(2)), p.group(3))
+            c = re.search(r"（累計 (\d+) 工程）", msg)
+            self.phase_total = int(c.group(1)) if c else None
+        a = re.search(r"要る工程 (\d+)→(\d+)", msg)
+        if a and self.phase:   # 直しで工程が足されたら、見出しの要る工程の数をすぐ増やす
+            self.phase = (self.phase[0], int(a.group(2)), self.phase[2])
         m = re.match(r"(\d+)/(\d+) 枚目", msg)
         if m:
             self.set_sheet(int(m.group(1)), int(m.group(2)))
@@ -225,7 +230,9 @@ class ActivityPanel(QWidget):
                 self.phase_last = (i, n)
             if step is not None and total:
                 self.steps_done, self.steps_total = step, total
-            self.state.setText(f"工程 {i}/{n}　{name}" + (f"  {step}/{total}" if step is not None and total else ""))
+            run = getattr(self, "phase_total", None)
+            self.state.setText(f"工程 {i}/{n}　{name}" + (f"（累計 {run} 工程）" if run else "")
+                               + (f"  {step}/{total}" if step is not None and total else ""))
             pct = min(pct, 99)
         else:
             if step is not None and total:

@@ -8,8 +8,10 @@
 設計の決まり:
 - 工程は 12（PHASES）。どの工程も「描くか処理する → 見る物を数字で測る → 崩れがあれば 1 回だけ直す」で短く終わる。
   工程の終わりごとに gc を掛けてメモリを返す（1 工程に詰め込むと重くて進まず、まとめるとメモリが溢れて落ちた）
-- 崩れが直しで消えなければ、崩れが決まった工程（back）まで戻る。戻るのは全体で BACKS 回、同じ工程へは REVISIT 回まで。
-  検品が通るまで無限に回す形にしない（0.5.20 でそうしたら終わらなくなった）
+- 崩れが直しで消えなければ、崩れが決まった工程（back）まで戻るか、その工程を描き直す工程を足して続ける。
+  戻る回数・描き直す回数・工程の数・時間に上限を置かない（上限で次へ進むと、崩れの残った絵を渡していた）。
+  同じ崩れが続いたら種・直しの強さ・戻り先を替える（同じ入力で同じ結果を出し続けない）。終わるのは全部の工程が検品を通ったときと、
+  利用者が止めたときだけ。止めたときは keep/progress.json に止めた所までの絵と崩れを残し、窓がそれを出す
 - 工程ごとに描いてよい所だけを囲みにして渡す（顔・手・足の直しは handcheck の枠、服と髪は部位分けの所で顔と手は除く、目の光は目の囲み）。
   囲みの外は変えない
 - 模型で描かなくてもできる事（線の強弱、影の 2 段目、縮めて見る・反転して見る、光源の向き）は atelier/ai/phase_tools.py で処理する
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import gc
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -58,10 +61,8 @@ FIX = 0.55            # 顔・手・足の直し: 崩れた枠の中だけを描
 FIXES = (0.55, 0.7, 0.85, 0.95)   # 直しを重ねるたびに強くする。同じ強さで戻って直すと崩れた指の形をなぞり、下描きから最後まで同じ崩れが残った
 SHINE = 0.35          # 目の光の直し: 目の囲みの中だけを描き直す強さ
 COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれより多ければ、色が散っている（私の推測）
-BACKS = 3             # 戻って直すのは全体でこの回数まで
-REVISIT = 2           # 同じ工程に戻るのはこの回数まで
 # 検品で欠陥が見つかったのに工程側が戻り先を返さなかった場合の既定経路。
-# index は 0 始まり。検品不能（readable=False）は原因不明なので自動で描き直さず停止する。
+# index は 0 始まり。検品不能（readable=False）は場所が分からないので、その工程を描き直す。
 BACK_TARGETS = (None, 1, 1, 2, 3, 5, 4, 5, 7, 8, 4, 3)
 WORDS_NOTE = "模型に渡す言葉: "   # この頭の知らせは会話に出さず、進み具合の欄の詳細にだけ置く（atelier/panels/activity_panel.py）
 GO, REDO, WORDS = "go", "redo", "words"   # 工程の確かめの答え
@@ -167,6 +168,11 @@ def release() -> float:
         return 0.0
 
 
+def _shape(flaws) -> list[str]:
+    """崩れの文から数字を外した形。「0.745」と「0.759」のように値だけ違う崩れを同じ崩れとして比べる"""
+    return [re.sub(r"\d+(?:\.\d+)?", "#", str(f)) for f in flaws]
+
+
 def _mask(size, regions):
     from PIL import Image, ImageDraw
     mask = Image.new("L", size, 0)
@@ -194,9 +200,8 @@ def _extra(req: dict) -> list[str]:
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
          confirm=None, pause_key: str | None = None, pause_job: dict | None = None) -> dict:
     """12 の工程で 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録, "history": 全部の記録,
-    "left": 残った崩れ, "checked": 全工程の検品完了, "complete": 全工程完了, "blocked": 停止理由, "backs": 戻った回数}。
-    検品不能または未解決の崩れが残り、戻り先も無い（戻る回数の上限に達した）ときは止めずに次の工程へ進み、
-    残った崩れを "unresolved" と "left" に積んで、全工程のあとに未完成として返す。
+    "left": [], "checked": True, "complete": True, "backs": 戻った回数, "total": 累計の工程の数, "need": 要る工程の数}。
+    返るのは全部の工程が検品を通ったときだけ。崩れが残る間は直しの工程を足して続け、止めるのは利用者の「止める」（Stopped）だけ。
     confirm(i, 名前, 絵, 記録) は "go"・"redo"・("words", 足す言葉の訳) を返す。
     pause_key があれば、メモリの見張り・メモリ不足・時間切れで工程が打ち切られたとき、その工程に入ったときの状態を
     atelier/files/pause_keep.py に残して Paused で返す。同じ鍵で呼び直すと、その工程から続ける（前は始めから描き直した）"""
@@ -588,135 +593,152 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     history: list[dict] = []
     visits, entry = [0] * n, {}
     backs, i = 0, 0
-    blocked = None   # 直しきれなかった最初の工程（止めはしない。全工程のあとに未完成として返す）
-    unresolved = []   # 直しきれずに次へ進んだ工程
+    need, total = n, 0   # 要る工程の数（直しで足した工程を含む）と、累計で描いた工程の数
+    last_left: dict[int, list] = {}   # 工程ごとの前の回の崩れ（同じ崩れが続いたら手を替える）
     from atelier.files import pause_keep as pausekeep
     saved = pausekeep.state(pause_key) if pause_key else None
     if saved:   # 一時停止した工程から続ける。描き終えた工程の絵と記録はそのまま使う
         i, backs, visits, final, history, entry = saved["i"], saved["backs"], saved["visits"], saved["final"], saved["history"], saved["entry"]
+        need, total = saved.get("need", n), saved.get("total", len(history))
         st.clear()
         st.update(entry[i])
-        say(f"一時停止した工程 {i + 1}/{n}「{PHASES[i][0]}」から続けます")
-    while i < n:
-        stop()
-        name = PHASES[i][0]
-        entry.setdefault(i, None)
-        if not (saved and saved["i"] == i and entry.get(i)):
-            entry[i] = dict(st)   # 戻るときは、この工程に入ったときの土台から描き直す
-        saved = None
-        say(f"工程 {i + 1}/{n}「{name}」: {PHASES[i][1]}（見る物: {PHASES[i][2]}）")
-        tones.clear()   # 色合わせの記録はこの回の分だけを残す（前は戻るたびに前の回の分が重なった）
-        t0 = time.time()
+        say(f"一時停止した「{PHASES[i][0]}」から続けます（累計 {total} 工程まで描いてあります）")
+
+    def progress(state, left=()):
+        """止めたときに窓が読む今の状態。裏の糸が止められて返りが無くても、ここから止めた所までの絵と崩れを出す"""
+        rows = [final[k] for k in range(n) if final.get(k) is not None]
         try:
-            got = run[i](visits[i])
-        except Exception as e:   # noqa: BLE001  止めて捨てずに、この工程に入ったときの状態を残す
-            if not pause_key or isinstance(e, Stopped) or not pausekeep.is_pause(e):
-                raise
-            pausekeep.save(pause_key, "phases", f"工程 {i + 1}/{n}「{name}」で一時停止", pause_job,
-                           {"i": i, "backs": backs, "visits": visits, "final": final, "history": history, "entry": entry})
-            raise pausekeep.Paused(f"工程 {i + 1}/{n}「{name}」で一時停止しました（{type(e).__name__}）。"
-                                   "途中まで保存したので、「再開」でこの工程から続けます", pause_key) from e
-        if got.get("image") is not None:
-            st["image"] = got["image"]
-        found, fixed = list(got.get("found", [])), bool(got.get("fixed"))
-        after = list(got.get("after", [])) if fixed else []
-        left = after if fixed else found
-        shown = got.get("show") or got.get("image")
-        path = None
-        if shown is not None:
-            path = keep / f"{i + 1:02d}-{name}.png"   # 順の分かる名前（タイムラプスがこの順につなぐ）
-            shown.save(path)
-            if on_preview is not None:   # 工程ごとの絵をすぐキャンバスに出す（描いている所を見せる）
-                try:
-                    on_preview(shown)
-                except Exception:   # noqa: BLE001  見せるだけ。描く流れは止めない
-                    pass
-        mem = release()
-        for t in tones:
-            t.setdefault("phase", name)
-        row = {"phase": name, "decides": PHASES[i][1], "checks": PHASES[i][2], "numbers_of": PHASES[i][3],
-               "image": str(path) if path else None, "found": found, "fixed": fixed, "after": after,
-               "words": list(got.get("words", [])), "numbers": got.get("numbers", {}), "readable": bool(got.get("readable", False)),
-               "seconds": round(time.time() - t0, 2), "mem_mb": mem, "visit": visits[i],
-               "tone": pt.tone(st["image"]) if st.get("image") is not None else None,
-               "tone_guard": [t for t in tones if t.get("phase") == name]}
-        if got.get("note"):
-            row["note"] = got["note"]
-        final[i] = row
-        history.append(row)
-        say(f"工程 {i + 1}/{n}「{name}」の検品: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:4])))
-        if confirm is not None:
-            ans = confirm(i, name, shown, row)
-            kind = ans[0] if isinstance(ans, (tuple, list)) else ans
-            if kind in (REDO, WORDS):
-                target_hint = 5 if kind == WORDS and isinstance(ans, (tuple, list)) and len(ans) > 1 and str(ans[1]).strip() and i >= 5 else i
-                if backs >= BACKS or visits[target_hint] >= REVISIT:
-                    unresolved.append({"phase": name, "index": i, "reason": "再試行上限に達しました", "left": list(left), "requested": kind})
-                    say(f"工程 {i + 1}/{n}「{name}」は描き直しの上限（全体 {BACKS} 回・同じ工程 {REVISIT} 回）に達しました。"
-                        "崩れを残したまま次の工程へ進み、最後に未完成として知らせます")
-                    i += 1
+            (keep / "progress.json").write_text(json.dumps(
+                {"state": state, "phase": PHASES[min(i, n - 1)][0], "total": total, "need": need, "left": list(left),
+                 "images": [r["image"] for r in rows if r.get("image")], "names": [r["phase"] for r in rows if r.get("image")],
+                 "image": next((r["image"] for r in reversed(history) if r.get("image")), None)},
+                ensure_ascii=False, default=str), encoding="utf-8")
+        except OSError:
+            pass
+
+    def add_phases(back, why):
+        """直しの工程を足す。戻り先から今の工程までを描き直すので、その数だけ要る工程が増える"""
+        nonlocal need
+        more = i - back + 1
+        before, need = need, need + more
+        say(f"直しを {more} 工程足しました（要る工程 {before}→{need}）: {why}")
+
+    left = []
+    try:
+        while i < n:
+            stop()
+            name = PHASES[i][0]
+            entry.setdefault(i, None)
+            if not (saved and saved["i"] == i and entry.get(i)):
+                entry[i] = dict(st)   # 戻るときは、この工程に入ったときの土台から描き直す
+            saved = None
+            total += 1
+            say(f"工程 {total}/{need}「{name}」（累計 {total} 工程）: {PHASES[i][1]}（見る物: {PHASES[i][2]}）")
+            progress("drawing", last_left.get(i, []))
+            tones.clear()   # 色合わせの記録はこの回の分だけを残す（前は戻るたびに前の回の分が重なった）
+            t0 = time.time()
+            try:
+                got = run[i](visits[i])
+            except Exception as e:   # noqa: BLE001  止めて捨てずに、この工程に入ったときの状態を残す
+                # メモリ不足・落ちる・模型が読めないなど続けられないときも、捨てずに一時停止にして続きから描けるようにする
+                if not pause_key or isinstance(e, Stopped):
+                    raise
+                total -= 1
+                pausekeep.save(pause_key, "phases", f"「{name}」（累計 {total} 工程）で一時停止", pause_job,
+                               {"i": i, "backs": backs, "visits": visits, "final": final, "history": history, "entry": entry,
+                                "need": need, "total": total})
+                progress("paused")
+                raise pausekeep.Paused(f"「{name}」で一時停止しました（{type(e).__name__}: {e}）。"
+                                       "途中まで保存したので、「再開」でこの工程から続けます", pause_key) from e
+            if got.get("image") is not None:
+                st["image"] = got["image"]
+            found, fixed = list(got.get("found", [])), bool(got.get("fixed"))
+            after = list(got.get("after", [])) if fixed else []
+            left = after if fixed else found
+            shown = got.get("show") or got.get("image")
+            path = None
+            if shown is not None:
+                path = keep / f"{total:03d}-{i + 1:02d}-{name}.png"   # 累計の順の名前（タイムラプスがこの順につなぐ。描き直しも上書きしない）
+                shown.save(path)
+                if on_preview is not None:   # 工程ごとの絵をすぐキャンバスに出す（描いている所を見せる）
+                    try:
+                        on_preview(shown)
+                    except Exception:   # noqa: BLE001  見せるだけ。描く流れは止めない
+                        pass
+            mem = release()
+            for t in tones:
+                t.setdefault("phase", name)
+            row = {"phase": name, "decides": PHASES[i][1], "checks": PHASES[i][2], "numbers_of": PHASES[i][3],
+                   "image": str(path) if path else None, "found": found, "fixed": fixed, "after": after,
+                   "words": list(got.get("words", [])), "numbers": got.get("numbers", {}), "readable": bool(got.get("readable", False)),
+                   "seconds": round(time.time() - t0, 2), "mem_mb": mem, "visit": visits[i], "total": total, "need": need,
+                   "tone": pt.tone(st["image"]) if st.get("image") is not None else None,
+                   "tone_guard": [t for t in tones if t.get("phase") == name]}
+            if got.get("note"):
+                row["note"] = got["note"]
+            final[i] = row
+            history.append(row)
+            if not row["readable"] and "検品できませんでした" not in left:
+                left = list(left) + ["検品できませんでした"]   # 読めない絵は崩れとして扱う
+            say(f"「{name}」の検品: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:4])))
+            progress("drawing", left)
+            if confirm is not None:
+                ans = confirm(i, name, shown, row)
+                kind = ans[0] if isinstance(ans, (tuple, list)) else ans
+                if kind in (REDO, WORDS):
+                    backs += 1
+                    added = False
+                    if kind == WORDS and isinstance(ans, (tuple, list)) and len(ans) > 1 and str(ans[1]).strip():
+                        add = str(ans[1]).strip()
+                        entry[i]["prompt"] = f"{entry[i]['prompt']}, {add}"   # 足した言葉は描画工程にも反映する
+                        say(f"言葉を足しました: {add}")
+                        added = True
+                    target = 5 if added and i >= 5 else i   # 服・髪・持ち物を描く工程より後で足した言葉は、そこまで戻して実際に描く
+                    if target != i:
+                        entry[target] = dict(entry[target] or entry[i])
+                        entry[target]["prompt"] = entry[i]["prompt"]
+                    add_phases(target, "描き直しを頼まれました")
+                    st.clear()
+                    st.update(entry[target])
+                    visits[target] += 1
+                    last_left[i] = list(left)
+                    i = target
                     continue
-                backs += 1
-                added = False
-                if kind == WORDS and isinstance(ans, (tuple, list)) and len(ans) > 1 and str(ans[1]).strip():
-                    add = str(ans[1]).strip()
-                    entry[i]["prompt"] = f"{entry[i]['prompt']}, {add}"   # 足した言葉は描画工程にも反映する
-                    say(f"言葉を足しました: {add}")
-                    added = True
-                target = 5 if added and i >= 5 else i   # 服・髪・持ち物を描く工程より後で足した言葉は、そこまで戻して実際に描く
-                if target != i:
-                    entry[target] = dict(entry[target] or entry[i])
-                    entry[target]["prompt"] = entry[i]["prompt"]
-                st.clear()
-                st.update(entry[target])
-                visits[target] += 1
-                if target != i:
-                    say(f"追加した言葉を反映するため、工程 {target + 1}/{n}「{PHASES[target][0]}」へ戻ります")
-                else:
-                    say(f"工程 {i + 1}/{n}「{name}」を描き直します")
-                i = target
+            if not left:
+                last_left.pop(i, None)
+                i += 1
                 continue
-        back = got.get("back")
-        # 欠陥が残っているのに工程が戻り先を指定しない場合、品質工程の既定経路へ差し戻す。
-        # 検品不能は欠陥の場所が分からないため、推測で描き直さず未完成停止にする。
-        if left and back is None and row["readable"]:
-            back = BACK_TARGETS[i]
-            if back is not None:
-                say(f"「{name}」の欠陥に戻り先指定が無いため、既定経路で工程 {back + 1}「{PHASES[back][0]}」へ差し戻します")
-        needs_retry = bool(left) or not row["readable"]
-        if needs_retry and back is not None and backs < BACKS and visits[back] < REVISIT:
+            # 崩れが残った。検品を通るまで直しの工程を足して続ける（回数・工程の数・時間で打ち切らない）。
+            # 前は全体 3 回・同じ工程 2 回で次へ進み、崩れの残った絵を「未完成」で渡していた
+            back = got.get("back")
+            if back is None:
+                back = BACK_TARGETS[i] if row["readable"] and BACK_TARGETS[i] is not None else i
+            same = last_left.get(i) is not None and _shape(last_left[i]) == _shape(left)   # 数字だけ違う崩れも同じ崩れと見なす
+            last_left[i] = list(left)
+            if same:
+                # 同じ直しで同じ崩れが続いた。同じ入力を繰り返さないよう、戻り先を 1 つ前へ広げ、種と直しの強さを替える
+                if back > 0 and visits[back] >= 2 and visits[back] % 2 == 0:
+                    back -= 1
+                memo["fix_n"] += 1
+                say(f"同じ崩れが続いたので、種と直しの強さを替えて「{PHASES[back][0]}」から描き直します")
             backs += 1
             visits[back] += 1
             memo["refix"] = back == 4 and bool(got.get("hands_left", True))
-            say(f"「{name}」の未解決項目を工程 {back + 1}「{PHASES[back][0]}」へ戻して直します（{backs}/{BACKS} 回目）")
+            add_phases(back, "、".join(left[:3]))
             st.clear()
             st.update(entry[back])
+            st["seed"] = st.get("seed", seed) + 7919 * visits[back]   # 同じ種で同じ崩れを描き続けない
             i = back
-            continue
-        if needs_retry:
-            reason = "検品できませんでした" if not row["readable"] else "未解決の崩れが残っています"
-            # 工程の数は決まっていて必ず終わる（CLAUDE.md）。止めずに残りの工程も描き、最後に未完成として崩れを知らせる。
-            # 前はここで止めていたので、12 工程のうち 2 工程で終わり、窓には「描けました」と出た
-            unresolved.append({"phase": name, "index": i, "reason": reason, "left": list(left)})
-            say(f"工程 {i + 1}/{n}「{name}」: {reason}。崩れを残したまま次の工程へ進み、最後に未完成として知らせます")
-        i += 1
-    pausekeep.clear(pause_key)   # 完了または未完成で停止したら、残した途中は要らない
+    except Stopped:
+        progress("stopped", left)
+        (keep / "phases.json").write_text(json.dumps({"history": history, "left": left, "stopped": True, "total": total,
+                                                      "need": need}, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        raise
+    pausekeep.clear(pause_key)   # 全部の工程が検品を通ったら、残した途中は要らない
     rows = [final[k] for k in range(n) if final.get(k) is not None]
-    drawn = i >= n   # 全工程を描いた
-    if drawn and rows:
-        last = rows[-1]
-        left = last["after"] if last["fixed"] else last["found"]
-    if unresolved:   # 途中の工程で残った崩れも最後に知らせる（最後の工程だけを見ると消えたように見えた）
-        seen = list(left or [])
-        for u in unresolved:
-            seen += [f"工程 {u['index'] + 1}「{u['phase']}」: {x}" for x in (u["left"] or [u["reason"]])]
-        left = seen
-        blocked = unresolved[0]
-    complete = drawn and not unresolved   # 完了は、全工程を描き、どの工程も直しきれたときだけ
-    checked = drawn and bool(rows) and all(r["readable"] for r in rows)
-    (keep / "phases.json").write_text(json.dumps({"phases": rows, "history": history, "left": left, "checked": checked,
-                                                  "complete": complete, "blocked": blocked, "unresolved": unresolved,
-                                                  "backs": backs},
+    progress("done")
+    (keep / "phases.json").write_text(json.dumps({"phases": rows, "history": history, "left": [], "checked": True,
+                                                  "complete": True, "backs": backs, "total": total, "need": need},
                                                  ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-    return {"image": st["image"], "phases": rows, "history": history, "left": left, "checked": checked,
-            "complete": complete, "blocked": blocked, "unresolved": unresolved, "backs": backs}
+    return {"image": st["image"], "phases": rows, "history": history, "left": [], "checked": True,
+            "complete": True, "blocked": None, "unresolved": [], "backs": backs, "total": total, "need": need}

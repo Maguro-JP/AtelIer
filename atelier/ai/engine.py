@@ -1866,6 +1866,7 @@ class Studio:
               on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None) -> tuple[str, Path]:
         say = on_status or (lambda msg: None)
         self.last_phases = None   # 工程に分けて描いた回だけ、工程ごとの絵と検品を持つ（アプリが隠したレイヤーに置く）
+        self.last_phase_keep = None   # 工程に分けて描いている回の工程の絵の置き場（止めたときに窓が読む）
         if refused(text):
             raise ValueError("子どもを性的に描く頼みは描きません")
         if hasattr(self.painter, "on_note"):
@@ -2230,6 +2231,7 @@ class Studio:
         from atelier.files import pause_keep as pausekeep
         model = getattr(self.painter, "model", "")
         job = {"text": text, "seeds": [seed], "style": style, "size": list(size) if size else None, "meta": meta or {}, "model": model}
+        self.last_phase_keep = keep   # 止めたとき、窓が keep/progress.json から止めた所までの絵と崩れを出す
         try:
             got = phases.draw(self.painter, prompt, seed, size, keep, say=say, on_preview=on_preview,
                               on_step=lambda i, n: say(f"描いています（{i}/{n}）"), confirm=self._phase_confirm(as_tags),
@@ -2239,18 +2241,10 @@ class Studio:
                 self.painter.avoid = avoid0
         self.last_phases = got["phases"]
         left, checked = got["left"], got["checked"]
-        # 窓が「描けました」か「未完成」かを決めるのに使う（前は窓が知らずに「描けました」と出した）
+        # phases.draw が返るのは全部の工程が検品を通ったときだけ（崩れが残る間は工程を足して続け、止めたときは Stopped で抜ける）
         self.last_passed = bool(checked and not left and got.get("complete"))
         self.last_left = list(left)
-        if got.get("blocked"):
-            blocked = got["blocked"]
-            say(f"工程 {blocked['index'] + 1}「{blocked['phase']}」で停止: {blocked['reason']}（未完成）")
-            if left:
-                say("未解決: " + "、".join(left[:5]))
-        elif left:
-            say(f"{len(got['phases'])} 工程を全部通しても崩れが残りました（未完成）: " + "、".join(left[:5]))
-        elif not checked:
-            say("検品できなかった工程があるので、通ったかは分かりません（未完成）")
+        say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,
                                                    model=getattr(self.painter, "model", ""), way="phases", stages=str(keep),
                                                    phases=got["phases"], passed=checked and not left))

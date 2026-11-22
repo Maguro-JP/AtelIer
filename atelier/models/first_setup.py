@@ -24,7 +24,7 @@ AUTO = "auto"   # おまかせ。頼みごとに、手元の模型から合う�
 
 
 def words_path(m: WordsModel) -> Path:
-    """手元にある置き場（AdaptiveAIStudio と共有の置き場を先に見る）。無ければ、これから取る置き場"""
+    """手元にある置き場（共有の置き場を先に見る）。無ければ、これから取る置き場"""
     return find_gguf(m.file) or llm_target() / m.file
 
 
