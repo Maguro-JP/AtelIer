@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - "atelier/**"
+      - "tools/**"
       - "packaging/**"
       - "VERSION"
       - ".github/workflows/atelier-e2e.yml"
@@ -107,3 +108,25 @@ jobs:
           name: e2e
           path: ${{ runner.temp }}/e2e
           retention-days: 7
+  # Release は、Windows で入れる・起動・取得・描く・アンインストールが全部通った Setup.exe だけを出す。
+  # 前は組んだだけで Release に置いていて、Windows で動かない版（v0.1.0）を出した
+  release:
+    needs: [regression, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: setup
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(cat VERSION)"
+          gh release view "$tag" >/dev/null 2>&1 && { echo "$tag は公開済み"; exit 0; }
+          gh release create "$tag" dist/*.exe --target "$GITHUB_SHA" --title "AtelIer $tag" \
+            --notes "Windows で入れる・起動・取得・描く・アンインストールを通した版です。アプリの「ヘルプ」の「更新を確かめる」から入れられます。"
