@@ -49,19 +49,6 @@ def config_file() -> Path:
 
 
 STRAY = "cd"   # 前の版がずれて書いた所（data_home() の下）
-CD_APP = "CharacterDesigner"   # 模型を共有するもう 1 つの自作アプリ（AtelIer の流用元）
-
-
-def character_designer_home() -> Path | None:
-    """CharacterDesigner のデータの置き場（CD_HOME > Windows の C:\\ProgramData\\CharacterDesigner）。無ければ None。
-    AtelIer の置き場の名前を変えたとき、CharacterDesigner で選んだ模型の置き場と取った言葉の模型が見えなくなったので、ここを読むだけにして探す"""
-    if os.environ.get("CD_HOME"):
-        d = Path(os.environ["CD_HOME"])
-    elif WINDOWS:
-        d = Path(os.environ.get("ProgramData") or "C:\\ProgramData") / CD_APP
-    else:
-        return None
-    return d if d.is_dir() else None
 
 
 def _model_dir_in(path: Path) -> str:
@@ -74,18 +61,8 @@ def _model_dir_in(path: Path) -> str:
 
 
 def chosen_model_dir() -> str:
-    """設定で選んだ模型の置き場。AtelIer で選んでいなければ、CharacterDesigner で選んだ置き場を使う（同じ模型を共有するため）"""
-    mine = _model_dir_in(config_file())
-    if mine:
-        return mine
-    cd = character_designer_home()
-    if cd is None:
-        return ""
-    for f in (cd / "places.json", cd / STRAY / "places.json"):   # cd の下は CharacterDesigner の前の版がずれて書いた所
-        chosen = _model_dir_in(f)
-        if chosen and Path(chosen).is_dir():
-            return chosen
-    return ""
+    """設定で選んだ模型の置き場。AtelIer の設定だけを見る（ほかのアプリの置き場や設定は使わない）"""
+    return _model_dir_in(config_file())
 
 
 def set_model_dir(path: str):
@@ -124,9 +101,6 @@ OWN_LLM = HOME / "llm"   # 言葉の模型を動かす部品（llama-cpp-python�
 def legacy_gguf_dirs() -> list[Path]:
     """共有の置き場を決める前に、模型が置かれていた所。読むだけで、ここへは取らない"""
     dirs = [OWN_LLM]
-    cd = character_designer_home()
-    if cd is not None:
-        dirs.append(cd / "llm")   # CharacterDesigner が共有の置き場を決める前に取った言葉の模型
     if WINDOWS:
         dirs.append(Path(os.environ.get("ProgramData") or "C:\\ProgramData") / "AdaptiveAIStudio" / "models")
     if os.environ.get("AAS_HOME"):

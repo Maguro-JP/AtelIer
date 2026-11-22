@@ -65,11 +65,6 @@ Section "Install"
   CreateDirectory "$1LLM\manual"
   nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$1LLM" /grant *S-1-5-32-545:(OI)(CI)M /Q'
 
-  ; CharacterDesigner の部品（torch など）・設定・記録を写す（CharacterDesigner はそのまま使える。2 回目からは何もしない）
-  DetailPrint "CharacterDesigner の部品と設定を引き継いでいます"
-  nsExec::ExecToLog '"$INSTDIR\python\python.exe" -E -s -m atelier.app.migrate --import-only'
-  Pop $0
-
   ; 前の版からの移行。前の版は利用者ごとに入れていたので、HKCU の登録から場所を読む
   SetShellVarContext current
   ReadRegStr $OLD HKCU "${UNINST}" "InstallLocation"

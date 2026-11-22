@@ -1071,14 +1071,6 @@ def main():
     from atelier.files.paths import adopt_stray
     crashlog.install()
     try:
-        from atelier.app.migrate import import_once
-        if import_once(DATA, QSettings):   # CharacterDesigner の部品・設定・記録を、初めての起動で引き継ぐ
-            for lib in (DATA / "simple" / "lib", DATA / "gen" / "lib", DATA / "llm" / "lib"):
-                if lib.exists() and str(lib) not in sys.path:
-                    sys.path.insert(0, str(lib))
-    except OSError:
-        pass
-    try:
         adopt_stray()   # 前の版がずれた置き場（cd）に書いた ★・非表示などを、本来の置き場へ合わせる
     except OSError:
         pass

@@ -12,7 +12,7 @@
 5. 検品の部品（部位分け・人の枠・タグ・体の点・手・足）が初回の取得で入ったか（atelier/qc/parts.py）
 6. 右クリックのメニューと、工程に分けて描く（Studio を直に呼ぶ）
 7. 窓から、利用者が押すのと同じメソッドを通す。
-   CharacterDesigner で選んだ模型の置き場の模型が一覧に出るか、描いた絵がキャンバスの一番上のレイヤーになるか、
+   描いた絵がキャンバスの一番上のレイヤーになるか、
    赤ペンの囲みの中だけが直るか（囲みの外の画素の変わった数を数える）、検品の結果が返るか、
    作業ファイルに保存して窓を開き直し、レイヤーの数と絵が同じか、精度優先で描いて工程ごとの絵が出るか
 
@@ -115,12 +115,6 @@ def main():
         return {}
 
     ok = step("ウィンドウを開く", window)
-    # 取る前に見る。取ったあとに見ると、取った模型を CharacterDesigner の置き場の模型と取り違える
-    try:
-        from atelier.models.first_setup import has_image
-        report["tiny_before_fetch"] = has_image(tiny)
-    except Exception as e:   # noqa: BLE001  見られなかったことも残し、続けて流す
-        report["tiny_before_fetch"] = f"見られなかった: {e}"
     if os.environ.get("ATELIER_E2E_NO_FETCH"):
         # 手元で段の組み立てだけを見るとき。取ると torch と模型（数 GB）が手元に入る
         report["steps"].append({"name": "描く部品と模型を取る", "ok": False, "skipped": True})
@@ -272,26 +266,6 @@ def main():
             raise RuntimeError("30 分たっても描き終わらない")
         pump(lambda: not getattr(w, "bg_pending", 0), 60)
 
-    def from_character_designer():
-        # 入れる前に ProgramData\CharacterDesigner\places.json で模型の置き場を別のフォルダーに向け、そこへ小さな模型を置いた
-        from atelier.files import paths
-        cd = paths.character_designer_home()
-        if cd is None:
-            raise RuntimeError("CharacterDesigner の置き場が無い（atelier-e2e の「CharacterDesigner から移る人の置き場を作る」で作る）")
-        chosen = paths._model_dir_in(cd / "places.json")
-        if not chosen or Path(paths.LLM_HOME) != Path(chosen):
-            raise RuntimeError(f"模型の置き場が CharacterDesigner で選んだ所でない: 選んだ所 {chosen!r}、使う所 {paths.LLM_HOME}")
-        if report.get("tiny_before_fetch") is not True:
-            raise RuntimeError(f"取る前に、CharacterDesigner の置き場（{paths.HUB}）の模型が見えていなかった")
-        w = win.get("w") or open_window()
-        win["w"] = w
-        listed = [m.repo for m in w.have_image_models()]
-        if TINY not in listed:
-            raise RuntimeError(f"CharacterDesigner の置き場の模型が一覧に出ない: {listed}")
-        w.check_ai()
-        snap(w, "cd-models.png")
-        return {"model_dir": chosen, "hub": str(paths.HUB), "listed": listed, "ai": w.ai_label.text(), "shot": "cd-models.png"}
-
     def draw_in_window():
         w = win.get("w") or open_window()
         win["w"] = w
@@ -407,7 +381,6 @@ def main():
     if not os.environ.get("ATELIER_E2E_CORE_ONLY"):
         # 右クリックのメニューは、Windows の機械で開いたまま戻らず 30 分で切れたことがある。Release を止めないよう、こちらで見る
         ok = step("右クリックのメニューを全部開く", right_click) and ok
-        ok = step("CharacterDesigner の模型の置き場の模型を一覧に出す", from_character_designer) and ok
         ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
         ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
         ok = step("描いた絵を検品する", inspect) and ok
