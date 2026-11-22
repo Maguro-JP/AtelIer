@@ -1646,7 +1646,11 @@ class Painter:
             if self.stop:
                 raise Stopped("止めました")
             return out
-        scale = self.redraw_scale(image.size)
+        # 広げる倍率は、学んだ大きさに合わせた大きさを土台にする。キャンバスの大きさから 1.5 倍にすると、小さく学んだ模型では
+        # 1 歩が約 540 秒かかった。普通の SDXL では学んだ大きさ ≒ キャンバスなので、今までどおり 1.5 倍になる
+        nw, nh = native_size(image.size, info.family, trained_area_of(self.model, pipe))
+        fit = ((nw * nh) / (image.size[0] * image.size[1])) ** 0.5
+        scale = self.redraw_scale(image.size) * min(1.0, fit)
         self.lighten(self._inpaint, getattr(self, "redraw_plan", None))
         return hires_inpaint(image, mask, run, scale)
 
@@ -1682,8 +1686,15 @@ class Painter:
                 on_step(min(i + 1, total), total)
             return kw
         args["callback_on_step_end"] = step
-        base = image.convert("RGB")
-        out = self._img2img(image=base, width=base.width, height=base.height, **args).images[0]
+        from PIL import Image
+        src = image.convert("RGB")
+        # 模型の学んだ大きさで描き、元の大きさに戻す。キャンバスの大きさのまま渡すと、小さく学んだ模型（256×256）では
+        # 1 歩が工程 2 の数十倍（約 150 秒）かかった。普通の SDXL では元の大きさのまま（native_size が変えない）
+        tw, th = native_size(src.size, info.family, trained_area_of(self.model, pipe))
+        base = src.resize((tw, th), Image.LANCZOS) if (tw, th) != src.size else src
+        out = self._img2img(image=base, width=tw, height=th, **args).images[0]
+        if out.size != src.size:
+            out = out.resize(src.size, Image.LANCZOS)
         if self.stop:
             raise Stopped("止めました")
         if on_preview is not None:
