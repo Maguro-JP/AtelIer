@@ -201,4 +201,3 @@ class FullscreenMixin:
             self.enter_fullscreen()
         else:
             self.leave_fullscreen()
-

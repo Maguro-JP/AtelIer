@@ -1674,7 +1674,7 @@ def main(argv=None) -> int:
     r1_color = r1                                  # 色の検品の基準（描き直しの後の工程は 1 段目の色を保つ）
     # tile と lineart（顔の描き直しで使い回す）。ModuleList のまま渡すと、pipe が複数の ControlNet の組と見なさず check_inputs で落ちた
     nets = list(multi.controlnet.nets[:2]) if hasattr(multi.controlnet, "nets") else list(multi.controlnet)
-    del multi
+    multi = None   # 閉じた関数 s1 から引くので del ではなく None で手放す（del では名前が消え、呼び直すと落ちる）
     if a.iclight > 0:
         r1 = g.step("iclight", r1, lambda k: iclight(pipe, r1, parts, a, log)[1])
     r2 = r1
