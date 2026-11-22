@@ -641,6 +641,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     if saved:   # 一時停止した工程から続ける。描き終えた工程の絵と記録はそのまま使う
         i, backs, visits, final, history, entry = saved["i"], saved["backs"], saved["visits"], saved["final"], saved["history"], saved["entry"]
         total = saved.get("total", len(history))
+        memo["check"] = bool(saved.get("check"))
         st.clear()
         st.update(entry[i])
         say(f"一時停止した工程 {i + 1}/{n}「{PHASES[i][0]}」から続けます（累計 {total} 工程まで描いてあります）")
@@ -822,19 +823,31 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     m = _grow(mask, r)
                 say(f"崩れた所の囲みの中だけを直しています（{k + 1}/{MENDS} 回目、強さ {strength}）: " + "、".join(left[:3]))
                 tell(st["prompt"])
-                tried = _inside(painter.redraw(st["prompt"], st["seed"] + 509 * (k + 1) + 31 * i, cur, m, strength=strength), cur, m)
+                try:
+                    tried = _inside(painter.redraw(st["prompt"], st["seed"] + 509 * (k + 1) + 31 * i, cur, m, strength=strength), cur, m)
+                except Exception as e:   # noqa: BLE001  直しの途中の打ち切りも、工程の中と同じく一時停止にして残す
+                    # 前はここが一時停止の外で、窓の「描けるまで段を下げて描く」が目的の工程からゼロで描き直した
+                    if not pause_key or isinstance(e, Stopped):
+                        raise
+                    entry[i] = dict(st)
+                    pausekeep.save(pause_key, "phases", f"「{name}」の直し（累計 {total} 工程）で一時停止", pause_job,
+                                   {"i": i, "backs": backs, "visits": visits, "final": final, "history": history, "entry": entry,
+                                    "need": n + fixes, "total": total, "check": True})   # 再開したら描かずに測り直して直す
+                    progress("paused")
+                    raise pausekeep.Paused(f"「{name}」の直しで一時停止しました（{type(e).__name__}: {e}）。"
+                                           "途中まで保存したので、「再開」でこの工程から続けます", pause_key) from e
                 dd = diff(cur, tried, m)
                 mrow = {"phase": name, "mend": k + 1, "strength": strength, "found": list(left), "diff": dd["mean"],
                         "outside": dd["outside"], "inside": dd["inside"], "words": [st["prompt"]], "readable": True,
                         "image": None, "changed": False, "visit": visits[i]}
                 if (dd["mean"] or 0) < DIFF_MIN:
                     say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに囲みを広げ、強さを上げます")
-                    history.append(mrow)
+                    row.setdefault("mends", []).append(mrow)   # 直しの回は工程の記録の中に置く（工程の名前を記録に続けて並べない）
                     continue
                 mrow["changed"] = True
                 fixes += 1
                 save_row(tried, f"{name}-直し", mrow)
-                history.append(mrow)
+                row.setdefault("mends", []).append(mrow)   # 直しの回は工程の記録の中に置く（工程の名前を記録に続けて並べない）
                 st["image"] = tried
                 mended = True
                 break
