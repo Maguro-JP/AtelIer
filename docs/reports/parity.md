@@ -17,50 +17,50 @@ CharacterDesigner の `chatdraw/`（195ef66 の 1 つ前、4a9e809）から移�
 
 | 機能 | 流用元の担い手 | AtelIer の担い手 | 試験 | 結果 |
 |---|---|---|---|---|
-| 頼みの文から絵を描く（描くボタン、チャット） | engine.py、app.py | ai/engine.py、app/window/ai_drawing.py | test_chatdraw、test_aitabs、test_backui | 確かめていない（torch。119/141、5/6、11/14） |
-| 描く枚数の欄（枚数と種を分ける） | app.py（count_spin） | app/window/ai_drawing.py | test_aitabs、test_backui | 確かめていない（torch） |
-| 精度優先（工程に分けて描く、工程 i/N の表示） | phases.py、phasetools.py | ai/phases.py、ai/phase_tools.py | test_phases、test_gen_modes、test_pause | 確かめていない（試験は通る。test_pause は確かめられない。torch。7/9） |
-| AI モードと精度優先の切り替え | modes.py | app/modes.py | test_modes、test_gen_modes | 確かめていない（試験は通る） |
-| 二段で描く（構図から清書） | twostage.py | ai/two_stage.py | test_chatdraw（TwoStageTest） | 確かめていない（torch） |
-| 頼んだ言葉を勝手に足さない・変えない | engine.py | ai/engine.py | test_weighted_prompt、test_unasked_wear、test_not_solo | 確かめていない（試験は通る） |
-| 日本語の頼みをそのまま絵の模型に渡さない | jaterms.py | words/japanese_terms.py | test_words、test_chatplan | 確かめていない（torch。13/14、19/20） |
-| 子どもを性的に描く頼みだけを止める | childsafe.py | words/child_safety.py | test_words | 確かめていない（torch。判定の試験は通る） |
-| 構図の知識（遠近など） | composition.py | ai/composition.py | test_composition | 確かめていない（試験は通る） |
-| おまかせ（模型の選び直し、自動の仕上げを掛けない） | omakase.py、choose.py | ai/omakase.py、ai/choose.py | test_omakase、test_original_finish | 確かめていない（試験が前の決まりのままで落ちていたので、今の決まり AUTO_FINISH = () に合わせた。コードは変えていない） |
-| 体型・手足の言葉 | body.py | words/body_words.py | test_body、test_body_hands、test_proportions | 確かめていない（試験は通る） |
-| 背景の変化 | variety.py | ai/variety.py | test_background、test_background_style、test_variety | 確かめていない（試験は通る） |
-| 写真のような絵 | engine.py | ai/engine.py | test_photoreal | 確かめていない（試験は通る） |
-| 担当編集者（サボりの記録だけ、描き直しに繋げない） | director.py | ai/director.py | test_director | 確かめていない（torch。4/6） |
-| 緊急停止（読み込み中・工程の中でも止まる） | engine.py | ai/engine.py | test_stop | 確かめていない（torch。9/12） |
-| メモリの使い方（落とさない、模型を降ろす、OOM でやり直す） | membudget.py | ai/memory_budget.py | test_membudget、test_memory、test_cpudtype | 確かめていない（試験は通る。test_memory は確かめられない。torch。10/14） |
-| 一時停止と再開 | pausekeep.py | files/pause_keep.py | test_pause | 確かめていない（torch。7/9） |
-| LoRA（Civitai・Hugging Face から取る） | lora.py、loradialog.py | ai/lora.py、panels/lora_dialog.py | test_lora、test_civitai | 確かめていない（試験は通る） |
+| 頼みの文から絵を描く（描くボタン、チャット） | engine.py、app.py | ai/engine.py、app/window/ai_drawing.py | test_chatdraw、test_aitabs、test_backui | 動く（AI モード・小さな模型で、描くワードに「赤いマフラーの女の子、海」を書いて「描く」を押した。118 秒で「描けました」と知らせ、キャンバスが「AI の絵 1」に置き換わった。前の絵に重ねていない） |
+| 描く枚数の欄（枚数と種を分ける） | app.py（count_spin） | app/window/ai_drawing.py | test_aitabs、test_backui | 動く（枚数を 2 にして「描く」を押し、「2 枚描きました。履歴から選べます」と出て、種の違う 2 枚が出力の置き場に書かれた） |
+| 精度優先（工程に分けて描く、工程 i/N の表示） | phases.py、phasetools.py | ai/phases.py、ai/phase_tools.py | test_phases、test_gen_modes、test_pause | 動く（精度優先で「描く」を押し、進みに「工程 1/12「目的」」「工程 2/12「サムネイル」」…と出た。240 秒で「止める」を押し、「止めました（工程 3 で止めました）」と残った崩れ 3 件が知らされ、止めた所までの絵が一番上のレイヤーに置かれた。検品を通るまでは見ていない） |
+| AI モードと精度優先の切り替え | modes.py | app/modes.py | test_modes、test_gen_modes | 動く（描き方の欄を AI モードと精度優先に替えて「描く」を押し、AI モードは工程を出さずに描き、精度優先は工程 i/N を出した） |
+| 二段で描く（構図から清書） | twostage.py | ai/two_stage.py | test_chatdraw（TwoStageTest） | 確かめていない（小さな模型の操作では二段の道に入らなかった） |
+| 頼んだ言葉を勝手に足さない・変えない | engine.py | ai/engine.py | test_weighted_prompt、test_unasked_wear、test_not_solo | 確かめられない（模型に渡った言葉は画面に出ないので、操作では見られない） |
+| 日本語の頼みをそのまま絵の模型に渡さない | jaterms.py | words/japanese_terms.py | test_words、test_chatplan | 確かめられない（同じ理由。日本語の頼みで描き終わることだけを見た） |
+| 子どもを性的に描く頼みだけを止める | childsafe.py | words/child_safety.py | test_words | 確かめていない（操作では頼んでいない） |
+| 構図の知識（遠近など） | composition.py | ai/composition.py | test_composition | 確かめられない（模型に渡る言葉の中の物で、画面に出ない） |
+| おまかせ（模型の選び直し、自動の仕上げを掛けない） | omakase.py、choose.py | ai/omakase.py、ai/choose.py | test_omakase、test_original_finish | 確かめていない（操作では選んでいない） |
+| 体型・手足の言葉 | body.py | words/body_words.py | test_body、test_body_hands、test_proportions | 確かめられない（模型に渡る言葉の中の物） |
+| 背景の変化 | variety.py | ai/variety.py | test_background、test_background_style、test_variety | 確かめられない（模型に渡る言葉の中の物） |
+| 写真のような絵 | engine.py | ai/engine.py | test_photoreal | 確かめられない（写真向けの模型が要る） |
+| 担当編集者（サボりの記録だけ、描き直しに繋げない） | director.py | ai/director.py | test_director | 確かめていない |
+| 緊急停止（読み込み中・工程の中でも止まる） | engine.py | ai/engine.py | test_stop | 動く（AI モードで描き始めて 4 秒後に「止める」を押し、0.5 秒で止まり「止めました（0.01 秒）」と出た。レイヤーは増えなかった。精度優先の工程の途中でも 0.36 秒で止まった） |
+| メモリの使い方（落とさない、模型を降ろす、OOM でやり直す） | membudget.py | ai/memory_budget.py | test_membudget、test_memory、test_cpudtype | 確かめていない（落ちずに描けたことだけ。同じ機械のほかの処理と合わせてメモリが尽き、台本が 2 回落とされた。アプリの OOM のやり直しの道かは見ていない） |
+| 一時停止と再開 | pausekeep.py | files/pause_keep.py | test_pause | 確かめていない |
+| LoRA（Civitai・Hugging Face から取る） | lora.py、loradialog.py | ai/lora.py、panels/lora_dialog.py | test_lora、test_civitai | 確かめられない（Civitai・Hugging Face から取る LoRA が要る） |
 | 参考画像を探す・参考先を保存 | refs.py | ai/references.py | test_chatplan（RefsTest） | 直した（「少女」が 1girl になり、beach_girl.png が見つからなかった。数を外した語でも探す。操作: 参考画像を探す関数に「海 少女」と置き場を渡し、beach_girl.png が返るのを見た。窓のボタンからは確かめていない） |
-| 自分の画風の模型のように使う | ownstyle.py | ai/own_style.py | test_ownstyle | 確かめていない（試験は通る） |
-| 3D にする（入口） | to3d.py | ai/to_3d.py | test_chara3d | 確かめていない（試験は通る） |
-| ロゴ・エンブレム・スタンプ | logo.py | ai/logo_maker.py | test_logo | 確かめていない（試験は通る） |
-| 一括で描く | batch.py | ai/batch.py | test_confirm（BatchConfirmTest） | 確かめていない（torch。3/6） |
+| 自分の画風の模型のように使う | ownstyle.py | ai/own_style.py | test_ownstyle | 確かめていない |
+| 3D にする（入口） | to3d.py | ai/to_3d.py | test_chara3d | 確かめていない |
+| ロゴ・エンブレム・スタンプ | logo.py | ai/logo_maker.py | test_logo | 確かめていない |
+| 一括で描く | batch.py | ai/batch.py | test_confirm（BatchConfirmTest） | 確かめていない |
 
 ## 赤ペン・直し・加工
 
 | 機能 | 流用元の担い手 | AtelIer の担い手 | 試験 | 結果 |
 |---|---|---|---|---|
-| 赤ペンの印（描く、文字の指示） | redpen.py | paint/redpen.py | test_redpeninput、test_keep_marks | 確かめていない（試験は通る） |
-| 赤ペンを「赤ペン」レイヤーに出す（隠す・全部消す・1 つずつ消す） | layerpanel.py、redpen.py | panels/layer_panel.py、paint/redpen.py | test_redpen3、test_layertools | 確かめていない（test_redpen3 は torch。9/16） |
-| 赤ペンの指示の確定ボタン、印の右クリックから囲みの中だけ加工 | app.py（_mark_menu、note_ok） | app/window/redpen.py | test_redpen3 | 確かめていない（torch） |
-| 赤ペンの直しは直した所だけのレイヤーにして一番上に置く | app.py、finishers.py | app/window/redpen.py、ai/finishers.py | test_redpenfix、test_toplayer | 確かめていない（試験は通る。test_redpenfix は確かめられない。torch。4/7） |
-| 赤ペンのレイヤーを消したら何も残さない | workkeep.py、redpenclean.py | files/work_keep.py、files/redpen_clean.py | test_layerkeep、test_redpen3 | 確かめていない（torch。1/4） |
-| 囲みの外を変えない（境目の確かめ） | seamfix.py | ai/seam_fix.py | test_qc_seams、test_canvasfix | 確かめていない（試験は通る） |
-| AI の自動選択（選択と赤ペン） | autosel.py | ai/auto_select.py | test_autosel | 確かめていない（torch。10/12） |
-| 修正依頼の一覧（右クリックから） | fixrequests.py、fixmenu.py | ai/fix_requests.py、ai/fix_menu.py | test_fixrequests、test_fixwords、test_fix_tool | 確かめていない（試験は通る。test_fixrequests は確かめられない。torch。6/7） |
-| 直しの指示を模型に届ける（訳せない語は知らせる） | engine.py | ai/engine.py | test_fixwords、test_sent | 確かめていない（試験は通る） |
-| 加工（仕上げ、ディテール追加、奇麗にする） | finishers.py | ai/finishers.py | test_finish2、test_finish_big、test_finish_quality、test_nobreak | 確かめていない（試験は通る。test_nobreak は確かめられない。torch。10/11） |
-| 画風を替える | restyle.py | ai/restyle.py | test_retouch、test_toneshade | 確かめていない（試験は通る） |
-| 拡大 | upscale.py | ai/upscale.py | test_light_upscale、test_works | 確かめていない（試験は通る。test_works は確かめられない。torch。8/14） |
-| 後処理（線、陰影） | postfx.py | ai/post_effects.py | test_limb_shadow、test_lineart | 確かめていない（試験は通る） |
-| 顔の部位の直し | facefeat.py | ai/face_features.py | test_face_redraw_pipe、test_face_mask、test_faceform_fit | 確かめていない（試験は通る） |
-| 言葉で加工・登録した指示を 1 押しで掛ける | shortcuts.py | ai/shortcuts.py | test_shortcuts、test_voicechat | 確かめていない（torch。28/31、9/13） |
-| 編集の道具（切り抜き、外へ描き足す） | edittools.py | ai/edit_tools.py | test_editing、test_works | 確かめていない（試験は通る。test_works は確かめられない） |
+| 赤ペンの印（描く、文字の指示） | redpen.py | paint/redpen.py | test_redpeninput、test_keep_marks | 動く（赤ペンの四角で囲むと印 1 が付き、指示の欄が出た。「笑顔にする」を書いて確定を押すと欄が閉じ、印の横と欄に指示が残った） |
+| 赤ペンを「赤ペン」レイヤーに出す（隠す・全部消す・1 つずつ消す） | layerpanel.py、redpen.py | panels/layer_panel.py、paint/redpen.py | test_redpen3、test_layertools | 直した（レイヤーの欄に「赤ペン 1: 笑顔にする」「赤ペン 2: 消す印」と別の行で出て、行の目を外すと隠れ、戻すと出た。1 つ消してから元に戻すと、消した印は戻らず残っていた印まで消えた（流用元も同じ）。印の操作の並びを覚えて、元に戻すで消した印を元の番号へ戻すように直した。直したあと、印 1 を消す→元に戻す→やり直す→元に戻すで、印は 1→2→1→2 と動き、指示もそろった） |
+| 赤ペンの指示の確定ボタン、印の右クリックから囲みの中だけ加工 | app.py（_mark_menu、note_ok） | app/window/redpen.py | test_redpen3 | 動く（確定のボタンで欄が閉じた。番号の丸の上の右クリックに「赤ペン 1 の中だけ加工」が出て、線と塗りを整える・塗りのむらを均す・ジャギーも取る・整えるを押すと、どれも囲みの外で変わった画素は 0） |
+| 赤ペンの直しは直した所だけのレイヤーにして一番上に置く | app.py、finishers.py | app/window/redpen.py、ai/finishers.py | test_redpenfix、test_toplayer | 直した（「描く」で直すと「赤ペンの直し 1」が一番上に選んだ状態で置かれた。修正依頼の指の形を整えるで、囲みの外が 2,114 画素変わった。直しの結果の透明度が囲みの外へはみ出していたので、囲みの中だけに絞るようにした。直したあと、「描く」で直して囲みの外 0 画素、囲みの中の差の平均 53.3） |
+| 赤ペンのレイヤーを消したら何も残さない | workkeep.py、redpenclean.py | files/work_keep.py、files/redpen_clean.py | test_layerkeep、test_redpen3 | 確かめていない（直しのレイヤーを選んで「－」で消すと、レイヤーの一覧から消えた。作業の保存・履歴・ライブラリーに残らないかを見る段で、台本がメモリ不足で落とされた） |
+| 囲みの外を変えない（境目の確かめ） | seamfix.py | ai/seam_fix.py | test_qc_seams、test_canvasfix | 直した（上の行と同じ。直したあと、赤ペンの直し 1 回と印の中だけの加工 4 つで、囲みの外で変わった画素はどれも 0） |
+| AI の自動選択（選択と赤ペン） | autosel.py | ai/auto_select.py | test_autosel | 動く（絵の真ん中で自動選択を押し、印が 0→1 になった。自動選択の模型は取れず、部位分けで「skirt」18,665 画素を選んだと知らせた。SAM の道は確かめられない） |
+| 修正依頼の一覧（右クリックから） | fixrequests.py、fixmenu.py | ai/fix_requests.py、ai/fix_menu.py | test_fixrequests、test_fixwords、test_fix_tool | 動く（印が無いときに選ぶと「直す所を囲んでください」と知らせた。印を付けて「指を 5 本に」を選ぶと、印の指示に書かれ、直しのレイヤーが一番上に置かれた。囲みの外 0 画素。「指の形を整える」は 2,114 画素変わったので、上の行で直した。直したあとの修正依頼では押し直していない） |
+| 直しの指示を模型に届ける（訳せない語は知らせる） | engine.py | ai/engine.py | test_fixwords、test_sent | 確かめられない（模型に渡った言葉は画面に出ない。描くワードの欄に前の言葉が残ったまま直すと、会話には「描きます: 赤いマフラーの女の子」と出るが、囲みごとの指示は印の指示が先に使われることをコード（fix_regions、merge）で見た） |
+| 加工（仕上げ、ディテール追加、奇麗にする） | finishers.py | ai/finishers.py | test_finish2、test_finish_big、test_finish_quality、test_nobreak | 動く（右クリックからディテール追加でエフェクトのレイヤー、まとめて綺麗にするで「綺麗にした絵」のレイヤーが一番上に置かれた。「線と塗りを整えるは変わりすぎたので強さを 0.25 に下げて混ぜました」と知らせた） |
+| 画風を替える | restyle.py | ai/restyle.py | test_retouch、test_toneshade | 確かめられない（アニメの塗り・線画を押すと「模型のファイルが足りません。「模型の管理」で取り直してください」と知らせて止まった。画風の模型がこの機械に無い） |
+| 拡大 | upscale.py | ai/upscale.py | test_light_upscale、test_works | 動く（1 枚にして 2 倍に拡大で 832×1216 が 1664×2432 になり、置き換えで置かれた。レイヤーのまま 2 倍に拡大は、作業ファイルの保存の窓が出たところで台本がメモリ不足で落とされ、見ていない） |
+| 後処理（線、陰影） | postfx.py | ai/post_effects.py | test_limb_shadow、test_lineart | 確かめていない |
+| 顔の部位の直し | facefeat.py | ai/face_features.py | test_face_redraw_pipe、test_face_mask、test_faceform_fit | 確かめられない（部位分けの模型が無い。「顔を守る印は、部位分けの模型が無いか顔が見つからないので使っていません」と知らせた） |
+| 言葉で加工・登録した指示を 1 押しで掛ける | shortcuts.py | ai/shortcuts.py | test_shortcuts、test_voicechat | 動く（指示を「明るく」で登録すると「指示を登録しました」と出て、右クリックに「明るく」が出た。押すと囲みの中を直し、「赤ペンの直し 2」が一番上に置かれた） |
+| 編集の道具（切り抜き、外へ描き足す） | edittools.py | ai/edit_tools.py | test_editing、test_works | 確かめていない（四方に広げる・背景を消す・透過の段の前に台本がメモリ不足で落とされた） |
 
 ## 検品
 
