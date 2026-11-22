@@ -108,7 +108,7 @@ def note_line(r: dict, run: str = "") -> str:
 
 def write(reports: list[dict], catalog: Path | None = None, run: str = "") -> list[str]:
     """目録に点と経緯の 1 行を書き戻す。点が PASS に届かない物は一覧に出なくなる（models.shown）。目録から外す（retired）のは人が決める"""
-    catalog = catalog or Path(__file__).with_name("catalog.json")
+    catalog = catalog or Path(__file__).resolve().parents[1] / "models" / "catalog.json"
     items = json.loads(catalog.read_text(encoding="utf-8"))
     done = []
     for r in reports:

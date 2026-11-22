@@ -255,7 +255,7 @@ class ImageEditingMixin:
         # QMenu は絵の大きさを小さな絵の寸法（16 画素）で描き、スタイルシートの icon-size は効かなかった。その寸法だけを大きくする
         # メニューに独自のスタイル（QProxyStyle）を付けると、右クリックでアプリごと落ちた（0.5.30）。スタイルは付けず、
         # 小さな絵はメニューの絵の欄に、大きな絵はカーソルを合わせたときのツールチップに出す
-        prev = Path(__file__).parent / "styleprev"
+        prev = Path(__file__).resolve().parents[1] / "styleprev"
         for kind, label, tip, *_ in STYLES:
             name = f"style_{kind}"
             ok, why = self._finisher_ready(name) if name in finishers.REGISTRY else (False, "")
