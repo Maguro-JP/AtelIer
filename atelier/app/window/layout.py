@@ -275,7 +275,7 @@ class LayoutMixin:
     def build_shared_actions(self):
         """メニュー・リボン・帯・右クリックで共に使う操作。1 つの QAction を、出す所ごとに足す"""
         c = self.canvas
-        rows = (("new", "new", "新規キャンバス", lambda: c.new_canvas(), "Ctrl+N", "白い新しいキャンバスにします（元に戻すで戻せます）"),
+        rows = (("new", "new", "新規キャンバス", self.new_blank, "Ctrl+N", "白い新しいキャンバスにします（元に戻すで戻せます）"),
                 ("open", "open", "開く…", self.open_image, "Ctrl+O", "作業ファイルか絵を開きます"),
                 ("save", "save", "保存", self.save_project, "Ctrl+S", "作業ファイルに保存します"),
                 ("trash", "trash", "ごみ箱…", self.open_trash, "", "消した絵を見て、元に戻すか本当に消します"),
