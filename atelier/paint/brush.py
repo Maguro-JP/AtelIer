@@ -22,15 +22,18 @@ class Brush:
     opacity_pressure: bool = False   # 筆圧で濃さが変わる
     grain: float = 0.0           # 紙の目（鉛筆のざらつき）。0 で無し
     min_size: float = 0.15       # 筆圧が弱いときの太さの下限（太さに対する割合）
+    taper_in: float = 0.0        # 入り（線の始めを細くする長さ。太さの何倍か）。0 で無し
+    taper_out: float = 0.0       # 抜き（線の終わりを細くする長さ。太さの何倍か）。手を離したときに掛ける
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
 PRESETS = [
-    Brush("ペン", hardness=0.95, flow=1.0, spacing=0.08, size_pressure=True),
+    Brush("ペン", hardness=0.95, flow=1.0, spacing=0.08, size_pressure=True, taper_in=3.0, taper_out=3.0),
     Brush("鉛筆", hardness=0.8, flow=0.7, spacing=0.12, size_pressure=True, opacity_pressure=True, grain=0.55),
-    Brush("筆", hardness=0.6, flow=0.5, spacing=0.06, size_pressure=True, opacity_pressure=True, min_size=0.3),
+    Brush("筆", hardness=0.6, flow=0.5, spacing=0.06, size_pressure=True, opacity_pressure=True, min_size=0.3,
+          taper_in=2.0, taper_out=2.0),
     Brush("エアブラシ", hardness=0.0, flow=0.08, spacing=0.05, size_pressure=False, opacity_pressure=True, min_size=1.0),
     Brush("マーカー", hardness=0.9, flow=1.0, spacing=0.08, size_pressure=False, min_size=1.0),
     Brush("消しゴム", hardness=0.85, flow=1.0, spacing=0.08, size_pressure=False, min_size=1.0),
@@ -79,26 +82,42 @@ class Dabs:
 
 
 def stamp(target: QImage, brush: Brush, dabs: Dabs, a: QPointF, b: QPointF, size: float, color: QColor,
-          pressure: float, carry: float, erase: bool = False) -> tuple[QRectF, float]:
-    """a から b まで点を並べて描く。carry は前の区切りから持ち越した距離（間隔をそろえるため）。描いた四角と次の carry を返す"""
-    psize = size * (max(brush.min_size, pressure) if brush.size_pressure else 1.0)
-    alpha = brush.flow * (max(0.05, pressure) if brush.opacity_pressure else 1.0)
-    dab = dabs.get(psize, brush.hardness, color, alpha, brush.grain)
+          pressure: float, carry: float, erase: bool = False, pressure_b: float | None = None,
+          offset: float = 0.0, fade=None) -> tuple[QRectF, float]:
+    """a から b まで点を並べて描く。carry は前の区切りから持ち越した距離（間隔をそろえるため）。描いた四角と次の carry を返す。
+    筆圧は a の pressure から b の pressure_b へ点ごとに移す（前は区切りごとに 1 つの筆圧で、速く引くと太さが段になった）。
+    fade(線の始めからの長さ) は入り抜きの掛け目（0〜1）。offset は a までの長さ"""
+    pb = pressure if pressure_b is None else pressure_b
+
+    def dab_at(pr: float):
+        psize = size * (max(brush.min_size, pr) if brush.size_pressure else 1.0)
+        alpha = brush.flow * (max(0.05, pr) if brush.opacity_pressure else 1.0)
+        return psize, dabs.get(psize, brush.hardness, color, alpha, brush.grain)
+
+    def pr_at(t: float, dist: float) -> float:
+        pr = pressure + (pb - pressure) * (t / dist if dist else 0.0)
+        if fade is not None:
+            pr *= fade(offset + t)
+        return pr
+
+    psize, dab = dab_at(max(pressure, pb))
     step = max(0.5, psize * brush.spacing)
     dist = math.hypot(b.x() - a.x(), b.y() - a.y())
     p = QPainter(target)
     if erase:
         p.setCompositionMode(QPainter.CompositionMode_DestinationOut)
     half = dab.width() / 2
+    pad = half + 2
     t = carry
     if dist == 0:
-        p.drawImage(QPointF(a.x() - half, a.y() - half), dab)
+        _s, d = dab_at(pr_at(0.0, 0.0))
+        p.drawImage(QPointF(a.x() - d.width() / 2, a.y() - d.width() / 2), d)
         t = step
     while t <= dist:
         x = a.x() + (b.x() - a.x()) * t / dist
         y = a.y() + (b.y() - a.y()) * t / dist
-        p.drawImage(QPointF(x - half, y - half), dab)
-        t += step
+        s, d = dab_at(pr_at(t, dist))
+        p.drawImage(QPointF(x - d.width() / 2, y - d.width() / 2), d)
+        t += max(0.5, s * brush.spacing)
     p.end()
-    pad = half + 2
     return QRectF(a, b).normalized().adjusted(-pad, -pad, pad, pad), t - dist

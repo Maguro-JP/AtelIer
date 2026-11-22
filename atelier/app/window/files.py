@@ -97,6 +97,16 @@ class FilesMixin:
         self.work_save()
         self.inspect_prompt = ""   # 開いた絵は描いた言葉が分からない。前の絵の言葉で頼んだ物を検品しない
         self.work_key = None   # 作業ファイル・手元の絵は、そのファイルに保存する（絵ごとの作業の置き場は使わない）
+        if path.lower().endswith(".psd"):
+            # PSD はレイヤーごとに開く（合成モード・クリッピング・透明部分の保護も）。上書きは作業ファイルで聞く
+            def done_psd(got):
+                if isinstance(got, BaseException):
+                    self.notify("開けませんでした", "error", str(got))
+                    return
+                project.apply_psd(self.canvas, got)
+                self.project_path, self.source_path, self.dirty = None, str(path), False
+            self.run_io(lambda: project.read_psd(path), done_psd, "読み込み")
+            return
         is_project = path.lower().endswith(project.READABLE)   # 前の形（CharacterDesigner の作業ファイル）も開ける
         self._fix_from = None if is_project else path   # 記録の無い絵は、直すときに絵からタグを読む
         if is_project:

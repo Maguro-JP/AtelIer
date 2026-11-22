@@ -62,7 +62,9 @@ def snapshot(canvas, extra: dict | None = None) -> dict:
     for i, layer in enumerate(canvas.layers):
         name = f"layers/{i:03d}.png"
         images.append((name, layer.image.copy()))
-        manifest["layers"].append({"name": layer.name, "visible": layer.visible, "opacity": layer.opacity, "file": name})
+        manifest["layers"].append({"name": layer.name, "visible": layer.visible, "opacity": layer.opacity, "file": name,
+                                   "blend": layer.blend, "clip": layer.clip, "alpha_lock": layer.alpha_lock,
+                                   "locked": layer.locked})
     return {"manifest": manifest, "images": images}
 
 
@@ -91,7 +93,9 @@ def read(path: str | Path) -> tuple[dict, list]:
         layers = []
         for info in manifest["layers"]:
             img = QImage.fromData(z.read(info["file"]), "PNG").convertToFormat(QImage.Format_ARGB32_Premultiplied)
-            layers.append((info["name"], img, bool(info.get("visible", True)), float(info.get("opacity", 1.0))))
+            # 合成モード・クリッピング・保護は前の版の作業ファイルに無いので、無ければ通常・無しとして読む
+            layers.append((info["name"], img, bool(info.get("visible", True)), float(info.get("opacity", 1.0)),
+                           {k: info[k] for k in ("blend", "clip", "alpha_lock", "locked") if k in info}))
     return manifest, layers
 
 
@@ -99,7 +103,13 @@ def apply(canvas, got: tuple[dict, list]) -> dict:
     """read の結果を canvas に置く（画面の糸で呼ぶ）"""
     from atelier.paint.canvas import Layer
     manifest, parts = got
-    layers = [Layer(name, img, visible, opacity) for name, img, visible, opacity in parts]
+    from atelier.paint.canvas import BLEND_MODES
+    layers = []
+    for name, img, visible, opacity, *more in parts:
+        props = more[0] if more else {}
+        layers.append(Layer(name, img, visible, opacity, locked=bool(props.get("locked", False)),
+                            blend=props.get("blend") if props.get("blend") in BLEND_MODES else "normal",
+                            clip=bool(props.get("clip", False)), alpha_lock=bool(props.get("alpha_lock", False))))
     canvas._reset(layers, min(int(manifest.get("current", 0)), len(layers) - 1))
     pen = canvas.redpen
     marks = manifest.get("marks", [])
@@ -154,7 +164,8 @@ def psd_snapshot(canvas) -> dict:
     """PSD に書く中身の写し（画面の糸で呼ぶ）。書くのは write_psd で、裏の糸で回せる"""
     from types import SimpleNamespace
     w, h = canvas.size_px()
-    layers = [SimpleNamespace(name=l.name, visible=l.visible, opacity=l.opacity, image=l.image.copy()) for l in canvas.layers]
+    layers = [SimpleNamespace(name=l.name, visible=l.visible, opacity=l.opacity, image=l.image.copy(), blend=l.blend,
+                              clip=l.clip, alpha_lock=l.alpha_lock) for l in canvas.layers]
     return {"size": (w, h), "layers": layers, "merged": canvas.flatten().copy()}
 
 
@@ -169,9 +180,12 @@ def write_psd(snap: dict, path: str | Path):
         records += struct.pack(">iiiiH", y, x, y + layer.image.height(), x + layer.image.width(), 4)
         for cid in (-1, 0, 1, 2):
             records += struct.pack(">hI", cid, size)
-        flags = 0 if layer.visible else 2
+        from atelier.paint.canvas import BLEND_MODES
+        flags = (0 if layer.visible else 2) | (1 if getattr(layer, "alpha_lock", False) else 0)
+        key = BLEND_MODES.get(getattr(layer, "blend", "normal"), BLEND_MODES["normal"])[1].encode("ascii")
         extra = struct.pack(">I", 0) + struct.pack(">I", 0) + _pascal(layer.name) + _unicode_name(layer.name)
-        records += b"8BIMnorm" + struct.pack(">BBBB", round(layer.opacity * 255), 0, flags, 0)
+        records += b"8BIM" + key + struct.pack(">BBBB", round(layer.opacity * 255), 1 if getattr(layer, "clip", False) else 0,
+                                               flags, 0)
         records += struct.pack(">I", len(extra)) + extra
         for plane in (a, r, g, b):
             data += struct.pack(">H", 0) + plane
@@ -186,6 +200,145 @@ def write_psd(snap: dict, path: str | Path):
         f.write(struct.pack(">I", 0))              # 画像の資源（無し）
         f.write(struct.pack(">I", len(section)) + section)
         f.write(struct.pack(">H", 0) + r + g + b)  # 重ねた 1 枚（読み込むだけのソフト向け）
+
+
+def _unpack_bits(src: bytes, n: int) -> bytes:
+    """PackBits（PSD の RLE）を n バイトに戻す"""
+    out, i = bytearray(), 0
+    while len(out) < n and i < len(src):
+        c = src[i]
+        i += 1
+        if c < 128:
+            out += src[i:i + c + 1]
+            i += c + 1
+        elif c > 128:
+            out += bytes([src[i]]) * (257 - c)
+            i += 1
+    return bytes(out[:n]).ljust(n, b"\0")
+
+
+def _channel(data: bytes, pos: int, w: int, h: int) -> tuple[bytes, int]:
+    """1 枚の板（圧縮の種類 2 バイト + 中身）を読む。読んだ板と次の位置を返す"""
+    comp = struct.unpack_from(">H", data, pos)[0]
+    pos += 2
+    if comp == 0:
+        return data[pos:pos + w * h], pos + w * h
+    if comp == 1:
+        counts = struct.unpack_from(f">{h}H", data, pos)
+        pos += 2 * h
+        rows = []
+        for c in counts:
+            rows.append(_unpack_bits(data[pos:pos + c], w))
+            pos += c
+        return b"".join(rows), pos
+    raise ValueError("この PSD の圧縮（ZIP）には、まだ対応していません。CLIP STUDIO PAINT・Krita で非圧縮か RLE で保存してください")
+
+
+def read_psd(path: str | Path) -> dict:
+    """PSD を読み、絵の大きさとレイヤー（名前・表示・不透明度・合成モード・クリッピング・透明部分の保護・絵）を返す。
+    8 ビットの RGB だけを読む。フォルダーは中のレイヤーを平らに並べて読む（フォルダーはまだ無いので、絵を失わないことを先にした）"""
+    from types import SimpleNamespace
+    import numpy as np
+    from atelier.paint.canvas import PSD_BLEND
+    data = Path(path).read_bytes()
+    if data[:4] != b"8BPS" or struct.unpack_from(">H", data, 4)[0] != 1:
+        raise ValueError("PSD ではないか、PSB（大きな絵の形）です")
+    channels, h, w, depth, mode = struct.unpack_from(">HIIHH", data, 12)
+    if depth != 8 or mode != 3:
+        raise ValueError("8 ビットの RGB の PSD だけを読めます（16 ビット・CMYK・グレーは、作画ソフトで 8 ビットの RGB にしてください）")
+    pos = 26
+    pos += 4 + struct.unpack_from(">I", data, pos)[0]   # 色の表
+    pos += 4 + struct.unpack_from(">I", data, pos)[0]   # 画像の資源
+    section_len = struct.unpack_from(">I", data, pos)[0]
+    pos += 4
+    layers = []
+    if section_len:
+        info_len = struct.unpack_from(">I", data, pos)[0]
+        pos += 4
+        if info_len:
+            count = abs(struct.unpack_from(">h", data, pos)[0])
+            pos += 2
+            recs = []
+            for _ in range(count):
+                top, left, bottom, right, nch = struct.unpack_from(">iiiiH", data, pos)
+                pos += 18
+                chans = []
+                for _c in range(nch):
+                    cid, ln = struct.unpack_from(">hI", data, pos)
+                    chans.append((cid, ln))
+                    pos += 6
+                key = data[pos + 4:pos + 8].decode("ascii", "replace")
+                opacity, clip, flags = data[pos + 8], data[pos + 9], data[pos + 10]
+                pos += 12
+                extra_len = struct.unpack_from(">I", data, pos)[0]
+                pos += 4
+                end = pos + extra_len
+                q = pos
+                q += 4 + struct.unpack_from(">I", data, q)[0]   # マスク
+                q += 4 + struct.unpack_from(">I", data, q)[0]   # 合成の範囲
+                nlen = data[q]
+                name = data[q + 1:q + 1 + nlen].decode("latin-1")
+                q += 1 + nlen
+                q += -(1 + nlen) % 4
+                folder = 0
+                while q + 12 <= end:
+                    sig, tag, ln = data[q:q + 4], data[q + 4:q + 8], struct.unpack_from(">I", data, q + 8)[0]
+                    if sig not in (b"8BIM", b"8B64"):
+                        break
+                    body = data[q + 12:q + 12 + ln]
+                    if tag == b"luni" and len(body) >= 4:
+                        n = struct.unpack_from(">I", body)[0]
+                        name = body[4:4 + 2 * n].decode("utf-16-be", "replace")
+                    elif tag in (b"lsct", b"lsdk") and len(body) >= 4:
+                        folder = struct.unpack_from(">I", body)[0]
+                    q += 12 + ln
+                pos = end
+                recs.append(dict(top=top, left=left, bottom=bottom, right=right, chans=chans, key=key, opacity=opacity,
+                                 clip=clip, flags=flags, name=name, folder=folder))
+            for r in recs:
+                lw, lh = r["right"] - r["left"], r["bottom"] - r["top"]
+                planes = {}
+                for cid, ln in r["chans"]:
+                    cw, chh = (lw, lh)
+                    if cid == -2:   # レイヤーマスクの板は大きさが違うので読み飛ばす
+                        pos += ln
+                        continue
+                    start = pos
+                    if cw > 0 and chh > 0:
+                        planes[cid], _p = _channel(data, pos, cw, chh)
+                    pos = start + ln
+                if r["folder"] in (1, 2, 3):
+                    continue   # フォルダーの始まりと終わりの印（絵は無い）
+                img = QImage(w, h, QImage.Format_ARGB32_Premultiplied)
+                img.fill(0)
+                if lw > 0 and lh > 0:
+                    full = np.full((lh, lw), 255, np.uint8)
+                    rgba = np.dstack([np.frombuffer(planes.get(c, full.tobytes()), np.uint8).reshape(lh, lw)
+                                      for c in (0, 1, 2, -1)]).copy()
+                    part = QImage(rgba.data, lw, lh, lw * 4, QImage.Format_RGBA8888).copy()
+                    from PySide6.QtGui import QPainter
+                    pt = QPainter(img)
+                    pt.setCompositionMode(QPainter.CompositionMode_Source)
+                    pt.drawImage(r["left"], r["top"], part)
+                    pt.end()
+                layers.append(SimpleNamespace(name=r["name"] or "レイヤー", image=img, visible=not (r["flags"] & 2),
+                                              opacity=r["opacity"] / 255, blend=PSD_BLEND.get(r["key"], "normal"),
+                                              clip=bool(r["clip"]), alpha_lock=bool(r["flags"] & 1)))
+    if not layers:   # レイヤーの無い PSD は、重ねた 1 枚を読む
+        img = QImage(str(path))
+        if img.isNull():
+            raise ValueError("PSD の絵を読めません")
+        layers.append(SimpleNamespace(name="背景", image=img.convertToFormat(QImage.Format_ARGB32_Premultiplied),
+                                      visible=True, opacity=1.0, blend="normal", clip=False, alpha_lock=False))
+    return {"size": (w, h), "layers": layers}
+
+
+def apply_psd(canvas, got: dict):
+    """read_psd の結果を canvas に置く（画面の糸で呼ぶ）"""
+    from atelier.paint.canvas import Layer
+    layers = [Layer(l.name, l.image, l.visible, l.opacity, blend=l.blend, clip=l.clip, alpha_lock=l.alpha_lock)
+              for l in got["layers"]]
+    canvas._reset(layers, len(layers) - 1)
 
 
 def autosave_path() -> Path:

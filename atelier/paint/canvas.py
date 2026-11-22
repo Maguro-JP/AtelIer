@@ -41,9 +41,65 @@ class Layer:
     locked: bool = False   # ロックしたレイヤーには描けない（AI の絵を線で汚さないため）
     redpen: bool = False   # 赤ペンの直しのレイヤー（消したら絵・履歴・ライブラリー・作業の保存に何も残さない）
     path: str = ""         # AI の結果を置いたレイヤーの元の画像ファイル（レイヤーを消したら、そのファイルもごみ箱へ移す）
+    blend: str = "normal"  # 合成モード（BLEND_MODES の鍵）。影は乗算、光はスクリーンのように、塗りを分けて重ねるため
+    clip: bool = False     # 下のレイヤーでクリッピング。下の絵の描いてある所にだけ見せる（はみ出しを気にせず塗るため）
+    alpha_lock: bool = False   # 透明部分の保護。描いてある所の上だけに塗れる（線画の色替え・影の塗り）
 
     def copy(self) -> "Layer":
-        return Layer(self.name, self.image.copy(), self.visible, self.opacity, self.locked, self.redpen, self.path)
+        return Layer(self.name, self.image.copy(), self.visible, self.opacity, self.locked, self.redpen, self.path,
+                     self.blend, self.clip, self.alpha_lock)
+
+
+# 合成モード。名前は CLIP STUDIO PAINT・Photoshop と同じ語にし、PSD の鍵と組にする（PSD で読み書きしても崩れないように）
+BLEND_MODES = {
+    "normal": ("通常", "norm", QPainter.CompositionMode_SourceOver),
+    "multiply": ("乗算", "mul ", QPainter.CompositionMode_Multiply),
+    "screen": ("スクリーン", "scrn", QPainter.CompositionMode_Screen),
+    "overlay": ("オーバーレイ", "over", QPainter.CompositionMode_Overlay),
+    "darken": ("比較（暗）", "dark", QPainter.CompositionMode_Darken),
+    "lighten": ("比較（明）", "lite", QPainter.CompositionMode_Lighten),
+    "dodge": ("覆い焼きカラー", "div ", QPainter.CompositionMode_ColorDodge),
+    "burn": ("焼き込みカラー", "idiv", QPainter.CompositionMode_ColorBurn),
+    "add": ("加算", "lddg", QPainter.CompositionMode_Plus),
+    "hardlight": ("ハードライト", "hLit", QPainter.CompositionMode_HardLight),
+    "softlight": ("ソフトライト", "sLit", QPainter.CompositionMode_SoftLight),
+    "difference": ("差の絶対値", "diff", QPainter.CompositionMode_Difference),
+}
+PSD_BLEND = {v[1]: k for k, v in BLEND_MODES.items()}
+
+
+def blend_mode(key: str):
+    return BLEND_MODES.get(key, BLEND_MODES["normal"])[2]
+
+
+def clip_base(layers: list, i: int) -> int:
+    """クリッピングしたレイヤー i の土台（下へたどって、最初のクリッピングしていないレイヤー）。無ければ -1"""
+    j = i - 1
+    while j >= 0 and layers[j].clip:
+        j -= 1
+    return j
+
+
+def layer_look(layers: list, i: int, rect: QRect, buffer: QImage | None = None, buffer_opacity: float = 1.0) -> QImage:
+    """レイヤー i の rect の中の見え方（描いている途中の線を重ね、クリッピングなら土台の描いてある所だけにする）"""
+    layer = layers[i]
+    out = QImage(rect.size(), QImage.Format_ARGB32_Premultiplied)
+    out.fill(Qt.transparent)
+    p = QPainter(out)
+    p.drawImage(0, 0, layer.image, rect.x(), rect.y(), rect.width(), rect.height())
+    if buffer is not None:
+        p.setOpacity(buffer_opacity)
+        p.drawImage(0, 0, buffer, rect.x(), rect.y(), rect.width(), rect.height())
+        p.setOpacity(1.0)
+    if layer.clip:
+        j = clip_base(layers, i)
+        p.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+        if j >= 0 and layers[j].visible:
+            p.drawImage(0, 0, layers[j].image, rect.x(), rect.y(), rect.width(), rect.height())
+        else:
+            p.fillRect(out.rect(), Qt.transparent)   # 土台が隠れている・無いときは見せない（PSD と同じ）
+    p.end()
+    return out
 
 
 _PRELOADED: dict[str, tuple[int, QImage]] = {}
@@ -89,9 +145,10 @@ def blank(w: int, h: int, color: QColor | None = None) -> QImage:
 class LayerItem(QGraphicsItem):
     """1 枚のレイヤーを、頼まれた四角だけ描く"""
 
-    def __init__(self, layer: Layer):
+    def __init__(self, layer: Layer, canvas=None):
         super().__init__()
         self.layer = layer
+        self.canvas = canvas   # クリッピングの土台を引くため（無ければ自分だけで描く）
         self.buffer: QImage | None = None   # 描いている途中の線（手を離すとレイヤーへ重ねる）
         self.buffer_opacity = 1.0
         # 大きさは作ったときに覚える。layer.image を差し替えて大きさが変わったまま場面から外すと、
@@ -113,7 +170,13 @@ class LayerItem(QGraphicsItem):
         if not self.layer.visible:
             return
         r = option.exposedRect.toAlignedRect().intersected(self.layer.image.rect())
+        p.setCompositionMode(blend_mode(self.layer.blend))
         p.setOpacity(self.layer.opacity)
+        if self.layer.clip and self.canvas is not None and self.layer in self.canvas.layers:
+            if not r.isEmpty():
+                ls = self.canvas.layers
+                p.drawImage(r.topLeft(), layer_look(ls, ls.index(self.layer), r, self.buffer, self.buffer_opacity))
+            return
         p.drawImage(r.topLeft(), self.layer.image, r)
         if self.buffer is not None:
             p.setOpacity(self.layer.opacity * self.buffer_opacity)
@@ -450,8 +513,10 @@ class Canvas(QGraphicsView):
         img = QImage(lower.image)
         p = QPainter(img)
         if upper.visible:
+            # 合成モードとクリッピングを掛けた見え方で重ねる（前は通常で重ね、乗算の影が黒い塗りに変わった）
+            p.setCompositionMode(blend_mode(upper.blend))
             p.setOpacity(upper.opacity)
-            p.drawImage(0, 0, upper.image)
+            p.drawImage(0, 0, layer_look(self.layers, i, upper.image.rect()) if upper.clip else upper.image)
         p.end()
         lower.image = img
         del self.layers[i]
@@ -599,11 +664,16 @@ class Canvas(QGraphicsView):
         p = QPainter(out)
         for i, layer in enumerate(self.layers):
             if layer.visible:
+                p.setCompositionMode(blend_mode(layer.blend))
                 p.setOpacity(layer.opacity)
+                buf = self.buffer if i == self.current else None
+                if layer.clip:
+                    p.drawImage(0, 0, layer_look(self.layers, i, QRect(0, 0, w, h), buf, self.paint_opacity()))
+                    continue
                 p.drawImage(0, 0, layer.image)
-                if self.buffer is not None and i == self.current:
+                if buf is not None:
                     p.setOpacity(layer.opacity * self.paint_opacity())
-                    p.drawImage(0, 0, self.buffer)
+                    p.drawImage(0, 0, buf)
         p.end()
         return out
 
@@ -613,7 +683,7 @@ class Canvas(QGraphicsView):
             self.scene().removeItem(it)
         self.items = []
         for z, layer in enumerate(self.layers):
-            it = LayerItem(layer)
+            it = LayerItem(layer, self)
             it.setZValue(z)
             self.scene().addItem(it)
             self.items.append(it)
@@ -731,6 +801,46 @@ class Canvas(QGraphicsView):
     def set_opacity(self, value: float):
         self.layers[self.current].opacity = value
         self.items[self.current].update()
+
+    def set_layer_prop(self, i: int, key: str, value) -> bool:
+        """合成モード（blend）・クリッピング（clip）・透明部分の保護（alpha_lock）を変える。元に戻すで戻せる"""
+        if not (0 <= i < len(self.layers)) or key not in ("blend", "clip", "alpha_lock"):
+            return False
+        if key == "blend" and value not in BLEND_MODES:
+            return False
+        if getattr(self.layers[i], key) == value:
+            return False
+        self.snapshot_all()
+        self.undo_names[-1] = {"blend": "合成モード", "clip": "クリッピング", "alpha_lock": "透明部分の保護"}[key]
+        setattr(self.layers[i], key, value)
+        self.scene().update()   # クリッピングは上のレイヤーの見え方も変えるので、全体を描き直す
+        self.changed.emit()
+        return True
+
+    def _keep_alpha(self, before: QImage):
+        """透明部分の保護: 今のレイヤーの不透明度（アルファ）を before のまま戻す。色だけが変わる。
+        描く道具ごとに合成を変えると、消しゴム・ぼかし・指先・文字で漏れが出るので、描いたあとに 1 か所で戻す"""
+        import numpy as np
+        layer = self.layers[self.current]
+        if before is None or not layer.alpha_lock or before.size() != layer.image.size():
+            return
+        w, h = layer.image.width(), layer.image.height()
+        now = layer.image.convertToFormat(QImage.Format_RGBA8888)
+        old = before.convertToFormat(QImage.Format_RGBA8888)
+        a = np.frombuffer(now.bits(), np.uint8).reshape(h, now.bytesPerLine() // 4, 4)[:, :w].copy()
+        b = np.frombuffer(old.constBits(), np.uint8).reshape(h, old.bytesPerLine() // 4, 4)[:, :w]
+        a[..., 3] = b[..., 3]
+        a[b[..., 3] == 0, :3] = 0
+        out = QImage(a.data, w, h, w * 4, QImage.Format_RGBA8888).convertToFormat(QImage.Format_ARGB32_Premultiplied)
+        layer.image = out
+        self.items[self.current].layer = layer
+        self.items[self.current].update()
+
+    def _before(self) -> QImage | None:
+        """直前に覚えた今のレイヤーの絵（透明部分の保護で戻す元）"""
+        if self.undo_stack and self.undo_stack[-1][0] == "one" and self.undo_stack[-1][1] == self.current:
+            return self.undo_stack[-1][2]
+        return None
 
     # ---- 元に戻す ----
     # 線や塗りは触ったレイヤー 1 枚だけを覚える。並びを変えたときだけ全部を覚える
@@ -1086,6 +1196,7 @@ class Canvas(QGraphicsView):
         """線の描き始め。消しゴムはレイヤーから直接消し、ほかは線用の下書きに描く"""
         self.carry = 0.0
         self.stroke_len = 0.0
+        self.stroke_segs = []
         if self.tool not in ("eraser", "blur", "smudge"):
             w, h = self.size_px()
             self.buffer = blank(w, h)
@@ -1094,6 +1205,8 @@ class Canvas(QGraphicsView):
 
     def end_stroke(self):
         """手を離したら、下書きの線を濃さを掛けてレイヤーへ重ねる"""
+        self._retaper()
+        self.stroke_segs = []
         if self.buffer is not None:
             p = QPainter(self.layers[self.current].image)
             if self.selection is not None:
@@ -1107,6 +1220,9 @@ class Canvas(QGraphicsView):
             self.buffer = None
         elif self.selection is not None and self.undo_stack and self.undo_stack[-1][0] == "one":
             self._keep_outside(self.undo_stack[-1][2])
+        before = self._before()
+        if before is not None and self.layers and self.layers[self.current].alpha_lock:
+            self._keep_alpha(before)
 
     def _keep_outside(self, before: QImage):
         """じかにレイヤーを変えた道具（消しゴム・ぼかし）の、選択範囲の外を元に戻す"""
@@ -1135,7 +1251,7 @@ class Canvas(QGraphicsView):
             elif self.tool == "smudge":
                 self.smudge(a2, b2)
             else:
-                self._paint(a2, b2, pressure)
+                self._paint(a2, b2, pressure, i)
         self.stroke_len += ((b.x() - a.x()) ** 2 + (b.y() - a.y()) ** 2) ** 0.5
         if alone:
             self.end_stroke()
@@ -1227,8 +1343,27 @@ class Canvas(QGraphicsView):
         """線・形・塗りを重ねるときの濃さ。ブラシの濃さと、色の欄の透明度を掛けた値"""
         return self.brush_opacity * self.color.alphaF()
 
-    def _paint(self, a: QPointF, b: QPointF, pressure: float):
+    def _fade(self, brush, total: float | None):
+        """入り抜きの掛け目。total が None（描いている途中）なら入りだけ。短い線は入り抜きの長さを線の 1/3 までに縮める"""
+        lin, lout = brush.taper_in * self.size, brush.taper_out * self.size
+        if total is not None:
+            lin, lout = min(lin, total / 3), min(lout, total / 3)
+        if lin <= 0 and (total is None or lout <= 0):
+            return None
+
+        def fade(d: float) -> float:
+            f = 1.0
+            if lin > 0:
+                f = min(f, d / lin)
+            if total is not None and lout > 0:
+                f = min(f, (total - d) / lout)
+            return max(0.0, min(1.0, f))
+        return fade
+
+    def _paint(self, a: QPointF, b: QPointF, pressure: float, mi: int = 0):
         erase = self.tool == "eraser"
+        if erase and self.layers[self.current].alpha_lock:
+            return   # 透明部分の保護では消しゴムで消せない（描いてある所の不透明度を変えない）
         target = self.layers[self.current].image if erase else self.buffer
         if self.tool == "spray":
             dirty = self.spray(target, b, pressure)
@@ -1236,8 +1371,37 @@ class Canvas(QGraphicsView):
             brush = self.brushes["消しゴム"] if erase and self.brush.name != "消しゴム" else self.brush
             size = self.size * (2 if erase and brush is not self.brush else 1)
             color = QColor(0, 0, 0) if erase else self.stroke_color()
-            dirty, self.carry = stamp(target, brush, self.dabs, a, b, size, color, pressure, self.carry, erase=erase)
+            segs = getattr(self, "stroke_segs", None)
+            if segs is None:
+                segs = self.stroke_segs = []
+            prev = [s for s in segs if s[0] == mi]
+            pa = prev[-1][4] if prev else pressure
+            off = prev[-1][5] + ((prev[-1][2].x() - prev[-1][1].x()) ** 2 + (prev[-1][2].y() - prev[-1][1].y()) ** 2) ** 0.5 if prev else 0.0
+            segs.append((mi, QPointF(a), QPointF(b), pa, pressure, off, self.carry))
+            fade = self._fade(brush, None) if not erase and self.buffer is not None else None
+            dirty, self.carry = stamp(target, brush, self.dabs, a, b, size, color, pa, self.carry, erase=erase,
+                                      pressure_b=pressure, offset=off, fade=fade)
         self.items[self.current].update(dirty)   # 線を引いた四角だけ描き直す
+
+    def _retaper(self):
+        """手を離したとき、抜きを掛けて線を描き直す（終わりの位置は離すまで分からないので、ここで掛ける）"""
+        segs = getattr(self, "stroke_segs", None) or []
+        brush = self.brush
+        if self.buffer is None or self.tool not in ("pen", "line") or not segs or brush.taper_out <= 0 and brush.taper_in <= 0:
+            return
+        if self.tool == "line" or self.color_mode != COLOR_MODES[0] or getattr(self, "qs_shape", None) is not None:
+            return   # 虹色などは色が長さで変わるので描き直さない
+        self.buffer.fill(Qt.transparent)
+        color = self.stroke_color()
+        for mi in sorted({s[0] for s in segs}):
+            mine = [s for s in segs if s[0] == mi]
+            last = mine[-1]
+            total = last[5] + ((last[2].x() - last[1].x()) ** 2 + (last[2].y() - last[1].y()) ** 2) ** 0.5
+            fade = self._fade(brush, total)
+            carry = 0.0
+            for _mi, a, b, pa, pb, off, _c in mine:
+                _d, carry = stamp(self.buffer, brush, self.dabs, a, b, self.size, color, pa, carry,
+                                  pressure_b=pb, offset=off, fade=fade)
 
     def spray(self, target: QImage, pos: QPointF, pressure: float = 1.0) -> QRectF:
         """スプレー。太さを半径にした円の中に細かな点を散らす（中ほど多い）。筆圧が強いほど点が多い"""
@@ -1304,6 +1468,7 @@ class Canvas(QGraphicsView):
         p.setOpacity(self.paint_opacity())
         p.drawText(QRectF(pos.x(), pos.y(), 1e5, 1e5), Qt.AlignLeft | Qt.AlignTop, text)
         p.end()
+        self._keep_alpha(self._before())
         self.items[self.current].update()
         self.used_color.emit()
         self.changed.emit()
@@ -1504,16 +1669,55 @@ class Canvas(QGraphicsView):
             self.color = c
             self.color_picked.emit(c)
 
-    def fill(self, pos: QPointF, tolerance: int = 24):
-        """見えている絵で色の近い続きの範囲を、今のレイヤーに塗る"""
+    # 塗りつぶしの設定。CLIP STUDIO PAINT の「隙間閉じ」「領域拡縮」「参照するレイヤー」、Krita の Grow selection と同じ役目
+    fill_tolerance = 24      # 色の近さ（0〜255）
+    fill_gap = 0             # 隙間閉じ（画素）。線の切れ目がこの幅までなら、外へ漏れずに止まる
+    fill_expand = 1          # 領域拡縮（画素）。線のふちの薄い画素の下まで塗り、塗り残しの白いふちを出さない
+    fill_ref = "all"         # 参照するレイヤー: all（見えている絵全部）・layer（今のレイヤーだけ）
+
+    def fill_region(self, pos: QPointF):
+        """押した所から塗る範囲（画素ごとの真偽）を返す。外なら None"""
         import numpy as np
         x, y = int(pos.x()), int(pos.y())
         w, h = self.size_px()
         if not (0 <= x < w and 0 <= y < h):
-            return
-        src = self.flatten().convertToFormat(QImage.Format_RGBA8888)
+            return None
+        src = (self.layers[self.current].image if self.fill_ref == "layer" else self.flatten()).convertToFormat(QImage.Format_RGBA8888)
         arr = np.frombuffer(src.constBits(), np.uint8).reshape(h, src.bytesPerLine() // 4, 4)[:, :w].astype(np.int16)
-        near = (np.abs(arr - arr[y, x]).max(axis=2) <= tolerance)
+        near = (np.abs(arr - arr[y, x]).max(axis=2) <= int(self.fill_tolerance))
+        gap = max(0, int(self.fill_gap))
+        walk = near
+        if gap:
+            from scipy import ndimage
+            # 線（近くない画素）を半分の隙間だけ太らせて切れ目をふさぎ、その中で続きを探す
+            r = (gap + 1) // 2
+            wall = ndimage.binary_dilation(~near, structure=np.ones((2 * r + 1, 2 * r + 1), bool))
+            walk = near & ~wall
+            if not walk[y, x]:
+                walk = near   # 細い所を押したときは、ふさがずに塗る
+        mask = self._flood(walk, x, y)
+        if gap and walk is not near:
+            from scipy import ndimage
+            r = (gap + 1) // 2
+            mask = ndimage.binary_dilation(mask, structure=np.ones((2 * r + 1, 2 * r + 1), bool)) & near   # 太らせた分を戻す
+            mask = self._flood(mask, x, y) if mask[y, x] else mask
+        ex = int(self.fill_expand)
+        if ex > 0:
+            from scipy import ndimage
+            mask = ndimage.binary_dilation(mask, structure=np.ones((3, 3), bool), iterations=ex)
+        elif ex < 0:
+            from scipy import ndimage
+            mask = ndimage.binary_erosion(mask, structure=np.ones((3, 3), bool), iterations=-ex)
+        sel = self.selection_mask()
+        if sel is not None:
+            keep = np.frombuffer(sel.constBits(), np.uint8).reshape(h, sel.bytesPerLine())[:, :w] > 127
+            mask &= keep
+        return mask
+
+    @staticmethod
+    def _flood(near, x: int, y: int):
+        import numpy as np
+        h, w = near.shape
         mask = np.zeros((h, w), bool)
         stack = [(x, y)]
         while stack:
@@ -1533,10 +1737,17 @@ class Canvas(QGraphicsView):
                     row = near[ny, lx:rx + 1] & ~mask[ny, lx:rx + 1]
                     starts = np.flatnonzero(row & np.concatenate(([True], ~row[:-1])))   # 続きの始まりだけ積む
                     stack.extend((lx + int(k), ny) for k in starts)
-        sel = self.selection_mask()
-        if sel is not None:
-            keep = np.frombuffer(sel.constBits(), np.uint8).reshape(h, sel.bytesPerLine())[:, :w] > 127
-            mask &= keep
+        return mask
+
+    def fill(self, pos: QPointF, tolerance: int | None = None):
+        """見えている絵（または今のレイヤー）で色の近い続きの範囲を、今のレイヤーに塗る"""
+        import numpy as np
+        if tolerance is not None:
+            self.fill_tolerance = tolerance
+        mask = self.fill_region(pos)
+        if mask is None:
+            return
+        h, w = mask.shape
         self.snapshot()
         c = self.opaque()
         c.setAlphaF(self.paint_opacity())
@@ -1546,6 +1757,7 @@ class Canvas(QGraphicsView):
         p = QPainter(self.layers[self.current].image)
         p.drawImage(0, 0, overlay)
         p.end()
+        self._keep_alpha(self._before())
         self.items[self.current].update()
 
     def blur(self, a: QPointF, b: QPointF):
@@ -1600,6 +1812,25 @@ class Canvas(QGraphicsView):
         if rect is not None and shape is not None:
             self.sel_path_item.setPath(shape)
 
+    sel_op = "new"   # 選ぶ道具を押したときのキー: new（置き換え）・add（Shift で足す）・sub（Alt で引く）
+
+    def combine_selection(self, rect: QRect | None, shape: QPainterPath | None = None):
+        """新しく選んだ範囲を、押したときのキーに合わせて今の範囲に足す・引く（Photoshop・CLIP STUDIO PAINT と同じキー）"""
+        op, self.sel_op = self.sel_op, "new"
+        if op == "new" or self.selection is None:
+            if op == "sub":
+                return   # 引く範囲が無い。今の選択（無し）のまま
+            self.set_selection(rect, shape)
+            return
+        new = QPainterPath()
+        if shape is not None:
+            new = QPainterPath(shape)
+        elif rect is not None:
+            new.addRect(QRectF(rect.normalized()))
+        old = self.selection_path()
+        path = old.united(new) if op == "add" else old.subtracted(new)
+        self.set_selection(None, path.simplified())
+
     def selection_path(self) -> QPainterPath:
         """選択範囲の形。四角でも投げなわでも、描く道具はこの形で切り抜く"""
         if self.selection_shape is not None:
@@ -1625,7 +1856,7 @@ class Canvas(QGraphicsView):
         if shape is None:
             self.set_selection(self.selection, self.selection_shape)   # 前の選択の見た目に戻す
             return False
-        self.set_selection(None, shape)
+        self.combine_selection(None, shape)
         self.stroke_done.emit()
         return self.selection is not None
 
@@ -1721,7 +1952,7 @@ class Canvas(QGraphicsView):
                 self.marked.emit()
                 self.note_wanted.emit(n)
         else:
-            self.set_selection(None, path)
+            self.combine_selection(None, path)
             self.stroke_done.emit()
         return count
 
@@ -1747,6 +1978,7 @@ class Canvas(QGraphicsView):
         p.setOpacity(self.paint_opacity())
         p.fillPath(self.selection_path(), self.opaque())
         p.end()
+        self._keep_alpha(self._before())
         self.items[self.current].update()
         self.used_color.emit()
         self.changed.emit()
@@ -1850,7 +2082,7 @@ class Canvas(QGraphicsView):
             self.changed.emit()
             return
         if self.tool == "select":
-            self.set_selection(QRectF(a, b).toAlignedRect())
+            self.combine_selection(QRectF(a, b).toAlignedRect())
             return
         if self.tool == "lasso":
             pts = self.poly_points + [QPointF(b)]
@@ -1858,9 +2090,11 @@ class Canvas(QGraphicsView):
             shape = self._points_shape(pts)
             # 押しただけ（なぞっていない）は、四角の選択と同じく選択を外す
             if shape is None:
-                self.set_selection(None)
+                if self.sel_op == "new":
+                    self.set_selection(None)
+                self.sel_op = "new"
             else:
-                self.set_selection(None, shape)
+                self.combine_selection(None, shape)
             return
         self.end_stroke()
 
@@ -1963,6 +2197,8 @@ class Canvas(QGraphicsView):
             self.pan_from, self.panned = e.position().toPoint(), False
             return
         self.shift = bool(e.modifiers() & Qt.ShiftModifier)
+        if self.tool in SELECT_TOOLS and not (self.tool == "polygon" and self.poly_points):
+            self.sel_op = "add" if e.modifiers() & Qt.ShiftModifier else "sub" if e.modifiers() & Qt.AltModifier else "new"
         if e.button() == Qt.LeftButton and self.on_ruler_handle(e.position().toPoint()) >= 0:
             self._ruler_drag = self.on_ruler_handle(e.position().toPoint())   # 定規の丸をつかんだら、描かずに定規を動かす
             return
@@ -2164,8 +2400,8 @@ class Canvas(QGraphicsView):
             return
         if e.key() == Qt.Key_Space:
             self.hold("hand")
-        elif e.key() == Qt.Key_Alt:
-            self.hold("eyedropper")
+        elif e.key() == Qt.Key_Alt and self.tool not in SELECT_TOOLS:
+            self.hold("eyedropper")   # 選ぶ道具では Alt を「範囲から引く」に使うので、スポイトに持ち替えない
         elif e.key() == Qt.Key_R and not e.modifiers():
             self.rotating, self._rot_used = True, False   # R を押している間、ドラッグで表示を回す
             self.viewport().setCursor(Qt.SizeAllCursor)

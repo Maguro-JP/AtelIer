@@ -244,5 +244,91 @@ class NewToolsTest(unittest.TestCase):
             self.assertFalse(w.tool_actions[key].icon().isNull())
 
 
+
+class FillAndTaperTest(unittest.TestCase):
+    """塗りつぶしの塗り残し・隙間閉じ・参照するレイヤーと、ペンの入り抜き。道具の帯から持ち替え、マウスで押して画素で確かめる"""
+
+    def test_fill_leaves_no_fringe_and_closes_gaps(self):
+        import math
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QColor, QPainter, QPen
+        w = window()
+        c = w.canvas
+        p = QPainter(c.layers[0].image)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("black"), 3))
+        p.drawEllipse(QPointF(100, 100), 60, 60)
+        p.end()
+        c.add_layer()
+        w.tool_actions["fill"].trigger()
+        drag(c, [(100, 100)])
+        f = c.layers[c.current].image
+        gaps = sum(1 for a in range(360)
+                   if f.pixelColor(int(100 + 58 * math.cos(math.radians(a))), int(100 + 58 * math.sin(math.radians(a)))).alpha() == 0)
+        self.assertEqual(gaps, 0)   # 前は線のふちの薄い画素で 360 点中 124 点が塗り残った
+        c.new_canvas(200, 200)
+        p = QPainter(c.layers[0].image)
+        p.setPen(QPen(QColor("black"), 3))
+        p.drawRect(40, 40, 120, 120)
+        p.setCompositionMode(QPainter.CompositionMode_Source)
+        p.fillRect(98, 37, 4, 8, QColor("white"))   # 4 画素の切れ目
+        p.end()
+        c.add_layer()
+        c.fill_gap = 0
+        drag(c, [(100, 100)])
+        self.assertGreater(c.layers[c.current].image.pixelColor(10, 10).alpha(), 0)   # 隙間閉じ無しは漏れる
+        c.undo()
+        menu = w.build_canvas_menu(None)                                  # 右クリックの「塗りつぶしの設定」から選ぶ
+        fill_menu = next(a.menu() for a in menu.actions() if a.text() == "塗りつぶしの設定")
+        gap = next(a.menu() for a in fill_menu.actions() if a.text() == "隙間閉じ")
+        next(a for a in gap.actions() if a.text().startswith("中")).trigger()
+        self.assertEqual(c.fill_gap, 4)
+        drag(c, [(100, 100)])
+        img = c.layers[c.current].image
+        self.assertEqual(img.pixelColor(10, 10).alpha(), 0)
+        self.assertEqual(img.pixelColor(100, 100).alpha(), 255)
+        c.fill_gap = 0
+
+    def test_fill_reference_current_layer(self):
+        from PySide6.QtGui import QColor, QPainter
+        w = window()
+        c = w.canvas
+        p = QPainter(c.layers[0].image)
+        p.fillRect(0, 95, 200, 10, QColor("black"))
+        p.end()
+        c.add_layer()
+        w.tool_actions["fill"].trigger()
+        c.fill_ref = "layer"
+        drag(c, [(100, 20)])
+        self.assertGreater(c.layers[c.current].image.pixelColor(100, 180).alpha(), 0)   # 下の線を見ずに全部塗る
+        c.fill_ref = "all"
+
+    def test_pen_taper_in_and_out(self):
+        w = window()
+        c = w.canvas
+        c.new_canvas(300, 120)
+        w.tool_actions["pen"].trigger()
+        w.size_box.setValue(12)
+        drag(c, [(20 + i * 5, 60) for i in range(53)])
+        img = c.layers[c.current].image
+        thick = lambda x: sum(1 for y in range(120) if img.pixelColor(x, y).alpha() > 128)
+        self.assertLessEqual(thick(22), 5)
+        self.assertGreaterEqual(thick(150), 11)
+        self.assertLessEqual(thick(278), 5)
+        c.brush.taper_in = c.brush.taper_out = 0.0          # 無しにすれば端まで同じ太さ
+        drag(c, [(20 + i * 5, 100) for i in range(53)])
+        img = c.layers[c.current].image
+        self.assertGreaterEqual(sum(1 for y in range(120) if img.pixelColor(30, y).alpha() > 128), 11)
+        c.brush.taper_in = c.brush.taper_out = 3.0
+
+    def test_tap_still_makes_a_dot(self):
+        w = window()
+        c = w.canvas
+        w.tool_actions["pen"].trigger()
+        w.size_box.setValue(10)
+        drag(c, [(100, 100)])
+        self.assertGreater(c.layers[c.current].image.pixelColor(100, 100).alpha(), 200)   # 入り抜きで点が消えない
+
+
 if __name__ == "__main__":
     unittest.main()

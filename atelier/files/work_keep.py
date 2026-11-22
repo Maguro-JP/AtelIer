@@ -71,10 +71,12 @@ def capture(canvas) -> dict:
     pen = canvas.redpen
     sel = canvas.selection
     return {
-        "layers": [Layer(l.name, l.image.copy(), l.visible, l.opacity, l.locked, getattr(l, "redpen", False)) for l in canvas.layers],
+        "layers": [Layer(l.name, l.image.copy(), l.visible, l.opacity, l.locked, getattr(l, "redpen", False),
+                         blend=l.blend, clip=l.clip, alpha_lock=l.alpha_lock) for l in canvas.layers],
         "info": {
             "version": VERSION, "app": "AtelIer", "size": list(canvas.size_px()), "current": canvas.current,
-            "layers": [{"name": l.name, "locked": l.locked, "redpen": getattr(l, "redpen", False)} for l in canvas.layers],
+            "layers": [{"name": l.name, "locked": l.locked, "redpen": getattr(l, "redpen", False), "blend": l.blend,
+                        "clip": l.clip, "alpha_lock": l.alpha_lock} for l in canvas.layers],
             "marks": [[[p.x(), p.y()] for p in pts] for pts in pen.marks], "notes": list(pen.texts), "hidden": list(pen.hidden),
             "shapes": [_path_rows(pen.shape_of(n)) for n in range(1, len(pen.marks) + 1)],
             "selection": [sel.x(), sel.y(), sel.width(), sel.height()] if sel is not None else None,
@@ -106,7 +108,7 @@ def write(state: dict, key: str) -> Path:
 
 def read(key: str) -> dict | None:
     """書いた作業を読む（裏の糸で呼べる）。無い・壊れていれば None"""
-    from atelier.paint.canvas import Layer
+    from atelier.paint.canvas import BLEND_MODES, Layer
     for ora, info in places(key):
         if not (ora.is_file() and info.is_file()):
             continue
@@ -120,7 +122,10 @@ def read(key: str) -> dict | None:
         for i, (name, img, visible, opacity) in enumerate(parts):
             row = rows[i] if i < len(rows) else {}
             layers.append(Layer(name, img.convertToFormat(QImage.Format_ARGB32_Premultiplied), visible, opacity,
-                                bool(row.get("locked", False)), bool(row.get("redpen", False))))
+                                bool(row.get("locked", False)), bool(row.get("redpen", False)),
+                                # 合成モード・クリッピング・保護（前の版の記録に無ければ通常・無し）
+                                blend=row.get("blend", "normal") if row.get("blend") in BLEND_MODES else "normal",
+                                clip=bool(row.get("clip", False)), alpha_lock=bool(row.get("alpha_lock", False))))
         return {"layers": layers, "info": data}
     return None
 

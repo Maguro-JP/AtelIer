@@ -270,5 +270,121 @@ def QApplication_send(target, ev):
     QApplication.sendEvent(target, ev)
 
 
+
+class LayerPropsTest(unittest.TestCase):
+    """合成モード・クリッピング・透明部分の保護。レイヤーの欄のボタンから押し、重ねた絵の画素と、作業ファイル・PSD の往復で確かめる"""
+
+    def _three(self):
+        from PySide6.QtGui import QColor, QPainter
+        from atelier.panels.layer_panel import LayerPanel
+        w = window()
+        c = w.canvas
+        c.layers[0].image.fill(QColor("white"))
+        c.add_layer()
+        p = QPainter(c.layers[c.current].image)
+        p.fillRect(50, 50, 100, 100, QColor(100, 150, 200))
+        p.end()
+        c.add_layer()
+        p = QPainter(c.layers[c.current].image)
+        p.fillRect(0, 0, 200, 100, QColor(128, 128, 128))
+        p.end()
+        lp = w.findChild(LayerPanel)
+        lp.refresh()
+        return w, c, lp
+
+    def test_clip_and_multiply_from_panel(self):
+        w, c, lp = self._three()
+        lp.buttons["clip"].click()
+        lp.blend.setCurrentIndex(lp.blend.findData("multiply"))
+        lp.blend.activated.emit(lp.blend.currentIndex())
+        fl = c.flatten()
+        self.assertEqual(fl.pixelColor(10, 10).name(), "#ffffff")      # 土台の外には出ない
+        self.assertEqual(fl.pixelColor(100, 60).name(), "#324b64")     # 乗算（100×128/255 = 50）
+        self.assertEqual(c.undo_names[-2:], ["クリッピング", "合成モード"])
+        c.undo()
+        c.undo()
+        self.assertEqual((c.layers[-1].blend, c.layers[-1].clip), ("normal", False))   # 元に戻すで戻る
+
+    def test_merge_down_keeps_look(self):
+        w, c, lp = self._three()
+        c.set_layer_prop(c.current, "clip", True)
+        c.set_layer_prop(c.current, "blend", "multiply")
+        before = c.flatten()
+        c.merge_down()
+        after = c.flatten()
+        for pt in ((10, 10), (100, 60), (100, 120)):
+            self.assertEqual(before.pixelColor(*pt).name(), after.pixelColor(*pt).name())
+
+    def test_alpha_lock_paints_only_on_drawn(self):
+        from PySide6.QtGui import QColor
+        w, c, lp = self._three()
+        c.select(2)
+        lp.refresh()
+        lp.buttons["alpha_lock"].click()
+        w.tool_actions["pen"].trigger()
+        w.color_panel.set_color(QColor("red"))
+        w.size_box.setValue(20)
+        drag(c, [(20, 120), (180, 120)])
+        img = c.layers[2].image
+        self.assertEqual(img.pixelColor(20, 120).alpha(), 0)
+        self.assertEqual(img.pixelColor(100, 120).name(), "#ff0000")
+        w.tool_actions["eraser"].trigger()
+        drag(c, [(60, 130), (140, 130)])
+        self.assertEqual(c.layers[2].image.pixelColor(100, 130).alpha(), 255)   # 保護中の消しゴムは消さない
+
+    def test_project_and_psd_round_trip(self):
+        from tempfile import TemporaryDirectory
+        from atelier.files import project_file as pf
+        w, c, lp = self._three()
+        c.set_layer_prop(3, "clip", True)
+        c.set_layer_prop(3, "blend", "multiply")
+        c.set_layer_prop(2, "alpha_lock", True)
+        want = [(l.blend, l.clip, l.alpha_lock) for l in c.layers]
+        look = c.flatten().pixelColor(100, 60).name()
+        with TemporaryDirectory() as d:
+            pf.save(c, f"{d}/t.atelier")
+            pf.load(c, f"{d}/t.atelier")
+            self.assertEqual([(l.blend, l.clip, l.alpha_lock) for l in c.layers], want)
+            pf.export_psd(c, f"{d}/t.psd")
+            w.open_path(f"{d}/t.psd")          # 「開く」と同じ道で PSD を開く
+            w.wait_io()
+            self.assertEqual([(l.blend, l.clip, l.alpha_lock) for l in c.layers], want)
+            self.assertEqual([l.name for l in c.layers], ["背景", "レイヤー 1", "レイヤー 2", "レイヤー 3"])
+            self.assertEqual(c.flatten().pixelColor(100, 60).name(), look)
+
+
+class SelectionOpsTest(unittest.TestCase):
+    """選択範囲の足し引き（Shift で足す、Alt で引く）。四角の選択を帯から持ち、マウスで押して確かめる"""
+
+    def _drag(self, c, a, b, mod):
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+        vp = c.viewport()
+        pa, pb = c.mapFromScene(*a), c.mapFromScene(*b)
+        QTest.mousePress(vp, Qt.LeftButton, mod, pa)
+        QApplication.sendEvent(vp, QMouseEvent(QEvent.MouseMove, QPointF(pb), QPointF(vp.mapToGlobal(pb)), Qt.NoButton,
+                                               Qt.LeftButton, mod))
+        QTest.mouseRelease(vp, Qt.LeftButton, mod, pb)
+
+    def test_shift_adds_and_alt_subtracts(self):
+        from PySide6.QtCore import QPointF, Qt
+        w = window()
+        c = w.canvas
+        w.tool_actions["select"].trigger()
+        self._drag(c, (10, 10), (60, 60), Qt.NoModifier)
+        self._drag(c, (120, 120), (180, 180), Qt.ShiftModifier)
+        path = c.selection_path()
+        self.assertTrue(path.contains(QPointF(30, 30)) and path.contains(QPointF(150, 150)))
+        self.assertFalse(path.contains(QPointF(90, 90)))
+        self._drag(c, (20, 20), (40, 40), Qt.AltModifier)
+        path = c.selection_path()
+        self.assertFalse(path.contains(QPointF(30, 30)))
+        self.assertTrue(path.contains(QPointF(15, 15)) and path.contains(QPointF(150, 150)))
+        self._drag(c, (100, 10), (150, 50), Qt.NoModifier)   # キー無しは置き換え
+        self.assertFalse(c.selection_path().contains(QPointF(150, 150)))
+
+
 if __name__ == "__main__":
     unittest.main()

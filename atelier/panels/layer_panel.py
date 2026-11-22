@@ -95,6 +95,27 @@ class LayerPanel(QWidget):
         lay.setContentsMargins(4, 4, 4, 4)
         lay.addWidget(self.active)
         lay.addWidget(self.list, 1)
+        # 合成モード・クリッピング・透明部分の保護。作画ソフトではレイヤーの欄の上に並ぶ毎日の操作なので、メニューの奥に入れない
+        from PySide6.QtWidgets import QComboBox
+        from atelier.paint.canvas import BLEND_MODES
+        props = QHBoxLayout()
+        props.setSpacing(2)
+        self.blend = QComboBox()
+        for key, (label, _psd, _m) in BLEND_MODES.items():
+            self.blend.addItem(label, key)
+        self.blend.setToolTip("合成モード。乗算は影、スクリーン・加算は光、オーバーレイは色味を重ねるのに使います")
+        self.blend.activated.connect(lambda _i: self._set_prop("blend", self.blend.currentData()))
+        props.addWidget(self.blend, 1)
+        for key, label, tip in (("clip", "クリップ", "下のレイヤーでクリッピングします。下の絵の描いてある所にだけ見え、はみ出しません"),
+                                ("alpha_lock", "保護", "透明部分を保護します。描いてある所の上にだけ塗れます（線画の色替え・影）")):
+            bt = QToolButton()
+            bt.setText(label)
+            bt.setCheckable(True)
+            bt.setToolTip(tip)
+            bt.toggled.connect(lambda on, k=key: self._set_prop(k, on))
+            props.addWidget(bt)
+            self.buttons[key] = bt
+        lay.addLayout(props)
         lay.addWidget(self.opacity)
         lay.addLayout(row)
         # 線を引くたびに縮小図を作り直すと重いので、手を離してから少し待って 1 回だけ作る
@@ -139,14 +160,18 @@ class LayerPanel(QWidget):
         for i in reversed(range(len(c.layers))):
             layer = c.layers[i]
             on = i == c.current
-            item = QListWidgetItem(QIcon(thumbnail(layer.image)), layer.name)
+            from atelier.paint.canvas import BLEND_MODES
+            mode = BLEND_MODES.get(layer.blend, BLEND_MODES["normal"])[0] if layer.blend != "normal" else ""
+            # クリッピングは CLIP STUDIO PAINT と同じく字下げと印で示し、どの絵に掛かっているかを一目で分かるようにする
+            item = QListWidgetItem(QIcon(thumbnail(layer.image)), ("　┗ " if layer.clip else "") + layer.name
+                                   + (f"（{mode}）" if mode else ""))
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable)
             item.setCheckState(Qt.Checked if layer.visible else Qt.Unchecked)
             item.setData(ROLE_INDEX, i)
             f = QFont(item.font())
             f.setBold(on)
             item.setFont(f)
-            marks = ("✎ " if on else "") + ("ロック中 " if layer.locked else "")
+            marks = ("✎ " if on else "") + ("ロック中 " if layer.locked else "") + ("透明部分を保護 " if layer.alpha_lock else "")
             item.setToolTip(marks + layer.name + ("（隠しています）" if not layer.visible else ""))
             self.list.addItem(item)
             if on and keep_item is None:
@@ -159,6 +184,14 @@ class LayerPanel(QWidget):
             self.opacity.setValue(int(layer.opacity * 100))
             self.opacity.blockSignals(False)
             self.buttons["lock"].setChecked(layer.locked)
+            self.blend.blockSignals(True)
+            self.blend.setCurrentIndex(max(0, self.blend.findData(layer.blend)))
+            self.blend.blockSignals(False)
+            for k in ("clip", "alpha_lock"):
+                self.buttons[k].blockSignals(True)
+                self.buttons[k].setChecked(getattr(layer, k))
+                self.buttons[k].blockSignals(False)
+            self.buttons["clip"].setEnabled(c.current > 0 or layer.clip)
             state = "（ロック中）" if layer.locked else "（隠しています）" if not layer.visible else ""
             self.active.setText(f"✎ 描くレイヤー: {layer.name}{state}")
         self.buttons["delete"].setEnabled(len(c.layers) > 1 or bool(pen is not None and pen.marks))
@@ -197,12 +230,24 @@ class LayerPanel(QWidget):
         visible = item.checkState() == Qt.Checked
         if visible != layer.visible:
             self.canvas.set_visible(i, visible)
-        if item.text().strip() and item.text() != layer.name:
+        text = self.plain_name(item.text(), layer)
+        if text.strip() and text != layer.name:
             # 一覧の中で一覧を作り直すと、編集中の項目を消して落ちることがあるので、あとで描き直す
-            name = item.text()
+            name = text
             QTimer.singleShot(0, lambda: self.canvas.rename_layer(i, name))
         else:
             QTimer.singleShot(0, self.refresh)
+
+    @staticmethod
+    def plain_name(text: str, layer) -> str:
+        """一覧の見出しから、クリッピングの印と合成モードの添え書きを外した名前（名前を変えたときに印を名前に入れない）"""
+        from atelier.paint.canvas import BLEND_MODES
+        if text.startswith("　┗ "):
+            text = text[len("　┗ "):]
+        mode = BLEND_MODES.get(layer.blend, BLEND_MODES["normal"])[0]
+        if layer.blend != "normal" and text.endswith(f"（{mode}）"):
+            text = text[:-len(f"（{mode}）")]
+        return text
 
     def _moved(self, _parent, start, _end, _dest, row):
         """ドラッグで並べ替えたとき。一覧の行（上が一番上のレイヤー）をキャンバスの順に直す"""
@@ -277,6 +322,12 @@ class LayerPanel(QWidget):
         item = self.list.item(self.row_of(self.canvas.current))
         if item is not None:
             self.list.editItem(item)
+
+    def _set_prop(self, key: str, value):
+        c = self.canvas
+        if c.layers:
+            c.set_layer_prop(c.current, key, value)
+            self.refresh()
 
     def toggle_lock(self):
         c = self.canvas

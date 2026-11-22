@@ -37,6 +37,9 @@ class CanvasMenuMixin:
             if here is not None and c.layers:
                 a = how.addAction("ここを自動選択で印にする", lambda: self.run_autosel((here.x(), here.y()), None, "redpen"))
                 a.setToolTip("右クリックした所の物を AI が選び、赤ペンの印にします")
+        if c.tool in ("fill", "pen"):
+            self.tool_settings_menu(m)   # 今の道具の設定は一番上の段で 1 回で選べるようにする
+            m.addSeparator()
         if c.redpen.marks or c.selection is not None:
             # 「描く」を直すにして押すのと同じ道を通す（右クリックから仕上げと同じ手数で直せるように）
             m.addAction("囲んだ所を直す", self.fix_marked).setEnabled(not self.thread)
@@ -74,6 +77,7 @@ class CanvasMenuMixin:
         for key in ("pen", "eraser", "eyedropper", "select", "lasso", "polygon", "autosel", "hand", "redpen"):
             if key in self.tool_actions:
                 tools.addAction(self.tool_actions[key])
+        self.tool_settings_menu(tools)
         shapes = tools.addMenu("図形")
         for key in ("line", "rect", "ellipse", "polyshape", "regpoly"):
             shapes.addAction(self.tool_actions[key])
@@ -111,6 +115,45 @@ class CanvasMenuMixin:
             "項目を出す・隠す・並べ替える、言葉の指示を項目として足す")
         self.arrange_context("キャンバス", m)
         return m
+
+    FILL_CHOICES = {
+        "fill_gap": ("隙間閉じ", ((0, "しない"), (2, "小（2 画素）"), (4, "中（4 画素）"), (8, "大（8 画素）")),
+                     "線の切れ目がこの幅までなら、外へ漏れずに止めます"),
+        "fill_expand": ("領域拡縮", ((0, "しない"), (1, "1 画素広げる"), (2, "2 画素広げる"), (-1, "1 画素縮める")),
+                        "線のふちの薄い画素の下まで塗り、白い塗り残しを出しません"),
+        "fill_ref": ("参照するレイヤー", (("all", "見えている絵全部"), ("layer", "今のレイヤーだけ")),
+                     "どの絵の色で塗る範囲を決めるか。線画を別のレイヤーにしているときは「見えている絵全部」"),
+        "fill_tolerance": ("色の誤差", ((8, "小"), (24, "中"), (64, "大")), "近い色とみなす幅"),
+    }
+    TAPER_CHOICES = ((0.0, "無し"), (1.5, "短い"), (3.0, "中"), (6.0, "長い"))
+
+    def tool_settings_menu(self, parent):
+        """塗りつぶしと入り抜きの設定（今の値に印を付ける）。選んだ値はキャンバスに持ち、次に押したときから効く"""
+        from PySide6.QtGui import QActionGroup
+        c = self.canvas
+        fill = parent.addMenu("塗りつぶしの設定")
+        fill.setToolTipsVisible(True)
+        for attr, (title, choices, tip) in self.FILL_CHOICES.items():
+            sub = fill.addMenu(title)
+            sub.setToolTipsVisible(True)
+            group = QActionGroup(sub)
+            for value, label in choices:
+                act = sub.addAction(label, lambda a=attr, v=value: setattr(c, a, v))
+                act.setCheckable(True)
+                act.setChecked(getattr(c, attr) == value)
+                act.setToolTip(tip)
+                group.addAction(act)
+        brush = c.brush
+        for attr, title in (("taper_in", "入り"), ("taper_out", "抜き")):
+            sub = parent.addMenu(f"{title}（{brush.name}）")
+            sub.setToolTipsVisible(True)
+            group = QActionGroup(sub)
+            for value, label in self.TAPER_CHOICES:
+                act = sub.addAction(label, lambda a=attr, v=value: setattr(c.brush, a, v))
+                act.setCheckable(True)
+                act.setChecked(abs(getattr(brush, attr) - value) < 1e-6)
+                act.setToolTip("線の始めを細くします" if attr == "taper_in" else "線の終わりを細くします（手を離したときに掛かります）")
+                group.addAction(act)
 
     # ---- どこで右クリックしても出るメニュー ----
     AREA_NAMES = {"color": "色", "brushes": "ブラシ", "library": "ライブラリー", "chat": "AI", "history": "履歴",
