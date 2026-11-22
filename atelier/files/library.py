@@ -25,6 +25,42 @@ def _tags(text: str) -> list[str]:
     return [t.strip().lower() for t in (text or "").replace("\n", ",").split(",") if t.strip()]
 
 
+def _normalize(rows) -> list[dict]:
+    """読んだ一覧の行を、欄のそろった形にする。CharacterDesigner から引き継いだ index.json や前の版の行には
+    id・kind・rating の無い行、道が None の行、辞書でない行があり、読んだだけで起動が落ちた。
+    道の無い行は絵を指していないので外し、ほかの欠けた欄は既定の値で埋める"""
+    if not isinstance(rows, list):
+        return []
+    out, ids = [], set()
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("path"), str) or not row["path"].strip():
+            continue
+        row = dict(row)
+        if not isinstance(row.get("id"), str) or row["id"] in ids:
+            row["id"] = uuid.uuid4().hex[:12]
+        ids.add(row["id"])
+        if row.get("kind") not in ("work", "doc"):
+            row["kind"] = "work"
+        if row.get("rating") not in (LIKE, NONE, DISLIKE):
+            row["rating"] = NONE
+        if not isinstance(row.get("tags"), list):
+            row["tags"] = []
+        row["tags"] = [str(t) for t in row["tags"] if t]
+        for key in ("added", "text", "prompt", "style", "model", "note"):
+            if not isinstance(row.get(key), str):
+                row[key] = ""
+        out.append(row)
+    return out
+
+
+def exists(item: dict) -> bool:
+    """項目の絵のファイルがあるか。消された・動かされた・別の機械の道（C:\\ など）を指す項目は False"""
+    try:
+        return Path(item.get("path") or "").is_file()
+    except (OSError, ValueError):
+        return False
+
+
 class Library:
     def __init__(self, root: Path | None = None):
         from atelier.files.paths import HOME
@@ -38,6 +74,7 @@ class Library:
             self.items = json.loads(self.index.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.items = []
+        self.items = _normalize(self.items)
         self._drop_redpen_results()
 
     def _drop_redpen_results(self):
@@ -122,7 +159,10 @@ class Library:
             return
         self.items.remove(item)
         if item["kind"] == "doc":
-            Path(item["path"]).unlink(missing_ok=True)
+            try:
+                Path(item["path"]).unlink(missing_ok=True)
+            except OSError:
+                pass   # 別の機械の道や読めない場所。一覧から外すだけにする
         self.save()
 
     def take(self, paths: list[str]) -> list[dict]:
@@ -140,6 +180,18 @@ class Library:
         self.items.extend(i for i in items if i["id"] not in have)
         self.items.sort(key=lambda i: i.get("added", ""), reverse=True)
         self.save()
+
+    def relocate(self, item_id: str, path: str) -> bool:
+        """ファイルが無い項目の道を、利用者が探した場所に付け替える"""
+        item = self.get(item_id)
+        if not item or not Path(path).is_file():
+            return False
+        item["path"] = str(path)
+        self.save()
+        return True
+
+    def missing(self) -> list[dict]:
+        return [i for i in self.items if not exists(i)]
 
     def works(self) -> list[dict]:
         return [i for i in self.items if i["kind"] == "work"]

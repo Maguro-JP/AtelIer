@@ -96,6 +96,15 @@ def fit_heights(w, keys: list[str], final: bool = False):
     w.resizeDocks(docks, want, Qt.Vertical)
 
 
+def _top_first(w, keys: list[str]):
+    """上の欄から中身が収まる高さを配り、残りを最後の欄（一覧）に回す。全部は収まらない低い画面でも、
+    タブにまとめず、伸び縮みしても困らない一覧だけを縮める"""
+    docks = [w.panels[k][0] for k in keys]
+    room = sum(d.height() for d in docks) or max(w.height() - 120, 400)
+    want = [need(w, k) for k in keys[:-1]]
+    w.resizeDocks(docks, want + [max(120, room - sum(want))], Qt.Vertical)
+
+
 def settle(w):
     """並べ終わったあとと、ウィンドウの大きさが変わったあとに、中身が収まらない欄のある列だけ高さを配り直す。
     ウィンドウを広げると Qt は増えた高さを今の比で配り、色の欄のように中身の多い欄が足りないまま残った。
@@ -180,11 +189,13 @@ def _progress_idle(w):
 
 def recommended(w):
     """おすすめ（初めの配置）。絵を広く見せるため、リボンと下の帯は出さず、道具はよく使うものだけにする。
-    左に色とレイヤー、右の上に表示、右の中に AI の設定、右の下に履歴、真ん中の上に進み、真ん中の下にチャット"""
+    左に色とレイヤー、右の上に AI の設定、右の下に履歴（裏のタブに表示とライブラリー）、真ん中の上に進み、真ん中の下にチャット"""
     _reset(w)
     bars(w, ribbon=False, tools=ESSENTIAL_TOOLS)
     _column(w, L, ["color", "layers"], [5, 5])
     _hide(w, ["brushes"])
+    # 右は AI と履歴の 2 段（表示とライブラリーは履歴の裏のタブ）。表示を AI の上に積むと、1366×768 で
+    # AI の欄が描くワードの入れ物も見えないほど潰れ、タブが切れて流す棒が出た（0.1.5 の並びに戻す）
     _column(w, R, ["chat", "history"], [5, 5])
     _tabs(w, ["history", "view", "library"])
     w.panels["history"][0].raise_()

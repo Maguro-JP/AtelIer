@@ -91,6 +91,9 @@ class FilesMixin:
 
     def open_path(self, path: str, restore: bool = False):
         from atelier.files import project_file as project
+        if not Path(path).is_file():   # 消した・動かした絵。黙って白いキャンバスにしない
+            self.notify("開けませんでした", "error", f"ファイルが見つかりません（{path}）")
+            return
         self.work_save()
         self.inspect_prompt = ""   # 開いた絵は描いた言葉が分からない。前の絵の言葉で頼んだ物を検品しない
         self.work_key = None   # 作業ファイル・手元の絵は、そのファイルに保存する（絵ごとの作業の置き場は使わない）
