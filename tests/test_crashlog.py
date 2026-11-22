@@ -22,9 +22,14 @@ class CrashLogTest(unittest.TestCase):
                     t = threading.Thread(target=lambda: 1 / 0, name="描く糸")
                     t.start()
                     t.join()
-                    got = crashlog.last_crash(start)
-                    self.assertIn("ZeroDivisionError", got)
-                    self.assertIn("描く糸", got)
+                    text = log.read_text(encoding="utf-8")
+                    self.assertIn("ZeroDivisionError", text)   # 裏の糸の例外は記録に残す
+                    self.assertIn("描く糸", text)
+                    # 捕まえて続けた例外では、次の起動で知らせない（前は起動のたびに知らせが出た）
+                    self.assertEqual(crashlog.last_crash(start), "")
+                    with open(log, "a", encoding="utf-8") as f:
+                        f.write("Windows fatal exception: access violation\n")
+                    self.assertIn("fatal", crashlog.last_crash(start))   # アプリごと落ちたときだけ知らせる
                     self.assertEqual(crashlog.last_crash(log.stat().st_size), "")   # 見たあとの分は空
                 finally:
                     import faulthandler

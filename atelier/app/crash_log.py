@@ -63,4 +63,6 @@ def last_crash(since_size: int) -> str:
     except OSError:
         return ""
     tail = data[since_size:]
-    return tail if ("Fatal Python error" in tail or "Traceback" in tail) else ""
+    # 知らせるのはアプリごと落ちたときだけ（faulthandler の Fatal Python error / Windows fatal exception）。
+    # 前は捕まえて続けた例外（Traceback）でも起動のたびに知らせ、落ちていないのに毎回「記録があります」が出た
+    return tail if ("Fatal Python error" in tail or "Windows fatal exception" in tail) else ""
