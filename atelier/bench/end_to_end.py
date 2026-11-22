@@ -182,8 +182,13 @@ def main():
             walk(m)
             m.deleteLater()
             qapp.processEvents()
+        # 絵を置いたので未保存の変更があり、閉じると「保存しますか」の窓が exec で出たまま戻らない
+        # （見る人がいない機械で 30 分止まった）。保存は見ない段なので、変更なしとして閉じる
+        w.dirty = False
         w.close()
         qapp.processEvents()
+        if w.isVisible():
+            raise RuntimeError("右クリックの段の窓が閉じない")
         return {"items": len(seen)}
 
     def phases_draw():
