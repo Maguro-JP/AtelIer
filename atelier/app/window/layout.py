@@ -421,9 +421,17 @@ class LayoutMixin:
         return m
 
     def notify(self, text: str, kind: str = "info", detail: str = "", on_click=None):
-        """右下に短い知らせを出す（数秒で消える。作業は止めない）"""
+        """右下に知らせを出す（作業は止めない）。出すか・何秒で消すか・押すまで残すかは設定の「通知」で種類ごとに決める。
+        出さない種類も、進み具合の欄の「知らせ」には必ず残す（あとから見返せるように）"""
         from atelier.ui.notice import Notice
-        return Notice(self, text, kind, detail=detail, on_click=on_click)
+        from atelier.ui.notice_rules import KEEP, OFF, rule
+        act = getattr(self, "activity", None)
+        if act is not None and hasattr(act, "note"):
+            act.note(text + (f"　{detail}" if detail else ""), kind)
+        how, sec = rule(getattr(self, "settings", None), kind)
+        if how == OFF:
+            return None
+        return Notice(self, text, kind, ms=None if how == KEEP else sec * 1000, detail=detail, on_click=on_click)
 
     def build_ribbon(self):
         """上部のリボン。メニューと同じ操作を、タブごとに大きなアイコンで並べる"""
