@@ -721,6 +721,11 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
                   "rotate_reset", "flip_view", "view_reset", None, "grid", "op_history"):
             view.addAction(S[k]) if k else view.addSeparator()
         view.addSeparator()
+        # 描いた絵を並べて比べる（atelier/ui/command_palette.py）。履歴は小さな絵が縦に並ぶだけで、2 枚の違いが見にくかった
+        self.compare_action = QAction("描いた絵を並べて比べる", self, shortcut="Ctrl+Shift+K", triggered=self.compare_images)
+        self.compare_action.setToolTip("履歴で選んだ絵（選んでいなければ新しい 4 枚）を横に並べて比べます（Ctrl+Shift+K）")
+        view.addAction(self.compare_action)
+        view.addSeparator()
         self.build_fullscreen_menu(view)
         view.addSeparator()
         self.build_symmetry_menu(view.addMenu("対称定規"))
@@ -986,6 +991,11 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         self._show_model()
         help_menu = self.menuBar().addMenu("ヘルプ")
         help_menu.addAction(S["tour"])
+        # メニューの奥の操作を名前の一部で呼ぶ。メニューの QAction をそのまま呼ぶので、同じ名前で違う動きにならない
+        self.palette_action = QAction("操作を探す…", self, shortcut="Ctrl+K", shortcutContext=Qt.ApplicationShortcut,
+                                      triggered=self.open_palette)
+        self.palette_action.setToolTip("操作の名前の一部を打って、メニューの操作を探して呼びます（Ctrl+K）")
+        help_menu.addAction(self.palette_action)
         help_menu.addAction(QAction("操作方法", self, triggered=lambda: self.open_help("manual")))
         help_menu.addAction(QAction("落ちた記録を開く", self, triggered=self.open_crashlog))
         help_menu.addAction(QAction("手順書（入れ方・模型の置き方・困ったとき）", self, triggered=lambda: self.open_help("install")))

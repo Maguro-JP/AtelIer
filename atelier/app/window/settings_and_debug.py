@@ -62,6 +62,28 @@ class SettingsAndDebugMixin:
         from atelier.ui.help_view import HelpDialog
         HelpDialog(key, self).show()
 
+    def open_palette(self):
+        """操作を探す窓（Ctrl+K）"""
+        from atelier.ui.command_palette import CommandPalette
+        self.cmd_palette = CommandPalette(self)
+        self.cmd_palette.open()
+        return self.cmd_palette
+
+    def compare_images(self):
+        """履歴で選んだ絵を並べる。1 枚以下なら新しい順に 4 枚まで"""
+        from PySide6.QtCore import Qt
+        from atelier.ui.command_palette import CompareDialog
+        items = [it for it in self.history.selectedItems() if it.data(Qt.UserRole)]
+        if len(items) < 2:
+            items = [self.history.item(r) for r in range(min(4, self.history.count()))]
+            items = [it for it in items if it.data(Qt.UserRole)]
+        if len(items) < 2:
+            self.statusBar().showMessage("比べる絵が 2 枚以上ありません。描くと履歴に並びます", 6000)
+            return None
+        self.compare = CompareDialog(self, [(it.data(Qt.UserRole), it.toolTip()) for it in items[:8]])
+        self.compare.open()
+        return self.compare
+
     def open_logs(self):
         """記録（atelier.log、setup.log）の置き場を開く。困ったときに中を見たり、渡したりするため"""
         from atelier.files.folders import open_folder
