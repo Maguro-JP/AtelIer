@@ -226,7 +226,10 @@ class AiResultsMixin:
             self._debug_failure(result, "\n".join(job.reasons), getattr(job, "trace", ""))
         self.activity.end(result, None, record=False)
         if undone:
-            self.say("未完成です。残った崩れ: " + "、".join(bad[:5]))
+            ask = getattr(studio, "last_asked", None) or {}
+            # 精度優先は直せない崩れで止まる。描き直し続けずに、どこで止まったかと直し方の候補を出して利用者に選んでもらう
+            how = ("。「" + ask["phase"] + "」で止めました。直し方: " + "、".join(ask.get("choices") or [])) if ask.get("phase") else ""
+            self.say("未完成です。残った崩れ: " + "、".join(bad[:5]) + how)
         else:
             self.say(result if fixed else f"{n} 枚描きました。履歴から選べます" if n > 1 else "描きました")
         self.notify(result if fixed or undone else "描けました", "error" if bad else "ok",

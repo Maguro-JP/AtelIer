@@ -2245,6 +2245,7 @@ class Studio:
         # phases.draw が返るのは全部の工程が検品を通ったときだけ（崩れが残る間は工程を足して続け、止めたときは Stopped で抜ける）
         self.last_passed = bool(checked and not left and got.get("complete"))
         self.last_left = list(left)
+        self.last_asked = got.get("asked")   # 窓が「どこで止めたか・直し方」を出す
         if got.get("complete"):
             say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
         else:   # 囲みで直せなかった崩れが残った。描き直し続けずに止め、残った崩れと直し方の候補を利用者に出す

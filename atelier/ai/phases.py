@@ -675,8 +675,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             mask = _mask(img.size, [(fb, "face")])
         elif any(k in words for k in ("人数", "腕", "脚", "頭", "骨", "重心", "等身", "体", "輪郭", "色", "影", "光", "主役",
                                       "手", "指", "足", "検品できません")):
-            m = pt.silhouette(img)
-            if m.sum() >= 50:
+            seg = pt.parts(img)   # 部位分けがあれば人の所だけ。無ければ紙でない所（背景のある絵では背景まで入る）
+            m = (seg > 0) if seg is not None else pt.silhouette(img)
+            # 人の形が絵の半分を超えたら、背景まで人と読んでいる。広く消すと物が変わるので囲めない崩れとして利用者に聞く
+            # （Actions の構図の絵では、紙の色で読んだ人の形が空と海を含んで絵の 63% になり、背景が砂嵐になった）
+            if m.sum() >= 50 and m.mean() <= GROW_MOST:
                 mask = Image.fromarray((m * 255).astype("uint8"))
         if mask is None or np.asarray(mask.convert("L")).max() == 0:
             return None
