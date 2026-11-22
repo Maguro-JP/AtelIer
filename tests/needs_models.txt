@@ -13,6 +13,7 @@ test_layerkeep
 test_memory
 test_menuaudit
 test_nobreak
+test_panels
 test_pause
 test_presetui
 test_qcmanual
