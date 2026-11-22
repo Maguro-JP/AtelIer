@@ -270,11 +270,13 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         way_row.addWidget(self.way_pick, 1)
         outer = self.ai_panel.layout()
         outer.insertLayout(max(0, outer.indexOf(line)), way_row)
-        line.addWidget(count_label)
-        # 描くボタンが横に伸びると、数の欄が幅 0 に潰れて見えなくなった。数が読めて打てる幅を必ず取る
+        # 枚数は描き方の行に置く。描くボタンの帯に並べると、欄の幅で描くボタンが「描」の 1 文字に潰れた
+        way_row.addWidget(count_label)
+        # 数が読めて打てる幅を必ず取る（幅 0 に潰れて見えなくなったことがある）
         self.ai_panel.count_spin.setMinimumWidth(self.ai_panel.count_spin.fontMetrics().horizontalAdvance("9999") + 40)
-        line.addWidget(self.ai_panel.count_spin)
+        way_row.addWidget(self.ai_panel.count_spin)
         line.addWidget(self.button, 1)
+        self.button.setMinimumWidth(self.button.fontMetrics().horizontalAdvance(self.button.text() or "描く") + 24)
         line.addWidget(self.stop_button)
         # 書く欄の下のボタン。登録した言葉（★）を先に、そのあとに直近に頼んだ言葉を新しい順に並べる。
         # 押すと書く欄に入り、ダブルクリックでそのまま描く。右クリックで登録・外す・消す。書く欄で ↑↓ でも呼び出せる
