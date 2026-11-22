@@ -33,8 +33,10 @@ SetCompressor /SOLID lzma
   !define LNK_ICON "$INSTDIR\python\pythonw.exe"
 !endif
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\python\pythonw.exe"
-!define MUI_FINISHPAGE_RUN_PARAMETERS "-E -s -m atelier"
+; 終わりの「起動する」は、エクスプローラーにショートカットを開かせて、ふつうの権限で起動する。
+; Setup.exe は管理者で動くので、そのまま Exec すると アプリまで管理者で動き、あとでふつうに開いたときと置き場の権限や設定がずれる
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
 !define MUI_FINISHPAGE_RUN_TEXT "AtelIer を起動する"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
@@ -45,8 +47,30 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "Japanese"
 
 
+Function LaunchApp
+  SetShellVarContext all
+  Exec '"$WINDIR\explorer.exe" "$SMPROGRAMS\${APP}\${APP}.lnk"'
+FunctionEnd
+
 Section "AtelIer" SecMain
   SectionIn RO
+  ; 前の版のアプリ（pythonw.exe）が動いていると python\ の中が消せず、上書きで「書き込めません」の窓が出て入れられない。
+  ; 「更新を確かめる」から開いたときや、前の Setup.exe の終わりで起動したままのときに起きる。入れた所の python から動く物だけを閉じる
+  ; 動いているかを見て、動いていれば閉じてよいかを聞く（黙って入れる /S のときは閉じる）
+  StrCpy $3 "$INSTDIR\python\"
+  StrCpy $4 "$$p = @(Get-Process python,pythonw -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.StartsWith('$3', 'OrdinalIgnoreCase') })"
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$4; exit $$p.Count"'
+  Pop $0
+  ${If} $0 != "0"
+  ${AndIf} $0 != "error"
+  ${AndIf} $0 != "timeout"
+    MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "AtelIer が動いています。閉じてから入れます。$\r$\n保存していない絵があれば、「キャンセル」を押してアプリで保存してから、もう一度 Setup.exe を開いてください。" /SD IDOK IDOK close_app
+      Abort "AtelIer が動いていたので、入れるのをやめました"
+    close_app:
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$4; $$p | Stop-Process -Force; Start-Sleep -Seconds 2"'
+    Pop $0
+    DetailPrint "動いていた AtelIer を閉じました"
+  ${EndIf}
   ; 更新のとき、前のプログラムを先に消す（消したファイルが残って古いまま読まれないように）
   RMDir /r "$INSTDIR\atelier"
   RMDir /r "$INSTDIR\tools"
