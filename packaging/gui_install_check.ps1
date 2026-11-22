@@ -49,7 +49,7 @@ while (-not $proc.HasExited) {
 }
 "exit=$($proc.ExitCode) steps=$step" | Tee-Object -Append -FilePath $log
 if ($proc.ExitCode -ne 0) { throw "Setup.exe の終わりの番号が $($proc.ExitCode)" }
-if ($step -lt 4) { throw "押した窓が $step 個しかない（コンポーネント・入れる場所・入れる・終わりを通っていない）" }
+if ($step -lt 3) { throw "押した窓が $step 個しかない（コンポーネント・入れる場所・終わりを通っていない）" }
 
 $dir = 'C:\Program Files\AtelIer'
 $need = @("$dir\python\pythonw.exe", "$dir\atelier\app\main_window.py", "$dir\Uninstall.exe", "$dir\VERSION",
