@@ -97,7 +97,7 @@ for t in call("finishers.available", finishers.available) or []:
         continue
     call(f"finishers.run {t['name']}", finishers.run, t["name"], img)
 for name in ("retouch", "inking", "atmosphere", "materials", "upscale", "detail", "edit", "measure", "normlearn",
-             "faceform", "facecheck", "feet", "hands", "bible", "tagger"):
+             "faceform", "facecheck", "feet", "hands", "tagger"):
     call(f"finishers._gen {name}", finishers._gen, name)
 json.dump({"fails": fails, "notes": notes}, open(out_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 '''
@@ -150,7 +150,7 @@ class BundleTest(unittest.TestCase):
         """build.sh が手で並べた一覧に戻っていないこと"""
         sh = (ROOT / "packaging" / "build.sh").read_text(encoding="utf-8")
         self.assertIn("bundle_list.py", sh)
-        self.assertNotIn("tools/gen/hands.py tools/gen/cdhome.py", sh)
+        self.assertNotIn("tools/gen/hands.py tools/gen/data_home.py", sh)
 
 
 if __name__ == "__main__":

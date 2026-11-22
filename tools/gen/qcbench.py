@@ -1,4 +1,4 @@
-"""検品単体（chatdraw/qcmanual.inspect、アプリの「検品する」と同じ経路）の精度の台。
+"""検品単体（atelier/qc/manual_check.inspect、アプリの「検品する」と同じ経路）の精度の台。
 
     PYTHONPATH=.cache/simple/lib:.cache/gen/lib python3 tools/gen/qcbench.py [--limit N] [--json 出力.json]
 
@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools" / "gen"))
-from cdhome import HOME  # noqa: E402  置き場を組むのは cdhome だけ
+from data_home import HOME  # noqa: E402  置き場を組むのは data_home だけ
 FEEDBACK = ROOT / "library" / "feedback"
 CACHE = HOME / "qcbench"
 # 検品の仕組みを直したら上げる。貯めた結果を古い検品のまま使わず、途中で止まっても続きから測れる

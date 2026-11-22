@@ -46,7 +46,7 @@ python3 -m pip install $W --target "$SP" pip "PySide6-Essentials==6.9.3" numpy P
 
 echo "== 同梱物の欠けを見る"
 missing=""
-for f in VERSION python/python.exe python/pythonw.exe atelier/app/main_window.py atelier/qc/hand_check.py atelier/qc/request_check.py tools/gen/hands.py tools/gen/tagger.py tools/gen/cdhome.py atelier/ui/help/install.md atelier/ui/help/manual.md atelier/ui/help_view.py atelier/app/migrate.py atelier/files/paths.py atelier/models/first_setup.py \
+for f in VERSION python/python.exe python/pythonw.exe atelier/app/main_window.py atelier/qc/hand_check.py atelier/qc/request_check.py tools/gen/hands.py tools/gen/tagger.py tools/gen/data_home.py atelier/ui/help/install.md atelier/ui/help/manual.md atelier/ui/help_view.py atelier/app/migrate.py atelier/files/paths.py atelier/models/first_setup.py \
          python/Lib/site-packages/PySide6 python/Lib/site-packages/numpy python/Lib/site-packages/PIL \
          python/Lib/site-packages/huggingface_hub python/Lib/site-packages/pip; do
   [ -e "$SRC/$f" ] || missing="$missing $f"

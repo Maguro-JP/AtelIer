@@ -16,7 +16,7 @@
   PYTHONPATH=.cache/gen/lib python3 tools/gen/layers.py <デザイン画.png> <出力フォルダ> --scene "<背景の言葉（英語）>" \
       [--light front|left|right|back] [--seed 7] [--height 0.8] [--x 0.5] [--blend 0.3 --prompt "<人物の言葉>"]
 """
-import cdhome
+import data_home
 import argparse
 import json
 import tempfile
@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault("HF_HOME", str(cdhome.HOME / "gen" / "hf"))
+os.environ.setdefault("HF_HOME", str(data_home.HOME / "gen" / "hf"))
 # 模型は既定で外から取りに行かない。呼んだ関数が手元に無い模型を指していると、数 GB を取りに行って
 # ディスクを埋めた（2026-10-14 に 2 回）。初めて取るときだけ ATELIER_FETCH=1 を付けて動かす
 os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("ATELIER_FETCH") == "1" else "1")
@@ -61,7 +61,7 @@ def anime_cut(src):
     global _REMBG
     import design
     from rembg import new_session, remove
-    os.environ.setdefault("U2NET_HOME", str(cdhome.HOME / "gen" / "u2net"))
+    os.environ.setdefault("U2NET_HOME", str(data_home.HOME / "gen" / "u2net"))
     if _REMBG is None:
         _REMBG = new_session("isnet-anime")
     out = remove(Image.open(src).convert("RGB"), session=_REMBG)

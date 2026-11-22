@@ -133,19 +133,19 @@ def ensure_shared():
         readme.write_text(README, encoding="utf-8")
 
 
-# 部品（tools/gen）の置き場は cdhome.HOME を data_home() に直接向け、環境変数は変えない
+# 部品（tools/gen）の置き場は data_home.HOME を data_home() に直接向け、環境変数は変えない
 
 
 def use_tools_gen():
-    """tools/gen の部品を読めるようにし、その置き場（cdhome.HOME）をアプリのデータの置き場に向ける。
+    """tools/gen の部品を読めるようにし、その置き場（data_home.HOME）をアプリのデータの置き場に向ける。
     環境変数 ATELIER_HOME は書き換えない（書き換えると data_home() がずれ、利用者の設定が読めなくなる）"""
     gen = ROOT / "tools" / "gen"
     if str(gen) not in sys.path:
         sys.path.insert(0, str(gen))
-    import cdhome
+    import data_home as data_home_module
     if not os.environ.get("ATELIER_HOME"):
-        cdhome.HOME = data_home()
-    return cdhome
+        data_home_module.HOME = data_home()
+    return data_home_module
 
 
 def keep_broken(path: Path) -> Path | None:

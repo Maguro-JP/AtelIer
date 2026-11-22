@@ -3,11 +3,11 @@
 # .cache/engine に取ってくる。どれも数百 MB あるのでリポジトリには入れない。
 # 取り直しは .cache/engine を消してから流す。
 set -eu
-D="${ATELIER_HOME:-$(cd "$(dirname "$0")/../.." && pwd)/.cache}/engine"  # 置き場所は tools/gen/cdhome.py と同じ決め方
+D="${ATELIER_HOME:-$(cd "$(dirname "$0")/../.." && pwd)/.cache}/engine"  # 置き場所は tools/gen/data_home.py と同じ決め方
 mkdir -p "$D"
 cd "$D"
 # bpy 4.2.0 は Python 3.11 向けの版しか無い。既定の python3 が 3.11 でなければ python3.11 で入れ、
-# どの Python で動かすかを bpy/.python に残す（tools/gen/bible.py の bpy_python が読む）
+# どの Python で動かすかを bpy/.python に残す
 PY=python3
 if ! python3 -c 'import sys; sys.exit(sys.version_info[:2] != (3, 11))' && command -v python3.11 >/dev/null; then PY=python3.11; fi
 if [ ! -d bpy ]; then

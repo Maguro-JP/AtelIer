@@ -1,4 +1,4 @@
-"""見逃した手を崩れた手として足す、と、検品を通った絵でも、手・足・顔の枠をすべて細部の描き直しに回す（chatdraw/handcheck.detail_regions）"""
+"""見逃した手を崩れた手として足す、と、検品を通った絵でも、手・足・顔の枠をすべて細部の描き直しに回す（atelier/qc/hand_check.detail_regions）"""
 import unittest
 
 from atelier.qc import hand_check as handcheck

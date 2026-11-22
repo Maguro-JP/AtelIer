@@ -1,4 +1,4 @@
-"""絵の中の足の指を数える。描き終わるたびの検品（chatdraw/handcheck.py）から呼ぶ。
+"""絵の中の足の指を数える。描き終わるたびの検品（atelier/qc/hand_check.py）から呼ぶ。
 
 足の輪郭の下端の山（指先の膨らみ）を数える方法、行ごとの暗い線を数える方法、服の部位分けの脚の形で数える方法は、
 どれも全身の絵で大きく数え違えた（左右の足を 1 つと数える、爪や影の線を指の境と数える）。そこで次の順にする。
@@ -19,7 +19,7 @@
 """
 from __future__ import annotations
 
-import cdhome
+import data_home
 import json
 import sys
 import time
@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-MODEL = cdhome.HOME / "gen" / "pose" / "dw-ll_ucoco_384.onnx"
+MODEL = data_home.HOME / "gen" / "pose" / "dw-ll_ucoco_384.onnx"
 URL = "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.onnx"
 SIZE = (288, 384)   # 模型の入力（幅, 高さ）
 # COCO-WholeBody の番号。模型の left/right は人物から見た左右（絵では逆の側に来る）

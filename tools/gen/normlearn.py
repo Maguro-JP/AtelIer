@@ -16,7 +16,7 @@
 """
 from __future__ import annotations
 
-import cdhome
+import data_home
 import argparse
 import json
 import sys
@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 ROOT = Path(__file__).resolve().parents[2]
-STORE = cdhome.HOME / "app" / "learn"
+STORE = data_home.HOME / "app" / "learn"
 RECORDS = STORE / "records.jsonl"
 USER_NORMS = ROOT / "config" / "norms.user.json"
 

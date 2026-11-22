@@ -14,7 +14,7 @@
   PYTHONPATH=.cache/gen/lib python3 tools/gen/edit.py inpaint in.png out.png --region skin_arms --prompt "black tribal tattoos"
 部位の名前: skin, face, arms, legs, skin_arms, hair, head_top, upper, lower, shoes, clothes（+ でつなぐと合わせる。例 upper+arms。末尾の -feet で足先を外す。例 lower+legs-feet）
 """
-import cdhome
+import data_home
 import argparse
 import colorsys
 import os
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import design  # noqa: E402,F401
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault("HF_HOME", str(cdhome.HOME / "gen" / "hf"))
+os.environ.setdefault("HF_HOME", str(data_home.HOME / "gen" / "hf"))
 # 模型は既定で外から取りに行かない。呼んだ関数が手元に無い模型を指していると、数 GB を取りに行って
 # ディスクを埋めた（2026-10-14 に 2 回）。初めて取るときだけ ATELIER_FETCH=1 を付けて動かす
 os.environ.setdefault("HF_HUB_OFFLINE", "0" if os.environ.get("ATELIER_FETCH") == "1" else "1")
@@ -48,11 +48,11 @@ _SEG = None
 
 def seg_cache_dir() -> str | None:
     """部位分けの模型が既にある hub の置き場。無ければ None（既定の置き場で取る）。
-    アプリの経路（chatdraw.paths.use_tools_gen）は cdhome.HOME を data_home()/cd に向けるので、HF_HOME が
+    アプリの経路（atelier.files.paths.use_tools_gen）は data_home.HOME を data_home() に向けるので、HF_HOME が
     .cache/cd/gen/hf になり、.cache/gen/hf にある模型を見つけられず、体の検品の部位分けが毎回落ちていた"""
     seen = []
     for d in (os.environ.get("HF_HUB_CACHE"), os.environ.get("HF_HOME") and Path(os.environ["HF_HOME"]) / "hub",
-              cdhome.HOME / "gen" / "hf" / "hub", cdhome.HOME.parent / "gen" / "hf" / "hub"):
+              data_home.HOME / "gen" / "hf" / "hub", data_home.HOME.parent / "gen" / "hf" / "hub"):
         if not d or str(d) in seen:
             continue
         seen.append(str(d))

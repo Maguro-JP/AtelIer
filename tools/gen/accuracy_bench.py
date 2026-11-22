@@ -3,7 +3,7 @@
     python tools/gen/accuracy_bench.py [--only 機能,機能] [--write] [--json 出力.json]
 
 表の「前の数字」は、書き直す前の表の「数字」。下がった物には ▼ を付ける（目立たせて、入れる前に気づくため）。
-流さなかった機能の行は前のまま残す。台は BENCHES に並べる。前に読んでいた chatdraw/accuracy.py は 0.5.23 で
+流さなかった機能の行は前のまま残す。台は BENCHES に並べる。前に読んでいた流用元の accuracy.py は 0.5.23 で
 描く仕組みを戻したときに外れたので、今の main にある台（検品単体の台 tools/gen/qcbench.py）だけを流す。
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ HEAD = """# 機能ごとの精度
 
 `tools/gen/accuracy_bench.py` が台を流して書く表。数字は 0〜100 で、高いほど良い。
 前の数字より下がった物には ▼ を付ける。直す順番は、この表で一番低い機能から。今流せる台は `tools/gen/accuracy_bench.py` の BENCHES に並べる。
-日付の古い行は、0.5.23 で外れた台（chatdraw/accuracy.py）で測った前の数字で、今は流していない。
+日付の古い行は、0.5.23 で外れた台（流用元の accuracy.py）で測った前の数字で、今は流していない。
 
 | 機能 | 数字 | 前の数字 | 日付（日本時間） |
 |---|---|---|---|

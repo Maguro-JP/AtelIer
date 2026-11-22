@@ -5,7 +5,7 @@
 ここでは、決まった形の検品図を1枚作り、数えられる事実を先に出す。判断（通す・戻す）はしない。
 
   python3 tools/gen/qc.py sheet   絵.png OUT.png               全体と顔の拡大（OUT）、人物を分けた2倍前後の拡大（OUT-detail）の検品図
-  python3 tools/gen/qc.py facts   絵.png [--character knight]   端で切れていないか・部位の棚卸し・浮いた塊・肌の割合・描かせないもの・設定の言葉の欠け
+  python3 tools/gen/qc.py facts   絵.png   端で切れていないか・部位の棚卸し・浮いた塊・肌の割合・描かせないもの・設定の言葉の欠け
   python3 tools/gen/qc.py compare 絵1.png 絵2.png ...           組（三面図・表情差分）で、部位ごとの色がずれていないか
   python3 tools/gen/qc.py scars   前.png 後.png 範囲.png         部分を描き直した範囲の縁で、前より輪郭が鈍った所（にじみの跡）
   python3 tools/gen/qc.py legs    絵.png                        人の脚が残っているか（下半身が人でない種族で、腰より下に膝と足首がある）
@@ -1070,13 +1070,13 @@ def auto_check(src: str, prompt: str = "", heads_range: tuple[float, float] | No
             root = str(Path(__file__).resolve().parents[2])
             if root not in sys.path:
                 sys.path.insert(0, root)
-            import cdhome
-            home = cdhome.HOME   # atelier を読むと部品の置き場がアプリの置き場へ向き替わる。この台本の置き場は元のまま保つ
+            import data_home
+            home = data_home.HOME   # atelier を読むと部品の置き場がアプリの置き場へ向き替わる。この台本の置き場は元のまま保つ
             try:
                 from atelier.qc import sanity
                 odd = sanity.check(src, prompt, tags=all_tags or None)
             finally:
-                cdhome.HOME = home
+                data_home.HOME = home
             res["sanity"] = {k: odd.get(k) for k in ("counts", "people", "bad")}
             if odd["bad"]:
                 res["problems"].append({"anatomy": odd["bad"]})
@@ -1164,7 +1164,7 @@ def hold(src: str) -> str:
         shutil.move(str(f), str(dest / f.name))
     return str(dest / p.name)
 
-def facts(src: str, character: str | None = None, prompt: str = "") -> dict:
+def facts(src: str, prompt: str = "") -> dict:
     """数えられる事実。判断はしない（検品担当が、この数字を手がかりに目で確かめる）。
     prompt を渡すか、絵の隣の <絵>.json に prompt があれば、頼んだ言葉の欠けと持ち物の数も見る"""
     if ".parts." in Path(src).name:
@@ -1188,26 +1188,16 @@ def facts(src: str, character: str | None = None, prompt: str = "") -> dict:
     import tagger
     got = tagger.read(src)
     res["tags"] = dict(sorted(got.items(), key=lambda x: -x[1])[:40])
-    if character:
-        import bible
-        c = bible.load("characters", character)
-        avoid = {w.strip().lower() for w in c.get("negative", "").split(",") if w.strip()}
-        for it in c.get("items", []):
-            avoid |= {w.strip().lower() for w in it.get("avoid", "").split(",") if w.strip()}
-        res["avoided_but_seen"] = {t: p for t, p in got.items() if t in avoid}
-        words = ", ".join(x for x in (c["look"], c.get("eyes", {}).get("tags", ""), c["outfit"]) if x)
+    # 設定資料の無い絵でも、描いたときの言葉（絵の隣の <絵>.json の prompt）があれば欠けを見る。
+    # 付けないと見なかったため、ピースサイン 8/8 の欠け・剣の欠け・短パンが長ズボンになったのを拾えなかった
+    side = Path(str(src) + ".json")
+    try:
+        words = prompt or (json.loads(side.read_text(encoding="utf-8")).get("prompt", "") if side.exists() else "")
+    except (OSError, ValueError):
+        words = prompt
+    if words:
         res["asked_but_missing"] = tagger.missing(words, got) + nouns_missing(words, got, tagger.vocabulary())
-    else:
-        # 設定資料の無い絵でも、描いたときの言葉（絵の隣の <絵>.json の prompt）があれば欠けを見る。
-        # 付けないと見なかったため、ピースサイン 8/8 の欠け・剣の欠け・短パンが長ズボンになったのを拾えなかった
-        side = Path(str(src) + ".json")
-        try:
-            words = prompt or (json.loads(side.read_text(encoding="utf-8")).get("prompt", "") if side.exists() else "")
-        except (OSError, ValueError):
-            words = prompt
-        if words:
-            res["asked_but_missing"] = tagger.missing(words, got) + nouns_missing(words, got, tagger.vocabulary())
-            res["held_items"] = held_items(got, words)
+        res["held_items"] = held_items(got, words)
     return res
 
 
@@ -1283,7 +1273,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sheet"); s.add_argument("src"); s.add_argument("out")
-    f = sub.add_parser("facts"); f.add_argument("src"); f.add_argument("--character")
+    f = sub.add_parser("facts"); f.add_argument("src")
     f.add_argument("--prompt", default="", help="頼んだ言葉（無ければ絵の隣の <絵>.json の prompt）")
     c = sub.add_parser("compare"); c.add_argument("srcs", nargs="+"); c.add_argument("--limit", type=float, default=40.0)
     sc = sub.add_parser("scars"); sc.add_argument("before"); sc.add_argument("after"); sc.add_argument("mask")
@@ -1291,7 +1281,7 @@ def main():
     e = sub.add_parser("expr"); e.add_argument("base"); e.add_argument("out"); e.add_argument("srcs", nargs="+")
     t = sub.add_parser("zoom"); t.add_argument("src"); t.add_argument("outdir"); t.add_argument("--zoom", type=float, default=3.0)
     a = ap.parse_args()
-    r = {"sheet": lambda: sheet(a.src, a.out), "facts": lambda: facts(a.src, a.character, a.prompt),
+    r = {"sheet": lambda: sheet(a.src, a.out), "facts": lambda: facts(a.src, a.prompt),
          "compare": lambda: compare(a.srcs, a.limit), "expr": lambda: expr(a.base, a.out, a.srcs),
          "legs": lambda: human_legs(__import__("joints").find(a.src), Image.open(a.src).height),
          "scars": lambda: repaint_scars(*(Image.open(p) for p in (a.before, a.after, a.mask))),

@@ -95,7 +95,7 @@ class CacheTest(unittest.TestCase):
 
 
 class SegCacheTest(unittest.TestCase):
-    """アプリの経路では cdhome.HOME が data_home()/cd を向く。部位分けの模型を一つ上の置き場からも見つける"""
+    """アプリの経路では data_home.HOME が data_home() を向く。部位分けの模型を一つ上の置き場からも見つける"""
     def test_finds_parent_hub(self):
         import tempfile
         from unittest import mock
@@ -104,13 +104,13 @@ class SegCacheTest(unittest.TestCase):
             snap = Path(d) / "gen" / "hf" / "hub" / ("models--" + edit.SEG_MODEL.replace("/", "--")) / "snapshots" / "x"
             snap.mkdir(parents=True)
             (snap / "config.json").write_text("{}")
-            with mock.patch.object(edit.cdhome, "HOME", Path(d) / "cd"), mock.patch.dict(os.environ, {"HF_HOME": str(Path(d) / "cd" / "gen" / "hf")}):
+            with mock.patch.object(edit.data_home, "HOME", Path(d) / "cd"), mock.patch.dict(os.environ, {"HF_HOME": str(Path(d) / "cd" / "gen" / "hf")}):
                 os.environ.pop("HF_HUB_CACHE", None)   # アプリの試験が置いた置き場を見ない（patch.dict が戻す）
                 self.assertEqual(edit.seg_cache_dir(), str(Path(d) / "gen" / "hf" / "hub"))
 
 
 class AccuracyBenchTest(unittest.TestCase):
-    """accuracy_bench は今の main にある台だけを流す（外れた chatdraw/accuracy.py を読まない）"""
+    """accuracy_bench は今の main にある台だけを流す（外れた流用元の accuracy.py を読まない）"""
     def test_runs_without_removed_module(self):
         import accuracy_bench
         from unittest import mock

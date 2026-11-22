@@ -62,10 +62,10 @@ class KeepSettings(unittest.TestCase):
             home = Path(d) / "AtelIer"
             home.mkdir()
             (home / "model_prefs.json").write_text(json.dumps({"a/b": {"favorite": True}}), encoding="utf-8")
-            cdhome = paths.use_tools_gen()
+            data_home = paths.use_tools_gen()
             self.assertNotIn("ATELIER_HOME", os.environ)
             self.assertEqual(paths.data_home(), before)
-            self.assertEqual(Path(cdhome.HOME), before)   # 部品の置き場もデータの置き場と同じ 1 か所
+            self.assertEqual(Path(data_home.HOME), before)   # 部品の置き場もデータの置き場と同じ 1 か所
             self.assertTrue(ratings.is_favorite("a/b"))
         for name in ("hand_check.py", "request_check.py"):
             self.assertNotIn('os.environ["ATELIER_HOME"]', (ROOT / "atelier" / "qc" / name).read_text(encoding="utf-8"))
