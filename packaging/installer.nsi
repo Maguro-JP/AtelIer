@@ -63,6 +63,11 @@ Section "Install"
   CreateDirectory "$1LLM\manual"
   nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$1LLM" /grant *S-1-5-32-545:(OI)(CI)M /Q'
 
+  ; CharacterDesigner を使っていた人だけ、ファイルと設定を AtelIer の置き場へ 1 回だけ統合する（言葉の模型は共通の置き場へ移す）
+  DetailPrint "CharacterDesigner のファイルと設定を統合しています"
+  nsExec::ExecToLog '"$INSTDIR\python\python.exe" -E -s -m atelier.app.migrate'
+  Pop $0
+
 
   SetShellVarContext all
   SetOutPath "$INSTDIR"

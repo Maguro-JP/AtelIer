@@ -1069,6 +1069,15 @@ def dark(app: QApplication, name: str | None = None):
 def main():
     from atelier.app import crash_log as crashlog
     crashlog.install()
+    try:
+        from atelier.app.migrate import integrate_once
+        from atelier.files.paths import GGUF
+        if integrate_once(DATA, GGUF, QSettings):   # CharacterDesigner を使っていた人だけ、ファイルと設定を 1 回だけ統合する
+            for lib in (DATA / "simple" / "lib", DATA / "gen" / "lib", DATA / "llm" / "lib"):
+                if lib.exists() and str(lib) not in sys.path:
+                    sys.path.insert(0, str(lib))
+    except OSError:
+        pass
     app = QApplication(sys.argv)
     dark(app)
     from atelier.ui import window_fit as fit
