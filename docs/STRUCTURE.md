@@ -13,6 +13,7 @@
 | 場所 | 役割 |
 |---|---|
 | `atelier/app/` | 窓と起動。設定、キーの割り当て、モード、更新、落ちたときの記録 |
+| `atelier/app/window/` | 窓（`main_window.py` の `Window`）を役目ごとに分けた mixin と部品。ファイルの開閉と保存（`files.py`）、AI の描画（`ai_drawing.py`）と結果（`ai_results.py`）、チャット（`chat.py`）、描く言葉（`prompts.py`）、赤ペン（`redpen.py`）、キャンバスの右クリック（`canvas_menu.py`）、レイヤーと選択（`layers_and_selection.py`）、画像の加工（`image_editing.py`）、模型（`models.py`）、履歴（`history.py`）、モードとロゴ（`modes_and_logos.py`）、設定とデバッグ（`settings_and_debug.py`）、結果の置き方と進み（`results_and_progress.py`）、欄と帯の配置（`layout.py`）、ツアー（`tour.py`）。補助は `jobs.py`、`widgets.py`、`image_convert.py`、`process_check.py`、`constants.py`。`main_window.py` には起動の準備、`Window.__init__`、`main` が残り、前の名前を再輸出する |
 | `atelier/paint/` | 作画の中核。キャンバス、ブラシ、描く補助、赤ペンの印、タイムラプス |
 | `atelier/panels/` | 欄。カラー、ブラシの見本、レイヤー、AI、チャット、ライブラリー、進みと履歴 |
 | `atelier/ui/` | 見た目と操作の土台。テーマ、アイコン、ロゴ、言語、欄の配置、メニューの編集、知らせ、ツアー、ヘルプ |
@@ -56,7 +57,6 @@
 
 ## まだ直していない所
 
-- `atelier/app/main_window.py` が約 7,300 行ある。役目ごとのファイルに分ける
 - `tools/gen/` は置き場に頼って読む平らな台本のまま。キャラクターデザイン専用の台本（bible、charsheet、design など）も、ほかの台本と服飾の資料が読むので残している
 - `characters/`（ドット絵のキャラクターの部品）は `tools/build.py`・`tools/body.py`・`tools/faces.py` と `tests/test_build.py` が読むので残している
 - `atelier/app/migrate.py` は CharacterDesigner の前の版からの引っ越し用で、AtelIer では働かない
@@ -69,7 +69,7 @@
 
 | 流用元（chatdraw/） | AtelIer（atelier/） |
 |---|---|
-| `app.py` | `app/main_window.py` |
+| `app.py` | `app/main_window.py`（起動と `Window.__init__`）と `app/window/`（役目ごとの mixin と部品） |
 | `settings.py` | `app/settings.py` |
 | `keys.py` | `app/key_bindings.py` |
 | `modes.py` | `app/modes.py` |
