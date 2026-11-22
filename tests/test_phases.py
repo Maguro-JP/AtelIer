@@ -146,7 +146,7 @@ class PhasesTest(unittest.TestCase):
 
     def test_always_bad_still_finishes_with_bounded_backs(self):
         got, painter, seen, said, files = self.run_phases(always_bad=True)
-        self.assertLess(len(got["phases"]), N)   # 未解決のまま次工程へ進まない
+        self.assertEqual(len(got["phases"]), N)   # 未解決でも止めずに全工程を描き、未完成として返す
         self.assertFalse(got["complete"])
         self.assertIsNotNone(got["blocked"])
         self.assertEqual(len([f for f in files if f.endswith(".png")]), len(got["phases"]) - 1)   # 目的には絵が無い
@@ -236,7 +236,7 @@ class PhasesTest(unittest.TestCase):
         painter = Painter()
         painter.abilities = (False, False)
         got, painter, *_ = self.run_phases(always_bad=True, painter=painter)
-        self.assertLess(len(got["phases"]), N)
+        self.assertEqual(len(got["phases"]), N)
         self.assertFalse(got["complete"])
         self.assertIsNotNone(got["blocked"])
         self.assertFalse(any(x[0] == "redraw" for x in painter.log))
@@ -465,7 +465,7 @@ class PhaseLayersTest(unittest.TestCase):
 
 
 class ManualRetryLimitTest(unittest.TestCase):
-    """確認画面から何度も描き直しを要求されても、同一工程の上限で必ず停止する。"""
+    """確認画面から何度も描き直しを要求されても、上限に達したら次の工程へ進み、全工程で必ず終わる。"""
 
     def test_manual_redo_cannot_loop_forever(self):
         with TemporaryDirectory() as d:
@@ -474,8 +474,9 @@ class ManualRetryLimitTest(unittest.TestCase):
                 confirm=lambda *_: phases.REDO,
             )
         self.assertFalse(got["complete"])
-        self.assertEqual(got["backs"], 2)
-        self.assertEqual(len(got["history"]), 3)
+        self.assertEqual(got["backs"], phases.BACKS)
+        self.assertEqual(len(got["phases"]), len(phases.PHASES))
+        self.assertLessEqual(len(got["history"]), len(phases.PHASES) + phases.BACKS)
         self.assertEqual(got["blocked"]["reason"], "再試行上限に達しました")
         self.assertEqual(got["blocked"]["phase"], "目的")
 
@@ -497,7 +498,7 @@ class BrokenChecksTest(unittest.TestCase):
         with TemporaryDirectory() as d:
             p = Painter()
             got = phases.draw(p, "red hair, 1girl", 1, (64, 64), Path(d), checks=Boom)
-            self.assertLess(len(got["phases"]), len(phases.PHASES))
+            self.assertEqual(len(got["phases"]), len(phases.PHASES))
             self.assertFalse(got["checked"])
             self.assertFalse(got["complete"])
             self.assertEqual(got["blocked"]["phase"], "サムネイル")

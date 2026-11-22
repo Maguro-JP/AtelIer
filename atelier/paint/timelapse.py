@@ -119,7 +119,7 @@ class Recorder:
 def video_backend() -> str:
     """MP4 を書く手段: "imageio"（imageio-ffmpeg）、"ffmpeg"（PATH の ffmpeg）、"webp"（どちらも無い。動く WebP で代わりに書く）"""
     try:
-        import imageio_ffmpeg  # noqa: F401
+        __import__('importlib').import_module("imageio_ffmpeg")
         return "imageio"
     except ImportError:
         import shutil
@@ -148,7 +148,7 @@ def reconstruct(final: Image.Image, before: Image.Image | None = None) -> list[I
     gray = im.convert("L")
     # 線: 周りより暗い所（明るさの谷）。輪郭の検出だけだと塗りの境目まで線になったので、暗さの差で取る
     dark = ImageChops.subtract(gray.filter(ImageFilter.MaxFilter(5)), gray)
-    line = dark.point(lambda v: 0 if v > 28 else 255).filter(ImageFilter.MinFilter(1))
+    line = dark.point(lambda v: 0 if v > 28 else 255)   # MinFilter(1) は何も変えず、Pillow 12 では処理ごと落とした
     line_rgb = Image.merge("RGB", (line, line, line))
     ink = ImageChops.multiply(paper, line_rgb)
     flat = im.filter(ImageFilter.ModeFilter(7)).filter(ImageFilter.MedianFilter(5))

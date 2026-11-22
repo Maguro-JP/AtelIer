@@ -71,6 +71,8 @@ def _tokens(query: str) -> list[str]:
     from atelier.words.japanese_terms import tags_from
     words = [w for w in re.split(r"[\s,、，。]+", query) if len(w) >= 2]
     tags = [t.strip().lower() for t in ", ".join(tags_from(query)).split(",") if t.strip() and t.strip() not in ("solo",)]
+    # 「少女」は 1girl になる。ファイルの名前（beach_girl）には人数が付かないので、数を外した語でも探す
+    tags += [re.sub(r"^\d+", "", t) for t in tags if re.match(r"^\d+[a-z]", t)]
     return list(dict.fromkeys(tags + [w.lower() for w in words]))
 
 

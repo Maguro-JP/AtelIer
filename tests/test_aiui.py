@@ -179,7 +179,7 @@ class InstructTabTest(unittest.TestCase):
         with TemporaryDirectory() as d:
             w = window(d)
             self.assertNotIn("お気に入り", w.fav_button.toolTip())
-            src = (Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py").read_text(encoding="utf-8")
+            src = "".join(p.read_text(encoding="utf-8") for p in [Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py", *sorted((Path(__file__).resolve().parents[1] / "atelier" / "app" / "window").glob("*.py"))])   # 窓は役目ごとに atelier/app/window/ へ分けた
             for line in src.splitlines():
                 if "お気に入り" in line and ("addAction" in line or "addMenu" in line or "setToolTip" in line or "showMessage" in line):
                     self.assertIn("★", line)                                   # 残るのは絵の ★（作品の印）だけ

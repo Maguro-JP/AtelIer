@@ -10,6 +10,8 @@
 
 CharacterDesigner の描画アプリから、キャラクターデザイン以外の部品を移して作っています。いまは移している途中で、まだ直していない所は [docs/STRUCTURE.md](docs/STRUCTURE.md) に書いています。
 
+キャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）は、CharacterDesigner が拡張として足します。AtelIer を入れたあとに CharacterDesigner のパッケージを入れると、起動したときに entry points（`atelier.extensions`）で見つかり、「キャラクターデザイン」のメニューとモードが出ます。拡張の口は `atelier/extensions.py`、つながり方は [docs/integration.md](docs/integration.md) に書いています。
+
 ## 主な機能
 
 - 人が描く: ブラシ 6 種と筆圧、消しゴム、ぼかし、スプレー、指先、塗りつぶし、グラデーション、図形、文字、選択範囲、レイヤー
@@ -18,6 +20,9 @@ CharacterDesigner の描画アプリから、キャラクターデザイン以�
 - AI が使う: 人の筆と同じ経路で線を引く入口（`Canvas.draw_stroke`）と、チャットの言葉でアプリを操作する仕組み
 - ファイル: 作業ファイル（`.atelier`、レイヤーごと）、PNG と PSD の書き出し、自動保存、ごみ箱、タイムラプス
 - 見た目: 7 つのテーマ、欄の配置の保存、メニューと帯の並べ替え
+- 液タブで描く: キャンバスだけを選んだ画面の全画面に出す（表示 → 全画面で描く、Ctrl+Shift+F）。欄と帯は「まとめた窓」に入れて組み、全画面の上に浮かせる
+
+![全画面のキャンバスの上に、道具の帯とカラーの欄をまとめた窓が浮いている画面](docs/images/fullscreen-group.png)
 
 AI で描くには、絵のモデルと、それを動かす部品（torch、diffusers）が要ります。モデルが無くても、人が描く機能は使えます。
 
@@ -87,7 +92,7 @@ python -m atelier
 | `atelier/agent/` | チャットと、言葉での操作 |
 | `tools/`、`styles/`、`casts/`、`config/` | アプリが読む道具の台本と基準 |
 | `tests/` | テスト |
-| `docs/` | 決めたこと（[decisions.md](docs/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)） |
+| `docs/` | 決めたこと（[decisions.md](docs/knowledge/decisions.md)）、構成と対応表（[STRUCTURE.md](docs/STRUCTURE.md)）、モデルの一覧（[models.md](docs/models.md)） |
 
 ## 開発者向け情報
 

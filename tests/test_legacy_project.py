@@ -37,7 +37,7 @@ class LegacyProjectTest(unittest.TestCase):
                 project_file.read(bad)
 
     def test_window_does_not_overwrite_legacy_file(self):
-        src = (Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py").read_text(encoding="utf-8")
+        src = "".join(p.read_text(encoding="utf-8") for p in [Path(__file__).resolve().parents[1] / "atelier" / "app" / "main_window.py", *sorted((Path(__file__).resolve().parents[1] / "atelier" / "app" / "window").glob("*.py"))])   # 窓は役目ごとに atelier/app/window/ へ分けた
         self.assertIn("path.lower().endswith(project.READABLE)", src)
         self.assertIn("path if own else None", src)
 

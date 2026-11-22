@@ -50,7 +50,7 @@ def check(image, tags: str, fetch: bool = False) -> dict:
     if os.environ.get("ATELIER_CHECK") == "off":
         return {"readable": False, "missing": [], "extra": [], "reason": "検品を止めています（ATELIER_CHECK=off）"}
     try:
-        import onnxruntime  # noqa: F401
+        __import__('importlib').import_module("onnxruntime")   # 無ければ ImportError で読めないと返す
         tg = _tagger(fetch)
         if not isinstance(image, (str, Path)):
             import tempfile

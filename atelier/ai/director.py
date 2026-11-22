@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 
-from PIL import Image, ImageChops, ImageFilter, ImageStat
+from PIL import ImageChops, ImageFilter, ImageStat
 
 SIDE = 256          # 測る大きさ。大きさで数字が変わらないように縮めてから測る
 MIN_SIDE = 128      # これより小さい絵は線の密度が読めないので測らない（試験の偽の模型の 64 画素の白紙もここで外れる）

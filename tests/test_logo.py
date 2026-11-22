@@ -127,19 +127,6 @@ class StampTest(unittest.TestCase):
             with zipfile.ZipFile(Path(d) / "out" / "chara-line.zip") as z:
                 self.assertEqual(len(z.namelist()), 5)
 
-    def test_expressions_from_bible(self):
-        with TemporaryDirectory() as d:
-            root = Path(d)
-            (root / "bible" / "characters").mkdir(parents=True)
-            (root / "img").mkdir()
-            for k in ("expr-smile", "expr-angry"):
-                mark().save(root / "img" / f"{k}.png")
-            (root / "bible" / "characters" / "a.json").write_text(json.dumps(
-                {"id": "a", "images": {"color": "img/c.png", "expr-smile": "img/expr-smile.png", "expr-angry": "img/expr-angry.png"}}))
-            from atelier.chara import chara_design as charadesign   # 表情差分の置き場を知っているのはキャラクターデザインの側
-            self.assertEqual([p.name for p in charadesign.expression_files("a", home=root)], ["expr-angry.png", "expr-smile.png"])
-
-
 class IconTest(unittest.TestCase):
     def test_make_ico(self):
         with TemporaryDirectory() as d:
@@ -191,11 +178,12 @@ class AppTest(unittest.TestCase):
         if w.thread:
             w.thread.wait(5000)
 
-    def test_menu_next_to_character_design(self):
+    def test_menu_after_ai(self):
+        # キャラクターデザインの拡張（CharacterDesigner）を入れると、AI とロゴ・スタンプの間に入る
         with TemporaryDirectory() as d:
             app, w = self._window(d)
             titles = [a.text() for a in w.menuBar().actions()]
-            self.assertEqual(titles[titles.index("キャラクターデザイン") + 1], "ロゴ・スタンプ")
+            self.assertEqual(titles[titles.index("AI") + 1], "ロゴ・スタンプ")
             acts = [a for a in w.logo_menu.actions() if a.text()]
             self.assertEqual(len(acts), len(logo.menu_items(w)))
             self.assertTrue(all(a.toolTip() for a in acts))          # 説明はツールチップ

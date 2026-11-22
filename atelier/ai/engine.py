@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-from atelier.files.paths import HOME, HUB  # noqa: E402
+from atelier.files.paths import HUB  # noqa: E402
 IMAGE_MODEL = os.environ.get("ATELIER_IMAGE_MODEL", "Laxhar/noobai-XL-Vpred-1.0")
 # ラフ（線の下描き）の形に沿って描かせる部品。元の絵を描き直す img2img では、ラフの線がそのまま残って絵にならなかった
 SKETCH_ADAPTER = "TencentARC/t2i-adapter-sketch-sdxl-1.0"
@@ -185,24 +185,38 @@ def low_memory_size(size, family: str = "sdxl"):
 _BF16_FAST: bool | None = None
 
 
+_BF16_PROBE = """
+import time, torch
+took = {}
+with torch.no_grad():
+    for dt in (torch.float32, torch.bfloat16):
+        a, w = torch.randn(512, 1024, dtype=dt), torch.nn.Linear(1024, 1024, dtype=dt)
+        w(a)
+        t = time.perf_counter()
+        for _ in range(4):
+            w(a)
+        took[dt] = time.perf_counter() - t
+print("fast" if took[torch.bfloat16] < took[torch.float32] else "slow")
+"""
+
+
 def bf16_fast() -> bool:
     """この CPU で bfloat16 の計算が float32 より速いか（1 回だけ測って覚える。約 0.2 秒）。
     bf16 の命令（AVX512_BF16、AMX）がある CPU では bf16 が数倍速く、無い CPU では命令をまねるので 4〜8 倍遅い。
-    同じ Actions の構図の段が、機械によって 6 分と 70 分以上に分かれた原因がこれだった"""
+    同じ Actions の構図の段が、機械によって 6 分と 70 分以上に分かれた原因がこれだった。
+    測るのは別の処理で行う。CPU によっては bf16 の計算そのものが使えない命令（0xc000001d）で落ち、
+    アプリごと消えて描けなかった。別の処理が落ちたら「遅い」とみなし、bf16 を使わない"""
     global _BF16_FAST
     if _BF16_FAST is None:
-        import time
-        import torch
-        took = {}
-        with torch.no_grad():
-            for dt in (torch.float32, torch.bfloat16):
-                a, w = torch.randn(512, 1024, dtype=dt), torch.nn.Linear(1024, 1024, dtype=dt)
-                w(a)
-                t = time.perf_counter()
-                for _ in range(4):
-                    w(a)
-                took[dt] = time.perf_counter() - t
-        _BF16_FAST = took[torch.bfloat16] < took[torch.float32]
+        import subprocess
+        import sys
+        try:
+            r = subprocess.run([sys.executable, "-E", "-s", "-c", "import sys; sys.path[:0] = " + repr(sys.path) + "\n" + _BF16_PROBE],
+                               capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            _BF16_FAST = r.returncode == 0 and r.stdout.strip().endswith("fast")
+        except (OSError, subprocess.SubprocessError):
+            _BF16_FAST = False
     return _BF16_FAST
 
 
@@ -288,8 +302,11 @@ def dtype_note(dtype) -> str:
     return ""
 
 
-def native_size(size, family: str):
+def native_size(size, family: str, trained_area: int | None = None):
     """世代ごとに学んだ大きさへ、同じ縦横比のまま合わせる。
+    trained_area は模型そのものが学んだ画素の数（trained_area_of）。SDXL で世代の数の半分より小さい模型だけ、その数に合わせる。
+    試験用の小さな SDXL（学んだのは 256×256）を約 100 万画素で描かせていて、全部の解像度に注意のある UNet の計算が
+    画素の数の 2 乗で増え、1 歩に 1,400 秒かかっていた。普通の SDXL（1024×1024）は今までどおり世代の数で描く。
     SD1.5 は 512 前後で学んでいるので約 0.6 倍で描く（1216 のままだと人が 2 人に割れた）。
     新しい世代（DiT）は 1024×1024 前後の画素の数で学んでいるので、その数にそろえ、縦横を 16 の倍数にする"""
     from atelier.models.catalog import family as fam
@@ -302,13 +319,38 @@ def native_size(size, family: str):
         # キャンバスの大きさのまま渡していたため、小さいキャンバスでは崩れ、大きいキャンバスでは人が 2 人に割れた。
         # 画素の数が学んだ数から 15% より離れていれば、縦横比のまま学んだ数に合わせる。倍数にもそろえる（8 の倍数でないと落ちた）
         m = f.multiple
-        k = (f.size[0] * f.size[1] / (w * h)) ** 0.5
+        area = f.size[0] * f.size[1]
+        if trained_area and trained_area * 2 < area:
+            area = trained_area
+        k = (area / (w * h)) ** 0.5
         if 1 / 1.15 <= k * k <= 1.15:
             k = 1.0
         return (max(256, round(w * k / m) * m), max(256, round(h * k / m) * m))
     k = (f.size[0] * f.size[1] / (w * h)) ** 0.5
     m = f.multiple
     return (max(256, round(w * k / m) * m), max(256, round(h * k / m) * m))
+
+
+def trained_area_of(model: str, pipe=None) -> int | None:
+    """模型が学んだ画素の数（UNet の sample_size × 8）。読んだ模型からか、置き場の unet/config.json から。分からなければ None"""
+    try:
+        unet = getattr(pipe, "unet", None) if pipe is not None else None
+        if unet is not None:
+            side = int(unet.config.sample_size) * int(getattr(pipe, "vae_scale_factor", 8))
+            return side * side
+        import json
+        cfg = Path(model) / "unet" / "config.json"
+        if not cfg.is_file():
+            from huggingface_hub import try_to_load_from_cache
+            got = try_to_load_from_cache(model, "unet/config.json", cache_dir=str(HUB))
+            if not isinstance(got, str):
+                return None
+            cfg = Path(got)
+        side = int(json.loads(cfg.read_text(encoding="utf-8"))["sample_size"]) * 8
+        return side * side
+    except Exception:   # noqa: BLE001  分からなければ世代の数で描く
+        return None
+
 
 QUANT_SHARE = 0.45   # 本体（transformer）を 4 ビットに縮めたときの、模型全体の大きさの目安（言葉の部品はそのまま）
 
@@ -323,7 +365,7 @@ def quant_config(info, dtype):
         free = torch.cuda.mem_get_info()[0] / 1e9
         if free >= info.gb * 1.2:
             return None
-        import bitsandbytes  # noqa: F401
+        __import__('importlib').import_module("bitsandbytes")
         from diffusers import PipelineQuantizationConfig
     except Exception:
         return None
@@ -1006,11 +1048,11 @@ class Painter:
         """描く前のメモリの予算から、置き方・大きさ・軽くする設定を決める（atelier/ai/memory_budget.py）。
         読んだあとは置き方を替えず、重みは空きから引かれているので数えない"""
         from atelier.ai import memory_budget as mb
-        from atelier.models.catalog import family as fam, image_model
+        from atelier.models.catalog import family as fam
         gb, family, single, fp32 = self._weights()
         cuda = mb.has_cuda()
         b = b or mb.budget()
-        want = native_size(size or self.size, family)
+        want = native_size(size or self.size, family, trained_area_of(self.model, self._pipe))
         loaded_as = getattr(self, "placed", None) if self._pipe is not None else None
         return mb.choose(gb, want, family, b, cuda, loaded_as=loaded_as, single_file=single, fp32=fp32,
                          light=self.low_memory, step=getattr(fam(family), "multiple", 64),
@@ -1183,11 +1225,17 @@ class Painter:
             from atelier.ai.memory_budget import exclusive
             exclusive(("painter", id(self)), self.unload)   # 模型はいつも 1 つだけ。ほかの模型を降ろしてから読む
             self._pipe = self._read()
+            if plan is not None and tuple(plan.want) != self._native_want(size):
+                self.memory_guard(size)   # 置き場に設定が無く、読んでから学んだ大きさが分かったときは、その大きさで決め直す
             self._cpu_dtype_fix()
             from atelier.models.catalog import image_model
             use_vpred(self._pipe, image_model(self.model)) or use_scheduler(self._pipe, image_model(self.model))
             self._place(self._pipe)
         return self._pipe
+
+    def _native_want(self, size=None):
+        from atelier.models.catalog import image_model
+        return tuple(native_size(size or self.size, image_model(self.model).family, trained_area_of(self.model, self._pipe)))
 
     def _read(self):
         """模型を読む。形（1 つのファイル、Hugging Face の部品のフォルダー、手で置いたフォルダー）と世代で、部品と引数を決める"""
@@ -1354,7 +1402,6 @@ class Painter:
                reference=None, ref_scale: float = 0.6):
         """base（PIL のラフ）を渡すと、その線の形に沿って描く。strength が大きいほどラフに沿う。
         reference（PIL）を渡すと、その絵の絵柄や雰囲気を借りる。ref_scale が大きいほど寄せる"""
-        import torch
         was_loaded = self._pipe is not None
         from atelier.ai import memory_budget as mb
         self.stages = st = mb.Stages()
@@ -1367,7 +1414,6 @@ class Painter:
             st.close()
 
     def _paint_measured(self, pipe, was_loaded, prompt, seed, on_step, base, strength, size, on_preview, reference, ref_scale):
-        import torch
         # 読んだあとも 1 枚ごとに予算を見直す（ほかのアプリが空きを使ったかもしれない）。置き方は替えず、大きさと軽さを決める。
         # 本体を 4 ビットに縮めたかは読んでから分かるので、縮めた模型は読んだ直後にも見直す
         again = was_loaded or getattr(self, "quantized", False)
@@ -1422,7 +1468,7 @@ class Painter:
         info = image_model(self.model)
         f = fam(info.family)
         asked = tuple(size or self.size)
-        size = native_size(asked, info.family)
+        size = native_size(asked, info.family, trained_area_of(self.model, pipe))
         # SDXL は学んだ大きさで描いて、頼んだ大きさ（キャンバス）に戻す。新しい世代は今までどおり学んだ大きさのまま返す
         want = asked if info.family == "sdxl" else size
         if plan is not None and base is None and not f.edit:
@@ -1499,11 +1545,9 @@ class Painter:
             return None
 
     def _paint_body(self, pipe, info, f, prompt, args, size, want, base, strength, reference, ref_scale, step, steps):
-        total = steps
         if f.edit and (base is not None or reference is not None):
             # 絵を頼みと一緒に渡す世代（FLUX.2 klein）。ラフと参考画像は絵だけを渡し、言葉は頼みの訳だけにする
             w, h = size
-            total = steps
             pics = [p.convert("RGB").resize((w, h)) for p in (base, reference) if p is not None]
             # 渡す言葉は頼みの訳だけにする（下描きや参考画像の扱いを英語の文で足すと、頼んでいない言葉が模型に渡った）
             args["prompt"] = args.get("prompt", prompt)
@@ -1527,7 +1571,6 @@ class Painter:
             w, h = size
             sketch = sketch_lines(base, (w, h))
             pass   # ラフの線を描かせない打ち消しも、頼んでいないので足さない
-            total = steps
             args.pop("callback_on_step_end", None)
 
             def old_step(i, t, latents):   # この描き方は古い形の途中報告だけを受ける。止めるときは例外で抜ける
@@ -1538,7 +1581,6 @@ class Painter:
                                adapter_conditioning_factor=1.0, callback=old_step, callback_steps=1, **args).images[0]
         else:
             w, h = size
-            total = steps
             self._use_reference(pipe, reference, ref_scale, args)
             out = pipe(width=w, height=h, **args).images[0]
         if self.stop:
@@ -1563,7 +1605,6 @@ class Painter:
         clean なら、描く前に直す所を消しゴムで消す（元の線が薄く残って二重になるのを防ぐ。開いた目を閉じるなど形を変えるとき）。
         """
         import torch
-        from PIL import Image
         from atelier.models.catalog import family as fam, image_model
         info = image_model(self.model)
         if not fam(info.family).inpaint:
@@ -1767,7 +1808,7 @@ class Studio:
         # 描き方。"auto" は、構図の模型・SDXL の模型・2 段の部品がそろっていれば 2 段で描く。"one" は 1 つの模型、"two" は必ず 2 段。
         # "phases" は 1 つの模型で、構図・体型と姿勢・線画・塗り・仕上げの工程に分けて描く（atelier/ai/phases.py）
         self.way = "auto"
-        # 開いたキャラクター（atelier/chara/chara_file.py の for_studio の形）。描く言葉の前に、利用者が書いたその人物の設定の言葉を置き、
+        # 開いたキャラクター（拡張が studio_hooks で渡す。CharacterDesigner の character_designer/chara_file.py の for_studio の形）。描く言葉の前に、利用者が書いたその人物の設定の言葉を置き、
         # 禁止ワード・参考画像・LoRA もその人物の物を使う。None なら何もしない
         self.character: dict | None = None
         self.plan = None   # 直前の担当編集者の記録（atelier/ai/director.py）
@@ -2187,13 +2228,16 @@ class Studio:
                 self.painter.avoid = avoid0
         self.last_phases = got["phases"]
         left, checked = got["left"], got["checked"]
+        # 窓が「描けました」か「未完成」かを決めるのに使う（前は窓が知らずに「描けました」と出した）
+        self.last_passed = bool(checked and not left and got.get("complete"))
+        self.last_left = list(left)
         if got.get("blocked"):
             blocked = got["blocked"]
             say(f"工程 {blocked['index'] + 1}「{blocked['phase']}」で停止: {blocked['reason']}（未完成）")
             if left:
                 say("未解決: " + "、".join(left[:5]))
         elif left:
-            say("工程を全部通しても崩れが残りました（未完成）: " + "、".join(left[:5]))
+            say(f"{len(got['phases'])} 工程を全部通しても崩れが残りました（未完成）: " + "、".join(left[:5]))
         elif not checked:
             say("検品できなかった工程があるので、通ったかは分かりません（未完成）")
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,

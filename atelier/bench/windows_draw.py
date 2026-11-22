@@ -43,7 +43,7 @@ def main():
             print(f"FAIL {name}\n{traceback.format_exc()[-3000:]}", flush=True)
             return False
 
-    import atelier.app.main_window  # noqa: F401  起動と同じ順に読む（出力の付け替え、環境の切り離し、部品の置き場）
+    __import__('importlib').import_module("atelier.app.main_window")  # 起動と同じ順に読む（出力の付け替え、環境の切り離し、部品の置き場）
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
     from atelier.models.catalog import image_model

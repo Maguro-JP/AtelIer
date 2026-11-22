@@ -312,7 +312,7 @@ def _fix_rules(text: str) -> list[tuple[int, int, str]]:
     colors = "|".join(sorted(map(re.escape, COLORS), key=len, reverse=True))
     soft = r"(?:を|は|が|の)?(?:もう少し|少し|もっと|ちょっと)?"
     # 右手に剣を持たせて → holding sword, sword in right hand（持つ手を落とさない）
-    for m in re.finditer(rf"(右手|左手|両手)(?:に|で)([^、。にでを]{{1,8}}?)を?(?:持た|持っ|持つ|握ら|握っ|握)", text):
+    for m in re.finditer(r"(右手|左手|両手)(?:に|で)([^、。にでを]{1,8}?)を?(?:持た|持っ|持つ|握ら|握っ|握)", text):
         thing = tags_from(m.group(2))
         if thing:
             side = _PARTS[m.group(1)]

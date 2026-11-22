@@ -8,6 +8,7 @@
 |---|---|---|---|---|---|
 | 1 | 移行の土台 | `python3 scripts/run_tests.py` が落ちたファイル 0 で終わり、README の起動の手順（`python3 -m atelier`）で窓が出て、README の説明が今の構成と合っている | 完成 | 無し（2026-11-21 に 58 ファイルを流して落ちたファイル 0、27 ファイルはモデルの部品が無く飛ばした） | 2026-11-21 |
 | 2 | 拡張の登録口とキャラクターデザインの切り離し | `atelier/` に charadesign・charafile への import が無いことをテストが見ていて、見本の拡張を登録するとメニューが 1 つ増えるテストが通る | 完成 | 無し（`tests/test_extensions.py` の 6 件が OK。`atelier/chara/` を CharacterDesigner へ移すのは判断待ち 2） | 2026-11-21 |
-| 3 | 窓の分割 | `atelier/app/` のどのファイルも 1,500 行以下で、`python3 scripts/run_tests.py` の結果が分ける前と同じ | 未着手 | 窓のメソッドを役目ごとに仕分ける | 2026-11-21 |
+| 3 | 窓の分割 | `atelier/app/` のどのファイルも 1,500 行以下で、`python3 scripts/run_tests.py` の結果が分ける前と同じ | 確認待ち | atelier/app/window/ に 22 ファイルへ分けた（最大 1,114 行、テストは 153 ファイル中 0 落ち）。Windows で入れて描く atelier-e2e が通れば完成 | 2026-11-22 |
 | 4 | AI が操作する窓口 | 外の処理から「新しいキャンバス、線を引く、書き出す」を呼んで PNG が出来るテストが通る | 未着手 | `Canvas.draw_stroke` と `agent/commands.py` の操作の一覧をそろえる | 2026-11-21 |
 | 5 | CI | pull_request で `python3 scripts/run_tests.py` が Linux で流れ、緑になる | 未着手 | 1 回の所要分を測ってからワークフローを足す | 2026-11-21 |
+| 6 | 仕事の進み具合の表示（CharacterDesigner の成果物 2、依頼 E2 を引き継いだ） | 描いている間、画面に経過した分と、精度優先の「工程 i/N 名前」と何回目かが出る。`tests/` の進み具合の試験で、工程が進むたびに表示が変わる | 未着手 | 流用元の docs/app/PLAN.md の M2 と、0.5.20 の工程ごとの秒（A14）を読み、今の表示と比べる | 2026-11-22 |
