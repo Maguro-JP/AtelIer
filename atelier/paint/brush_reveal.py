@@ -26,20 +26,32 @@ BIG_AREA = 0.004         # 絵の面積に対するこの割合より大きい�
 
 
 def _dist_from_seeds(mask: np.ndarray, seeds: np.ndarray) -> np.ndarray:
-    """mask の中で seeds から何歩で届くか（つながった所に沿った距離）。届かない所は -1"""
-    from scipy import ndimage
+    """mask の中で seeds から何歩で届くか（つながった所に沿った距離）。届かない所は -1。
+    膨らませを何百回も繰り返すと 2 秒かかったので、mask の画素をつないだ表の最短路（C の実装）で求める"""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import dijkstra
+    h, w = mask.shape
     dist = np.full(mask.shape, -1, np.int32)
-    front = seeds & mask
-    dist[front] = 0
-    seen = front.copy()
-    k = 0
-    st = ndimage.generate_binary_structure(2, 2)
-    while front.any() and k < 4000:
-        k += 1
-        grown = ndimage.binary_dilation(front, st) & mask & ~seen
-        dist[grown] = k
-        seen |= grown
-        front = grown
+    idx = np.full(mask.shape, -1, np.int64)
+    ys, xs = np.nonzero(mask)
+    n = len(ys)
+    src = np.nonzero(seeds[ys, xs])[0]
+    if n == 0 or len(src) == 0:
+        return dist
+    idx[ys, xs] = np.arange(n)
+    rows, cols = [], []
+    for dy, dx in ((0, 1), (1, -1), (1, 0), (1, 1)):
+        y2, x2 = ys + dy, xs + dx
+        ok = (y2 < h) & (x2 >= 0) & (x2 < w)
+        j = np.full(n, -1, np.int64)
+        j[ok] = idx[y2[ok], x2[ok]]
+        ok = j >= 0
+        rows.append(np.nonzero(ok)[0]); cols.append(j[ok])
+    r = np.concatenate(rows); c = np.concatenate(cols)
+    g = coo_matrix((np.ones(len(r), np.float32), (r, c)), shape=(n, n)).tocsr()
+    d = dijkstra(g, directed=False, indices=src, min_only=True)
+    fin = np.isfinite(d)
+    dist[ys[fin], xs[fin]] = d[fin].astype(np.int32)
     return dist
 
 
@@ -50,6 +62,10 @@ class Plan:
         from scipy import ndimage
         a = after.convert("RGB")
         self.full = a.size
+        self.A_full = np.asarray(a, np.uint8)   # 見せる画素は元の大きさから切り出す（縮めた絵を引き伸ばすとぼやけた）
+        self.B_full = (np.full_like(self.A_full, 255) if before is None
+                       else np.asarray(before.convert("RGB").resize(a.size, Image.LANCZOS) if before.size != a.size
+                                       else before.convert("RGB"), np.uint8))
         s = min(1.0, work_side / max(a.size))
         self.scale = s
         w, h = max(1, round(a.width * s)), max(1, round(a.height * s))
@@ -64,9 +80,12 @@ class Plan:
         gray = a.convert("L")
         dark = np.asarray(ImageChops.subtract(gray.filter(ImageFilter.MaxFilter(5)), gray)) > 28   # reconstruct と同じ線の取り方
         line = dark & diff
-        fill = diff & ~line
-        flat = np.asarray(a.filter(ImageFilter.ModeFilter(7)).filter(ImageFilter.MedianFilter(5)), np.float32)
-        self.F = flat
+        self._a = a
+        self.line = line
+        self.ready = False   # 塗りの段を計算し終えたか。終わるまでは線画の段だけを見せる
+        # 縮めた大きさの座標を元の大きさへ写す表（最近傍）
+        self._ry = np.minimum((np.arange(self.full[1]) * h) // self.full[1], h - 1)
+        self._rx = np.minimum((np.arange(self.full[0]) * w) // self.full[0], w - 1)
         t = np.full((h, w), np.inf, np.float32)
         tips: list[tuple[float, float, float]] = []   # (時刻, x, y)
         # 線画: つながった線ごと、上の線から順に。1 本の中は一番上の端から線に沿って伸ばす
@@ -88,6 +107,18 @@ class Plan:
                 span = LINE_END * float(sizes[i]) / total
                 tips.extend(self._lay(t, lab, dist, objs[i], i + 1, at, span))
                 at += span
+        tips.sort()
+        self.t, self.tips = t, tips
+
+    def fill(self):
+        """塗りの段の筆の運びを計算する。線画は先に見せ始め、これは裏で後から足す（初めに止まって見えないように）"""
+        from scipy import ndimage
+        a, diff, line = self._a, self.diff, self.line
+        w, h = self.size
+        t = self.t.copy()
+        tips = list(self.tips)
+        fill = diff & ~line
+        flat = np.asarray(a.filter(ImageFilter.ModeFilter(7)).filter(ImageFilter.MedianFilter(5)), np.float32)
         # 塗り: 平塗りの色で塊に分ける（色を 32 段に丸めてつながった所）
         q = (flat // 32).astype(np.int32)
         key = q[..., 0] * 64 + q[..., 1] * 8 + q[..., 2]
@@ -119,10 +150,9 @@ class Plan:
                     tips.extend(self._lay(t, blobs, dist, bobjs[i], i + 1, at, span))
                     at += span
         t[diff & ~np.isfinite(t)] = SMALL_END
-        self.t = t
-        self.line = line
         tips.sort()
-        self.tips = tips
+        self.t, self.tips = t, tips   # 入れ替えは 1 回の代入で（再生の糸が途中の表を見ないように）
+        self.ready = True
 
     @staticmethod
     def _lay(t, lab, dist, sl, ident, at: float, span: float, steps: int = 6):
@@ -149,14 +179,18 @@ class Plan:
     def frame(self, t: float) -> Image.Image:
         """時刻 t（0〜1）の途中の絵（計算した大きさ）。t>=1 は次の絵そのもの"""
         if t >= 1.0:
-            return Image.fromarray(self.A.astype(np.uint8))
-        shown = (self.t <= t)[..., None]
-        out = np.where(shown, self.F, self.B)
-        out = np.where((self.line & (self.t <= t))[..., None], self.A, out)   # 線は描いたらそのまま
-        if t > SMALL_END:   # 仕上げ: 平塗りから仕上がりの色へ
+            return Image.fromarray(self.A_full)
+        if t > SMALL_END:   # 仕上げ: 残った差を全部描く
+            small = self.diff.copy()
+        else:
+            small = self.t <= t
+        shown = small[self._ry][:, self._rx]
+        if t > SMALL_END:   # 差が小さく残った所（縮めたときに拾えなかった所）も順に描く
             k = (t - SMALL_END) / (1.0 - SMALL_END)
-            out = np.where(self.diff[..., None], out * (1 - k) + self.A * k, out)
-        return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+            out = self.B_full * (1 - k) + self.A_full * k
+            out = np.where(shown[..., None], self.A_full, out.astype(np.uint8))
+            return Image.fromarray(out)
+        return Image.fromarray(np.where(shown[..., None], self.A_full, self.B_full))
 
     def tip(self, t: float):
         """時刻 t の筆先の位置（元の絵の大きさの座標）。動いていないときは None"""
@@ -170,9 +204,10 @@ class Plan:
 def strokes(before: Image.Image | None, after: Image.Image, n: int = 18, work_side: int = 256) -> list[Image.Image]:
     """タイムラプスに残す筆の運び（n 枚、最後の 1 枚は次の絵そのもの）"""
     plan = Plan(before, after, work_side=work_side)
+    plan.fill()
     if plan.empty():
         return [after.convert("RGB")]
-    return [plan.frame(i / n).resize(after.size, Image.BILINEAR) for i in range(1, n)] + [after.convert("RGB")]
+    return [plan.frame(i / n) for i in range(1, n)] + [after.convert("RGB")]
 
 
 class Player:
@@ -231,7 +266,12 @@ class Player:
                 plan = Plan(before, after)
             except Exception:   # 見せ方の失敗で絵を出さないことはしない。最後の絵をそのまま出す
                 plan = None
-            self.queue.append((tok, plan))
+            self.queue.append((tok, plan))   # 線画の段ができたら再生を始め、塗りは裏で続けて計算する
+            if plan is not None:
+                try:
+                    plan.fill()
+                except Exception:
+                    plan.ready = True
         threading.Thread(target=work, daemon=True).start()
         self.t = -1.0
         self.timer.start()
@@ -248,6 +288,8 @@ class Player:
                 return
             self.plan, self.t = plan, 0.0
         self.t = min(1.0, self.t + self.TICK_MS / 1000.0 / self.SECONDS)
+        if not self.plan.ready and self.t > LINE_END:   # 塗りの計算が終わるまで線画の終わりで待つ
+            self.t = LINE_END
         if self.t >= 1.0:
             self.finish()
             return
@@ -282,8 +324,11 @@ class Player:
                 return
             self.tip_item = QGraphicsEllipseItem()
             self.tip_item.setZValue(1e8 + 1)
-            self.tip_item.setPen(QPen(QColor(40, 40, 40, 220), 0))
-            self.tip_item.setBrush(QBrush(QColor(255, 255, 255, 120)))
+            pen = QPen(QColor(60, 60, 60, 110))   # 縁だけの薄い丸（絵を隠さない）
+            pen.setWidthF(1.0)
+            pen.setCosmetic(True)
+            self.tip_item.setPen(pen)
+            self.tip_item.setBrush(QBrush())
             self.tip_item.setFlag(QGraphicsEllipseItem.ItemIgnoresTransformations, True)
             self.canvas.scene().addItem(self.tip_item)
         if pos is None:
@@ -291,7 +336,8 @@ class Player:
             return
         w, h = self.canvas.size_px()
         fw, fh = self.final.size if self.final is not None else (w, h)
-        r = 9
+        z = self.canvas.transform().m11() if hasattr(self.canvas, "transform") else 1.0
+        r = max(2.0, min(6.0, 2.5 * z))   # 描いている線の太さ程度（画面の画素）
         self.tip_item.setRect(-r, -r, 2 * r, 2 * r)
         self.tip_item.setPos(pos[0] * w / fw, pos[1] * h / fh)
         self.tip_item.setVisible(True)
