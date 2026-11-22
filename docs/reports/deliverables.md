@@ -12,3 +12,4 @@
 | 4 | AI が操作する窓口 | 外の処理から「新しいキャンバス、線を引く、書き出す」を呼んで PNG が出来るテストが通る | 未着手 | `Canvas.draw_stroke` と `agent/commands.py` の操作の一覧をそろえる | 2026-11-21 |
 | 5 | CI | pull_request で `python3 scripts/run_tests.py` が Linux で流れ、緑になる | 未着手 | 1 回の所要分を測ってからワークフローを足す | 2026-11-21 |
 | 6 | 仕事の進み具合の表示（CharacterDesigner の成果物 2、依頼 E2 を引き継いだ） | 描いている間、画面に経過した分と、精度優先の「工程 i/N 名前」と何回目かが出る。`tests/` の進み具合の試験で、工程が進むたびに表示が変わる | 未着手 | 流用元の docs/app/PLAN.md の M2 と、0.5.20 の工程ごとの秒（A14）を読み、今の表示と比べる | 2026-11-22 |
+| 7 | AI を使わない描画の基本（1 周目） | docs/reports/paint-parity.md の表で「壊れている」が 0 で、`tests.test_brushtools` の FillAndTaperTest と `tests.test_layertools` の LayerPropsTest・SelectionOpsTest が通り、窓のレイヤーの欄から合成モード・クリッピング・保護を押して重ねた絵が変わる | 確認待ち | 塗り残し・隙間閉じ・入り抜き・合成モード・クリッピング・保護・PSD を開く・選択の足し引きを入れた。残りは表の「残りの順番」（自由変形から） | 2026-11-23 |
