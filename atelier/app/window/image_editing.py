@@ -384,9 +384,26 @@ class ImageEditingMixin:
 
         def load():
             path, _ = QFileDialog.getOpenFileName(d, "頼みの一覧を読む", str(Path.home()), "頼みの一覧 (*.txt *.csv)")
-            if path:
-                box.setPlainText(Path(path).read_text(encoding="utf-8-sig"))
-                state["csv"] = path.lower().endswith(".csv") or None
+            if not path:
+                return
+            # Excel が書く CSV は Shift_JIS（cp932）なので、UTF-8 で読めなければそちらで読む。どちらでも読めなければ知らせる
+            raw = None
+            try:
+                data = Path(path).read_bytes()
+                for enc in ("utf-8-sig", "cp932"):
+                    try:
+                        raw = data.decode(enc)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+            except OSError as e:
+                self.notify("読めませんでした", "error", str(e))
+                return
+            if raw is None:
+                self.notify("読めませんでした", "error", "文字のファイル（UTF-8 か Shift_JIS の .txt・.csv）を選んでください")
+                return
+            box.setPlainText(raw)
+            state["csv"] = path.lower().endswith(".csv") or None
         read = QPushButton("ファイルを読む…")
         read.setToolTip("1 行 1 つの .txt か、CSV（頼み,枚数,種,禁止ワード）を読みます")
         read.clicked.connect(load)
