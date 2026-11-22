@@ -175,11 +175,21 @@ def open_import(w) -> None:
         QMessageBox.information(w, "ほかのアプリから引き継ぐ", "この機械には CharacterDesigner の置き場が見つかりませんでした。")
         return
     ImportDialog(w, src, HOME, GGUF).exec()
+    _reload_library(w)
 
 
 def open_cleanup(w) -> None:
     from atelier.files.paths import HOME
     CleanupDialog(w, HOME, w.trash, migrate.source_home()).exec()
+    _reload_library(w)
+
+
+def _reload_library(w) -> None:
+    """引き継ぎ・片付けで動いたファイルを、ライブラリーの一覧に映す（無くなった絵は「ファイルが無い」で出る）"""
+    lib, panel = getattr(w, "library", None), getattr(w, "library_panel", None)
+    if lib is not None and panel is not None:
+        lib.load()
+        panel.refresh()
 
 
 def offer_on_start(w) -> None:

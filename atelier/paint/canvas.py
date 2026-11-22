@@ -385,6 +385,7 @@ class Canvas(QGraphicsView):
         """絵を替えたら赤ペンの印（枠・番号・指示）と、やり直すの控えを消す。前の絵の印が新しい絵の上に残っていた"""
         if hasattr(self, "redpen"):
             self.redpen.undone.clear()
+            self.redpen.ops.clear()   # 前の絵で消した印を、新しい絵で元に戻さない
             if self.redpen.marks or self.redpen.preview is not None:
                 self.redpen.clear()
 

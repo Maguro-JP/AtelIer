@@ -291,6 +291,8 @@ class ModesAndLogosMixin:
         if f is not None and f.extra.get("effect") and out.size == base.size:
             # エフェクトは変わった画素だけのレイヤーに置く。元の絵の画素は変えず、表示の切り替え・不透明度・消すで扱える
             layer = finishers.effect_layer(base, out)
+            if clip is not None:   # 赤ペンの印から掛けたエフェクトも、囲みの外は 1 画素も変えない
+                layer = self._clip_to_region(layer, clip)
             layer.save(path)
             from atelier.paint.canvas import preload
             preload(path)
