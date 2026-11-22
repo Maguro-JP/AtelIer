@@ -114,15 +114,6 @@ def main():
             raise RuntimeError("ラフの部品が手元に無い")
         return {}
 
-    ok = step("ウィンドウを開く", window)
-    if os.environ.get("ATELIER_E2E_NO_FETCH"):
-        # 手元で段の組み立てだけを見るとき。取ると torch と模型（数 GB）が手元に入る
-        report["steps"].append({"name": "描く部品と模型を取る", "ok": False, "skipped": True})
-        ok = False
-    else:
-        ok = step("描く部品と模型を取る", fetch) and ok
-    ok = step("1 枚描く", draw) and ok
-    ok = step("ラフの部品がそろう", rough_parts) and ok
 
     def qc_parts():
         # 初回の取得（Fetcher.run）が検品の部品も取ったかを、取らずに置き場だけで見る
@@ -132,7 +123,6 @@ def main():
             raise RuntimeError("検品の部品が入っていない: " + "、".join(lack))
         return {"parts": [p.key for p in qcparts.PARTS]}
 
-    ok = step("検品の部品がそろう", qc_parts) and ok
 
     def right_click():
         # 右クリックのメニューを、下のメニューまで全部開いて閉じる（0.5.30 で右クリックからアプリごと落ちた）
@@ -214,7 +204,6 @@ def main():
             raise RuntimeError(f"崩れが残ったのに工程が足されていない: {detail}")
         return detail
 
-    ok = step("工程に分けて 1 枚描く", phases_draw) and ok
     # ---- 窓から、利用者が押すのと同じメソッドを通す。窓の写しは出力の置き場に置く ----
     import numpy as np
     from atelier.ai.engine import Painter, Studio, Words
@@ -409,15 +398,39 @@ def main():
                 raise RuntimeError(f"止めた所までの絵がレイヤーに無い: {detail}")
         return detail
 
-    # 利用者が窓で踏む段。Release を決める段（入れる・起動・取る・描く）とは分けて流す
-    # （ATELIER_E2E_CORE_ONLY=1 のときは流さない）。ここで固まると、描けると分かった版まで Release に出なかった
-    if not os.environ.get("ATELIER_E2E_CORE_ONLY"):
-        # 右クリックのメニューは、Windows の機械で開いたまま戻らず 30 分で切れたことがある。Release を止めないよう、こちらで見る
+    # 段は 2 つに分ける（ATELIER_E2E_STAGE）。
+    # release: Release を決める最小の段。入れた版が起動して窓が出て、1 枚描けて、保存して開き直せるか。
+    #   致命的な不具合（落ちる、描けない）の直しを待たせずに出すため、ここが通ればすぐ Release を出す。
+    # heavy: Release のあとに流す重い段。落ちたら Actions を赤くして、次の版で直す。
+    # 指定が無いときは両方を順に流す。ATELIER_E2E_CORE_ONLY=1 は release と同じ扱いにする（前の呼び方）。
+    stage = os.environ.get("ATELIER_E2E_STAGE") or ("release" if os.environ.get("ATELIER_E2E_CORE_ONLY") else "all")
+    report["stage"] = stage
+    ok = True
+    if stage in ("release", "all"):
+        ok = step("ウィンドウを開く", window) and ok
+        if os.environ.get("ATELIER_E2E_NO_FETCH"):
+            # 手元で段の組み立てだけを見るとき。取ると torch と模型（数 GB）が手元に入る
+            report["steps"].append({"name": "描く部品と模型を取る", "ok": False, "skipped": True})
+            print("SKIP 描く部品と模型を取る", flush=True)
+            ok = False
+        else:
+            ok = step("描く部品と模型を取る", fetch) and ok
+        ok = step("1 枚描く", draw) and ok
+        ok = step("作業ファイルに保存して開き直す", save_and_reopen) and ok
+    if stage in ("heavy", "all"):
+        if stage == "heavy":
+            # 別のジョブで流すときは、窓と模型をここで用意する（取った物は Actions のキャッシュから戻る）
+            ok = step("ウィンドウを開く", window) and ok
+            if not os.environ.get("ATELIER_E2E_NO_FETCH"):
+                ok = step("描く部品と模型を取る", fetch) and ok
+        ok = step("ラフの部品がそろう", rough_parts) and ok
+        ok = step("検品の部品がそろう", qc_parts) and ok
+        # 右クリックのメニューは、Windows の機械で開いたまま戻らず 30 分で切れたことがある
         ok = step("右クリックのメニューを全部開く", right_click) and ok
+        ok = step("工程に分けて 1 枚描く", phases_draw) and ok
         ok = step("窓で描き、絵が一番上のレイヤーになる", draw_in_window) and ok
         ok = step("赤ペンで囲んだ中だけを直す", redpen_fix) and ok
         ok = step("描いた絵を検品する", inspect) and ok
-        ok = step("作業ファイルに保存して開き直す", save_and_reopen) and ok
         ok = step("精度優先で描き、工程ごとの絵が出る", precise_draw) and ok
     report["said"] = said[-40:]
     if win.get("w") is not None:
