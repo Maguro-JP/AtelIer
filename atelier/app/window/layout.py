@@ -273,7 +273,7 @@ class LayoutMixin:
     def build_shared_actions(self):
         """メニュー・リボン・帯・右クリックで共に使う操作。1 つの QAction を、出す所ごとに足す"""
         c = self.canvas
-        rows = (("new", "new", "新規キャンバス", lambda: c.new_canvas(), "Ctrl+N", "白い新しいキャンバスにします（元に戻すで戻せます）"),
+        rows = (("new", "new", "新規キャンバス", self.new_blank, "Ctrl+N", "白い新しいキャンバスにします（元に戻すで戻せます）"),
                 ("open", "open", "開く…", self.open_image, "Ctrl+O", "作業ファイルか絵を開きます"),
                 ("save", "save", "保存", self.save_project, "Ctrl+S", "作業ファイルに保存します"),
                 ("trash", "trash", "ごみ箱…", self.open_trash, "", "消した絵を見て、元に戻すか本当に消します"),
@@ -378,7 +378,22 @@ class LayoutMixin:
         self.bars_editor = menuedit.Bars(self, self.layout_store, {
             "よく使う帯": self.quick_bar, "道具の帯": self.tools, "欄の帯": self.panel_bar, "下の帯": self.bottom_bar},
             self.all_actions())
+        self.add_first_run_items()
         self.menus_editor = menuedit.Menus(self, self.layout_store)
+        # 窓を作り終える前の最後の持ち替え（main_window の起動したときの道具）を、前に使った道具にする
+        self._start_tool_pending = True
+
+    def add_first_run_items(self):
+        """起動のときに出さなくなった確かめの窓を、意味の合うメニューから開けるようにする
+        （「はじめに」の窓は「AI」の「模型の管理」から開ける）"""
+        menus = {a.text(): a.menu() for a in self.menuBar().actions() if a.menu() is not None}
+        if "設定" in menus:
+            menus["設定"].addAction(QAction("言葉の模型を選ぶ…", self, triggered=lambda: self.ask_words_once(force=True),
+                                          toolTip="日本語の頼みとチャットに使う模型を選びます。選ぶまでは点のいちばん高い物を使います"))
+        if getattr(self, "mode_menu", None) is not None:
+            self.mode_menu.insertAction(self.mode_menu.actions()[0] if self.mode_menu.actions() else None,
+                                        QAction("モードを選ぶ…", self, triggered=self.choose_mode,
+                                                toolTip="モードを大きなボタンで選ぶ窓を開きます"))
 
     def edit_menus(self):
         from atelier.ui.menu_editor import MenuEditor
@@ -421,9 +436,17 @@ class LayoutMixin:
         return m
 
     def notify(self, text: str, kind: str = "info", detail: str = "", on_click=None):
-        """右下に短い知らせを出す（数秒で消える。作業は止めない）"""
+        """右下に知らせを出す（作業は止めない）。出すか・何秒で消すか・押すまで残すかは設定の「通知」で種類ごとに決める。
+        出さない種類も、進み具合の欄の「知らせ」には必ず残す（あとから見返せるように）"""
         from atelier.ui.notice import Notice
-        return Notice(self, text, kind, detail=detail, on_click=on_click)
+        from atelier.ui.notice_rules import KEEP, OFF, rule
+        act = getattr(self, "activity", None)
+        if act is not None and hasattr(act, "note"):
+            act.note(text + (f"　{detail}" if detail else ""), kind)
+        how, sec = rule(getattr(self, "settings", None), kind)
+        if how == OFF:
+            return None
+        return Notice(self, text, kind, ms=None if how == KEEP else sec * 1000, detail=detail, on_click=on_click)
 
     def build_ribbon(self):
         """上部のリボン。メニューと同じ操作を、タブごとに大きなアイコンで並べる"""

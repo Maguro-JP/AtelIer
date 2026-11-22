@@ -145,7 +145,7 @@ class TwoStageRedraws(unittest.TestCase):
     def test_two_stage_draws_once(self):
         calls = []
 
-        def run(sentence, tags, seed, comp, render, size, keep, variant, say=None, stopped=None):
+        def run(sentence, tags, seed, comp, render, size, keep, variant, say=None, stopped=None, negative=""):
             calls.append((sentence, tags, seed))
             keep.mkdir(parents=True, exist_ok=True)
             p = keep / f"3-{variant['name']}-s{seed}.png"
@@ -167,7 +167,7 @@ class TwoStageRedraws(unittest.TestCase):
         self.assertEqual(len(meta["redraws"]), 1)
 
     def test_stops_when_not_checked(self):
-        def run(sentence, tags, seed, comp, render, size, keep, variant, say=None, stopped=None):
+        def run(sentence, tags, seed, comp, render, size, keep, variant, say=None, stopped=None, negative=""):
             keep.mkdir(parents=True, exist_ok=True)
             p = keep / f"3-{variant['name']}-s{seed}.png"
             Image.new("RGB", (32, 32)).save(p)

@@ -604,7 +604,7 @@ class TabsTest(unittest.TestCase):
         self.assertEqual([w.brush_tabs.tabText(i) for i in range(w.brush_tabs.count())], ["ブラシ", "設定"])
         self.assertEqual([w.color_panel.tabs.tabText(i) for i in range(2)], ["カラー", "パレット"])
         tabs = w.activity.tabs
-        self.assertEqual([tabs.tabText(i) for i in range(tabs.count())], ["描いた絵", "操作"])
+        self.assertEqual([tabs.tabText(i) for i in range(tabs.count())], ["描いた絵", "操作", "知らせ"])
         c = w.canvas
         w.tool_actions["pen"].trigger()                        # 起動したときは手なので、ペンに持ち替えて描く
         c.new_canvas(100, 100)
@@ -1900,11 +1900,23 @@ class TwoStageAppTest(unittest.TestCase):
         s.words.to_prompt = lambda text, tags=True: "1girl, smile" if tags else "A woman smiling."
         two = (image_model("black-forest-labs/FLUX.2-klein-4B"), image_model("cagliostrolab/animagine-xl-4.0"))
 
-        def fake(sentence, tags, seed, c, r, size, keep, variant, say, stopped):
+        s.painter.avoid = "glasses"
+        s.words.negative = []
+        orig = s.words.to_prompt
+
+        def to_prompt(text, tags=True):
+            out = orig(text, tags)
+            s.words.negative = ["hat"] if tags else []   # 「帽子なし」の打ち消し
+            return out
+        s.words.to_prompt = to_prompt
+
+        def fake(sentence, tags, seed, c, r, size, keep, variant, say, stopped, negative=""):
             keep.mkdir(parents=True)
             p = keep / f"3-{variant['name']}-s{seed}.png"
             Image.new("RGB", (8, 8)).save(p)
             self.assertTrue(sentence == "A woman smiling." and tags == "1girl, smile", (sentence, tags))
+            # 仕上げにも禁止ワードと打ち消しが届く（前は空で渡り、禁止した物が描かれた）
+            self.assertEqual(negative, "glasses, hat")
             return p
         with mock.patch.object(twostage, "pick", return_value=two), mock.patch.object(twostage, "parts_ready", return_value=True), \
                 mock.patch.object(twostage, "run_stages", side_effect=fake), \
@@ -1930,6 +1942,37 @@ class TwoStageAppTest(unittest.TestCase):
                 twostage.run_stages("s", "t", 1, "c", "r", (8, 8), Path(tempfile.mkdtemp()), twostage.VARIANTS[0], say=said.append)
         self.assertIn("MemoryError", str(e.exception))
         self.assertIn("構図 1/4 10 秒", said)
+
+    def test_run_stages_passes_negative_to_finish(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from atelier.ai import two_stage as twostage
+        calls = []
+
+        class P:
+            stdout = iter([])
+            def poll(self): return 0
+            def wait(self): return 0
+            def kill(self): pass
+        with mock.patch("subprocess.Popen", side_effect=lambda a, **k: calls.append(a) or P()):
+            twostage.run_stages("s", "1girl", 1, "c", "r", (8, 8), Path(tempfile.mkdtemp()), twostage.VARIANTS[0], say=lambda m: None,
+                                negative="hat")
+        fin = next(a for a in calls if "finish" in a)
+        self.assertEqual((fin[fin.index("finish") + 1], fin[-1]), ("1girl", "hat"))
+
+    def test_draw_one_reads_request_beside_composition(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from atelier.bench import draw_one
+        d = Path(tempfile.mkdtemp())
+        (d / "request-compose.json").write_text(json.dumps({"tags": "1girl"}), encoding="utf-8")
+        with mock.patch.object(draw_one, "REQUEST", d / "none.json"):
+            self.assertEqual(draw_one.read_request(str(d / "1-composition.png")), {"tags": "1girl"})
+            with self.assertRaises(SystemExit):   # 頼みがどこにも無ければ、どこを見たかを書いて止める（落ちない）
+                draw_one.read_request(None)
 
 
 class CpuDtypeTest(unittest.TestCase):
@@ -2108,11 +2151,26 @@ class ViewingTest(unittest.TestCase):
             app.processEvents()   # メニューは離す処理を終えてから開く
             self.assertEqual(len(menus), 1)                             # 動かさずに離すと右クリックのメニュー
 
+    def test_first_tool_is_pen_and_remembered(self):
+        """起動したときの道具はペン（手のひらだと初めての人がなぞっても線が出なかった）。次からは前に使った道具"""
+        with TemporaryDirectory() as d:
+            app, w = self._window(d)
+            w.layout_store.remove("last_tool")   # ほかの試験が持ち替えた道具を残さない（置き場は試験の間で共有）
+            w.settings.store.remove("first_tool")
+            w = self._window(d)[1]
+            self.assertEqual(w.canvas.tool, "pen")
+            w.tool_actions["eraser"].trigger()
+            w2 = self._window(d)[1]
+            self.assertEqual(w2.canvas.tool, "eraser")
+            w2.settings.set("first_tool", "手")
+            self.assertEqual(self._window(d)[1].canvas.tool, "hand")
+            w2.settings.store.remove("first_tool")
+            w2.layout_store.remove("last_tool")
+
     def test_first_tool_is_hand_and_creator_layout_is_pen(self):
         from atelier.ui import layouts
         with TemporaryDirectory() as d:
             app, w = self._window(d)
-            self.assertEqual(w.canvas.tool, "hand")
             layouts.creator(w)
             self.assertEqual(w.canvas.tool, "pen")
             layouts.recommended(w)

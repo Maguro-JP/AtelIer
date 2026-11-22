@@ -132,7 +132,8 @@ class AppPathTest(unittest.TestCase):
         log = "\n".join(w.activity.editor_log)
         self.assertIn("記録だけ", log)
         self.assertNotIn("担当編集者: 描き直す", log)
-        self.assertIn("担当編集者: 仕上げ", w.activity.editor.text())
+        # 描き終えたら欄の行は空にする（前の回の文を待っている間に残さない）。仕上げの知らせは記録に残る
+        self.assertIn("担当編集者: 仕上げ", log)
 
     def test_good_passes_first(self):
         p = SlackPainter(lazy=0)

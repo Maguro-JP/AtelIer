@@ -449,9 +449,13 @@ def _compose_two(studio, text, seed, two, size, say):
     comp, render = two
     sentence = vary_background(english_only(studio.words.to_prompt(text, tags=False)), seed, tags=False, text=text)
     tags = vary_background(english_only(studio.words.to_prompt(text, tags=True)), seed, text=text)
+    # 1 つの模型で描くときと同じ打ち消し（禁止ワードと頼みの打ち消し）を仕上げに渡す
+    avoid = english_only(", ".join(dict.fromkeys(t.strip() for a in [getattr(studio.painter, "avoid", "")]
+                                                 + list(getattr(studio.words, "negative", []) or []) for t in str(a or "").split(",") if t.strip())))
     keep = studio.out / ".stages" / f"{time.strftime('%Y%m%d-%H%M%S')}-{seed}"
     path = twostage.run_stages(sentence, tags, seed, comp.repo, render.repo, tuple(size or (832, 1216)), keep,
-                               twostage.VARIANTS[0], say=say, stopped=lambda: getattr(studio.painter, "stop", False))
+                               twostage.VARIANTS[0], say=say, stopped=lambda: getattr(studio.painter, "stop", False),
+                               negative=avoid)
     return Image.open(path).convert("RGB"), tags
 
 

@@ -28,6 +28,8 @@ def studio_way(draw_way: str, ai_way: str) -> str:
     return {"1つの模型で描く": "one", "構図と仕上げを分けて描く": "two"}.get(ai_way, "auto")
 
 
+from atelier.ui.notice_rules import KINDS as _NOTICE_KINDS, default as _notice_default  # noqa: E402
+
 # (キー, 見出し, 欄の名前, 種類, 既定値, 補足)。種類で入力の部品が決まる
 MODEL_FIELDS = [
     ("image_model", "絵の模型", "模型", "image_model", IMAGE_MODEL, ""),
@@ -55,7 +57,7 @@ FIELDS = [
     ("output_dir", "描いた絵の保存先", "保存", "dir", str(Path.home() / "Pictures" / "AtelIer"), ""),
     ("notify", "知らせ", "操作", "choice:デスクトップにも出す,画面の中だけ", "デスクトップにも出す",
      "ほかのウィンドウを見ている間に描き終わったら、デスクトップの通知とタスクバーの点滅で知らせる"),
-    ("first_tool", "起動したときの道具", "操作", "choice:手,ペン", "手", "起動したときに持つ道具。手は絵を動かして見る。右ボタンのドラッグでは、どの道具でも絵を動かせる"),
+    ("first_tool", "起動したときの道具", "操作", "choice:前に使った道具,ペン,手", "前に使った道具", "起動したときに持つ道具。初めはペン（なぞれば線が出る）で、次からは前に使った道具。右ボタンのドラッグでは、どの道具でも絵を動かせる"),
     ("cursor_hide", "カーソルを隠す", "操作", "choice:止まったら隠す,いつも出す", "止まったら隠す",
      "絵の上でマウスを止めて 1.5 秒たつとカーソルを隠す。動かすとすぐ出る"),
     ("timelapse", "タイムラプス", "操作", "choice:記録する,記録しない", "記録する", "線を引くたび、AI が描く工程ごとに写しを撮り、描いた過程を残す"),
@@ -68,7 +70,9 @@ FIELDS = [
     ("debug", "デバッグモード", "デバッグ", "bool", 0,
      "下に「記録」の欄を出し、工程・模型に渡した言葉・例外の全文・空きメモリを流す。記録は HOME の logs にも残し、"
      "7 日より古い物は消す。落ちたとき・描けなかったときは理由の全文を窓で出す。子どもを性的に描く頼みを止める決まりは外せない"),
-] + [(f"debug_{k}", f"外す: {label}", "デバッグ", "bool", 0, tip + "（デバッグモードがオンのときだけ効く）")
+] + [(f"notice_{k}", label, "通知", "notice", _notice_default(k),
+       "この種類の通知を出すか、何秒で消すか、押すまで残すか。消えた通知は進み具合の欄の「知らせ」で見返せる")
+      for k, label, *_ in _NOTICE_KINDS] + [(f"debug_{k}", f"外す: {label}", "デバッグ", "bool", 0, tip + "（デバッグモードがオンのときだけ効く）")
      for k, label, tip in debuglog.LIFTS]
 
 
@@ -159,6 +163,26 @@ class SettingsDialog(QDialog):
             w.addItems(kind.split(":", 1)[1].split(","))
             w.setCurrentText(str(value))
             return w
+        if kind == "notice":   # 通知の出し方と、消すまでの秒を 1 行に並べる（秒は「数秒で消す」のときだけ選べる）
+            from atelier.ui.notice_rules import AUTO, CHOICES, parse
+            how, sec = parse(value)
+            box = QWidget()
+            row = QHBoxLayout(box)
+            row.setContentsMargins(0, 0, 0, 0)
+            pick = QComboBox()
+            pick.addItems(CHOICES)
+            pick.setCurrentText(how)
+            secs = QSpinBox()
+            secs.setRange(1, 120)
+            secs.setSuffix(" 秒")
+            secs.setValue(sec)
+            secs.setToolTip("消えるまでの秒")
+            secs.setEnabled(how == AUTO)
+            pick.currentTextChanged.connect(lambda t: secs.setEnabled(t == AUTO))
+            row.addWidget(pick, 1)
+            row.addWidget(secs)
+            box.pick, box.secs = pick, secs
+            return box
         if kind == "dir":
             box = QWidget()
             row = QHBoxLayout(box)
@@ -186,6 +210,8 @@ class SettingsDialog(QDialog):
             return w.value()
         if kind == "dir":
             return w.edit.text().strip()
+        if kind == "notice":
+            return f"{w.pick.currentText()}:{w.secs.value()}"
         return w.text().strip()
 
     def save(self):

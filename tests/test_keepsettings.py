@@ -89,8 +89,11 @@ class KeepSettings(unittest.TestCase):
         nsi = (ROOT / "packaging" / "installer.nsi").read_text(encoding="utf-8")
         self.assertNotIn('DeleteRegKey HKCU "Software\\${APP}"', nsi)
         self.assertNotIn("/SD IDYES", nsi)
-        for name in ("model_prefs.json", "favorites.json", "places.json", "learn", "trash"):
-            self.assertIn(f'Rename "$1\\{name}" "$2\\{name}"', nsi)
+        # 利用者の物を巻き込まないよう、インストール先・ProgramData・C:\\LLM を /r で丸ごと消さない
+        for whole in ('RMDir /r "$INSTDIR"\n', 'RMDir /r "$1"', 'RMDir /r "$COMMONPROGRAMDATA\\${APP}"\n',
+                      'RMDir /r "$1LLM', 'RMDir /r "$COMMONPROGRAMDATA\\${APP}\\extensions'):
+            self.assertNotIn(whole, nsi)
+        self.assertIn('${AndIf} ${FileExists} "$INSTDIR\\atelier\\__init__.py"', nsi)
 
 
 if __name__ == "__main__":

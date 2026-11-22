@@ -1,4 +1,5 @@
-"""知らせのポップアップ。ウィンドウの右下に短く出て、数秒で消える（作業を止めない）。
+"""知らせのポップアップ。ウィンドウの右下に出る（作業を止めない）。消えるまでの秒か「押すまで残す」かは、
+種類ごとに設定の「通知」で選ぶ（atelier/ui/notice_rules.py）。ms が None なら押すまで残し、× で閉じられる。
 
 描けた・止めた・保存した・模型を替えた・失敗した、のように、気づいてほしいことだけに使う。
 押すと、その知らせに結びついた操作（描いた絵を開く、など）をする。
@@ -12,7 +13,7 @@ COLORS = {"ok": "#7ccf5a", "info": "#ff7a1a", "error": "#e5322d"}
 
 
 class Notice(QFrame):
-    def __init__(self, window, text: str, kind: str = "info", ms: int = 3500, on_click=None, detail: str = ""):
+    def __init__(self, window, text: str, kind: str = "info", ms: int | None = 3500, on_click=None, detail: str = ""):
         super().__init__(window)
         self.window_, self.on_click = window, on_click
         self.setObjectName("notice")
@@ -29,7 +30,15 @@ class Notice(QFrame):
             d.setObjectName("cardMeta")
             d.setWordWrap(True)
             col.addWidget(d)
-        lay.addLayout(col)
+        lay.addLayout(col, 1)
+        if ms is None:   # 押すまで残す知らせは、閉じる所を見せる（どこを押せば消えるか分かるように）
+            from PySide6.QtWidgets import QToolButton
+            x = QToolButton()
+            x.setText("×")
+            x.setAutoRaise(True)
+            x.setToolTip("閉じる（進み具合の欄の「知らせ」で見返せます）")
+            x.clicked.connect(self.close_)
+            lay.addWidget(x, 0, Qt.AlignTop)
         self.setFixedWidth(300)
         self.adjustSize()
         if on_click:
@@ -41,7 +50,8 @@ class Notice(QFrame):
         self.raise_()
         from atelier.ui.motion import slide_in
         slide_in(self, self.pos(), dx=40, dy=0)   # 右から滑り込む
-        QTimer.singleShot(ms, self.close_)
+        if ms is not None:
+            QTimer.singleShot(ms, self.close_)
 
     def _place(self):
         w = self.window_

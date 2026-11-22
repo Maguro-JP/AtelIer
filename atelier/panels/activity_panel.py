@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QTabWidget, QToolButton,
                                QVBoxLayout, QWidget)
@@ -25,6 +25,7 @@ class ActivityPanel(QWidget):
     # 進みが変わったとき（文、割合）。割合は 0〜100、どこまで進んだか分からない間は -1、待ちに戻ったら -2
     changed = Signal(str, int)
     begun = Signal()   # 新しい 1 回分が始まった（ポップアップの「閉じた」を戻す）
+    fitted = Signal(int)   # 進みの欄の中身の高さが変わった（窓の側で欄の高さを合わせる）
 
     def __init__(self):
         super().__init__()
@@ -87,15 +88,18 @@ class ActivityPanel(QWidget):
         top = QVBoxLayout(self.progress_view)
         top.setContentsMargins(10, 4, 10, 6)
         top.setSpacing(4)
+        # 狭い窓（800 など）でも横に流す棒を出さないよう、状態と時間は折り返して縮められるようにする
+        for lb in (self.state, self.time):
+            lb.setWordWrap(True)
+            lb.setMinimumWidth(40)
         head = QHBoxLayout()
-        head.addWidget(self.state)
-        head.addStretch()
-        head.addWidget(self.time)
+        head.addWidget(self.state, 1)
         head.addWidget(self.resume_tool)
         head.addWidget(self.stop_tool)
         top.addLayout(head)
         top.addLayout(self.steps)
         top.addWidget(self.bar)
+        top.addWidget(self.time)   # 時間は帯の下に。見出しの横に置くと、狭い窓で状態の文が 1 字ずつ折れた
         top.addWidget(self.detail)
         top.addWidget(self.editor)
         top.addWidget(self.alive)
@@ -108,6 +112,11 @@ class ActivityPanel(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self.list, "描いた絵")
         self.tabs.addTab(self.ops, "操作")
+        # 右下に出て消えた通知（Window.notify）を見返す所。出さない設定の種類もここには残す
+        self.notes = QListWidget()
+        self.notes.setWordWrap(True)
+        self.notes.setToolTip("出た通知を新しい順に並べます。消えた通知もここで見返せます")
+        self.tabs.addTab(self.notes, "知らせ")
         lay.addWidget(self.tabs, 1)
         self.started: float | None = None
         self.step_started: float | None = None
@@ -123,6 +132,42 @@ class ActivityPanel(QWidget):
         self.pulse.timeout.connect(self._pulse)
         self._pulse_at = 0
         self._mark(-1)
+        self.progress_view.installEventFilter(self)
+        self._fit()
+
+    MARK = {"ok": "✓", "error": "✕", "warn": "!", "info": "・"}
+
+    def note(self, text: str, kind: str = "info"):
+        """通知を「知らせ」のタブの先頭に残す（古い物は 200 件で落とす）"""
+        self.notes.insertItem(0, f"{time.strftime('%H:%M')} {self.MARK.get(kind, '・')} {text}")
+        while self.notes.count() > 200:
+            self.notes.takeItem(self.notes.count() - 1)
+
+    def eventFilter(self, obj, e):
+        if obj is self.progress_view and e.type() == QEvent.Resize and e.size().width() != e.oldSize().width():
+            self._fit()   # 幅が変わると折り返しの行数が変わるので、高さを合わせ直す
+        return False
+
+    def _fit(self):
+        """進みの欄を中身に見合う高さにする。描いていない間は状態と 1 行の説明だけにして場所を取らない。
+        前は空の帯や古い検品の文、空いた行が残り、描いていなくても欄が大きく、描いている間は文が切れた"""
+        busy = self.started is not None
+        for lb in self.step_labels:
+            lb.setVisible(busy)
+        self.bar.setVisible(busy)
+        # 検品の文が今の説明と同じときは 2 行に重ねて出さない
+        self.editor.setVisible(busy and bool(self.editor.text()) and self.editor.text() != self.detail.text())
+        self.alive.setVisible(bool(self.alive.text()))
+        self.time.setVisible(bool(self.time.text()))
+        self.detail.setVisible(bool(self.detail.text()))
+        lay = self.progress_view.layout()
+        width = self.progress_view.width()
+        lay.activate()
+        h = lay.heightForWidth(width) if lay.hasHeightForWidth() and width > 50 else lay.sizeHint().height()
+        h = max(h, lay.minimumSize().height())
+        if self.progress_view.minimumHeight() != h or self.progress_view.maximumHeight() != h:
+            self.progress_view.setFixedHeight(h)
+            self.fitted.emit(h)
 
     def offer_resume(self, label: str | None, on_resume=None):
         """一時停止した件を「再開」のボタンで出す。label が None なら隠す。説明はボタンの中に書かずツールチップに出す"""
@@ -187,11 +232,17 @@ class ActivityPanel(QWidget):
         self.editor_log = []
         self.editor.setText("")
         self.begun.emit()
+        self._fit()
         self.changed.emit(f"{mode}: 準備中", -1)
 
     def status(self, msg: str, step: int | None = None, total: int | None = None):
         import re
         from atelier.ai.phases import WORDS_NOTE
+        from atelier.ui.phase_display import relabel
+        shown = relabel(msg)
+        if shown is None:   # 描かない工程（目的）は見せない。番号は描く工程だけで数える
+            return
+        msg = shown
         if msg.startswith(WORDS_NOTE):
             # 模型に渡す言葉は今の文を置き換えず、詳細のツールチップにだけ積む（会話にも出さない）
             self.words_log.append((f"工程 {self.phase[0]}/{self.phase[1]}「{self.phase[2]}」: " if self.phase else "") + msg)
@@ -247,6 +298,7 @@ class ActivityPanel(QWidget):
         self.changed.emit(f"{self.mode}: {self.state.text()}", pct)
         self.progress_view.setToolTip(f"{msg}\n{self.mode}\n{self.text}")
         self._show_time()
+        self._fit()
 
     def _show_time(self):
         self._show_alive()
@@ -275,6 +327,8 @@ class ActivityPanel(QWidget):
         self.alive.setText("\n".join(parts))
         if self.started is None:
             self.state.setText("裏の処理中" if self.background else "待機中")
+        if self.alive.isVisible() != bool(self.alive.text()):
+            self._fit()
 
     def bg_begin(self, key: int, name: str):
         """裏の処理（取得・検品・保存・読み込み・言葉の模型）が始まった"""
@@ -347,6 +401,8 @@ class ActivityPanel(QWidget):
         self.progress_view.setToolTip(f"前の 1 枚: {result}（{took}）")
         self.time.setText("")
         self.detail.setText(f"前の 1 枚: {result}（{took}）")
+        self.editor.setText("")   # 前の回の検品の文を待っている間に残さない
+        self._fit()
         self.changed.emit(result, -2)
         return item
 
