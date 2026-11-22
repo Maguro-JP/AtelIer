@@ -186,14 +186,33 @@ def main():
         return {"items": len(seen)}
 
     def phases_draw():
-        # 工程に分けて描く。最後の工程まで描けて、絵が保存されることを見る（0.5.30 で 1 工程目のあとに落ちた）
-        from atelier.ai.engine import Painter, Studio, Words
-        studio = Studio(Words(Path("")), Painter(TINY, steps=2, size=(256, 256)), out)
+        # 工程に分けて描く。検品を通るまで工程を足して続けるので、小さな模型（砂嵐の絵）では終わらない。
+        # 決めた時間だけ描かせて利用者と同じ「止める」の旗を立て、工程が足されたことと止めた所までの記録を見る
+        import json
+        import threading
+        from atelier.ai.engine import Painter, Studio, Stopped, Words
+        painter = Painter(TINY, steps=2, size=(256, 256))
+        studio = Studio(Words(Path("")), painter, out)
         studio.way = "phases"
-        _prompt, path = studio.draw("1girl, red hair", 2, size=(256, 256))
-        if not Path(path).exists():
-            raise RuntimeError(f"絵が保存されていない: {path}")
-        return {"phases": len(studio.last_phases or [])}
+        sec = float(os.environ.get("ATELIER_E2E_PHASE_SECONDS", "180"))
+        timer = threading.Timer(sec, lambda: setattr(painter, "stop", True))
+        timer.start()
+        try:
+            studio.draw("1girl, red hair", 2, size=(256, 256))
+            stopped = False
+        except Stopped:
+            stopped = True
+        finally:
+            timer.cancel()
+            painter.stop = False
+        keep = studio.last_phase_keep
+        got = json.loads((Path(keep) / "progress.json").read_text(encoding="utf-8")) if keep else {}
+        detail = {"stopped": stopped, "total": got.get("total"), "need": got.get("need"), "image": got.get("image")}
+        if stopped and not (got.get("state") == "stopped" and got.get("image") and Path(got["image"]).exists()):
+            raise RuntimeError(f"止めた所までの絵が残っていない: {detail}")
+        if stopped and not (got.get("need", 0) > 12):
+            raise RuntimeError(f"崩れが残ったのに工程が足されていない: {detail}")
+        return detail
 
     ok = step("工程に分けて 1 枚描く", phases_draw) and ok
     # ---- 窓から、利用者が押すのと同じメソッドを通す。窓の写しは出力の置き場に置く ----
@@ -360,20 +379,34 @@ def main():
         return detail
 
     def precise_draw():
+        # 精度優先は検品を通るまで工程を足して続ける。小さな模型では終わらないので、決めた時間だけ描かせて「止める」を押し、
+        # 「止めました（工程 k で止めました）」が出て「描けました」が出ないこと、止めた所までの絵がレイヤーにあることを見る
         w = win.get("w") or open_window()
         win["w"] = w
         w._two_parts_asked = True
-        press_draw(w, "1girl, red hair", 1)
-        rows = getattr(w.studio, "last_phases", None) or []
-        phase_layers = [n for n in layer_names(w) if n.startswith("工程 ")]
-        files = [str(r.get("image")) for r in rows if r.get("image")]
-        detail = {"phases": [r.get("phase") for r in rows], "phase_layers": phase_layers, "files": files,
-                  "shot": snap(w, "precise.png")}
-        if not rows or not phase_layers:
-            raise RuntimeError(f"工程ごとの絵が出ない: {detail}")
-        missing = [f for f in files if not Path(f).exists()]
-        if missing:
-            raise RuntimeError(f"工程の絵のファイルが無い: {missing}")
+        w.way_pick.setCurrentIndex(1)
+        w.mode.setCurrentIndex(0)
+        w.entry.setText("1girl, red hair")
+        n0 = len(said)
+        w.send()
+        if w.thread is None:
+            raise RuntimeError("描くを押しても描き始めなかった: " + " / ".join(said[-3:]))
+        pump(lambda: w.thread is None, float(os.environ.get("ATELIER_E2E_PHASE_SECONDS", "180")))
+        ran = said[n0:]
+        added = [m for m in ran if "直しを" in str(m) and "要る工程" in str(m)]
+        if w.thread is not None:
+            w.stop()
+        pump(lambda: False, 3)
+        ran = said[n0:]
+        layers = layer_names(w)
+        detail = {"added": added[-3:], "said": [str(m) for m in ran[-6:]], "layers": layers[-4:], "shot": snap(w, "precise.png")}
+        if any("描けました" in str(m) for m in ran) and not any("全部の工程が検品を通りました" in str(m) for m in ran):
+            raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
+        if not any("全部の工程が検品を通りました" in str(m) for m in ran):
+            if not any(str(m).startswith("止めました（工程") for m in ran):
+                raise RuntimeError(f"「止めました（工程 k で止めました）」が出ない: {detail}")
+            if not any(n.startswith("止めた所までの絵") for n in layers):
+                raise RuntimeError(f"止めた所までの絵がレイヤーに無い: {detail}")
         return detail
 
     # 利用者が窓で踏む段。Release を決める段（入れる・起動・取る・描く）とは分けて流す

@@ -133,8 +133,13 @@ class ResultsAndProgressMixin:
             self.activity.end("止めました")
         self.stop_button.setEnabled(False)
         self.button.setEnabled(True)
-        self.progress_popup.tell("止めました", "キャンバスは元のままです")
-        self.notify("止めました", "info", "")
+        stopped = self._put_stopped_phases() if hasattr(self, "_put_stopped_phases") else None
+        if stopped:   # 精度優先で描いていた回は、止めた所までの絵をレイヤーに置き、残った崩れと何工程目で止めたかを出す
+            self.progress_popup.tell(stopped[0], stopped[1])
+            self.notify(stopped[0], "info", stopped[1])
+        else:
+            self.progress_popup.tell("止めました", "キャンバスは元のままです")
+            self.notify("止めました", "info", "")
         self.hide_progress_if_idle()
         self.last_stop_ui = time.time() - t0
         self.statusBar().showMessage(f"止めました（{self.last_stop_ui:.2f} 秒）", 4000)
