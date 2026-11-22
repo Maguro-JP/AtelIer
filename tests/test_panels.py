@@ -53,7 +53,8 @@ def lost(w) -> list:
                 bad.append((k, "画面の外"))
             if title.collapsed:
                 bad.append((k, "別ウィンドウなのに畳んだまま"))
-        elif w.dockWidgetArea(d) == Qt.NoDockWidgetArea:
+        elif w.dockWidgetArea(d) == Qt.NoDockWidgetArea and not (d.window() is not w and d.window().isVisible()):
+            # 別ウィンドウどうしをタブにすると、Qt はタブの窓（浮いた組）に入れ、置き場は「無し」になる。窓が見えていれば消えていない
             bad.append((k, "置き場所が無い"))
         if not title.collapsed:
             if body.isHidden():

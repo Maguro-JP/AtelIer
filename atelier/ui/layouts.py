@@ -96,6 +96,15 @@ def fit_heights(w, keys: list[str], final: bool = False):
     w.resizeDocks(docks, want, Qt.Vertical)
 
 
+def _top_first(w, keys: list[str]):
+    """上の欄から中身が収まる高さを配り、残りを最後の欄（一覧）に回す。全部は収まらない低い画面でも、
+    タブにまとめず、伸び縮みしても困らない一覧だけを縮める"""
+    docks = [w.panels[k][0] for k in keys]
+    room = sum(d.height() for d in docks) or max(w.height() - 120, 400)
+    want = [need(w, k) for k in keys[:-1]]
+    w.resizeDocks(docks, want + [max(120, room - sum(want))], Qt.Vertical)
+
+
 def settle(w):
     """並べ終わったあとと、ウィンドウの大きさが変わったあとに、中身が収まらない欄のある列だけ高さを配り直す。
     ウィンドウを広げると Qt は増えた高さを今の比で配り、色の欄のように中身の多い欄が足りないまま残った。
@@ -185,9 +194,10 @@ def recommended(w):
     bars(w, ribbon=False, tools=ESSENTIAL_TOOLS)
     _column(w, L, ["color", "layers"], [5, 5])
     _hide(w, ["brushes"])
-    _column(w, R, ["chat", "history"], [5, 5])
-    _tabs(w, ["history", "view", "library"])
-    w.panels["history"][0].raise_()
+    # 右は上から表示・AI・履歴（ライブラリーは表示の裏のタブ）。履歴の裏に表示を重ねると、表示が前に出たり
+    # 細い所に押し込まれたりして、1280×720 で表示の欄に流す棒が出た
+    _column(w, R, ["view", "chat", "history"], [2, 4, 4])
+    _tabs(w, ["view", "library"])
     w.addDockWidget(T, w.panels["progress"][0])
     w.addDockWidget(B, w.panels["talk"][0])
     w.panels["talk"][0].show()
@@ -196,6 +206,7 @@ def recommended(w):
     # チャットは会話を読み返せる高さにする（200 のままだと 1080 の高さでも吹き出しが 2 つしか見えなかった。低い画面では絵の場所を残す）
     fit_talk(w, 200 if w.height() < 900 else int(w.height() * 0.3))
     fit_heights(w, ["color", "layers"])
+    _top_first(w, ["view", "chat", "history"])
     _progress_idle(w)
     _first_tool(w, "hand")
 
