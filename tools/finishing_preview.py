@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 from atelier.ai import finishers
 from atelier.ai import shortcuts
 
-SAMPLE = ROOT / "library" / "daily" / "2026-10-13" / "05-yukionna.png"
+SAMPLE = ROOT / "tests" / "fixtures" / "yukionna.png"
 OUT = ROOT / "artifacts" / "finishing-review"
 
 

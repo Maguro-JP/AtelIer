@@ -37,7 +37,7 @@ jobs:
       - run: git worktree add ../old "${{ github.event.inputs.old || 'v0.1.0' }}"
       - run: lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-200
       - run: |
-          for p in library/daily/2026-10-13/05-yukionna.png library/women/2026-10-18/pockets-20261018229.png; do
+          for p in tests/fixtures/yukionna.png tests/fixtures/pockets.png; do
             echo "== $p"
             python -m atelier.bench.finish_bench "$p" --upscale
             [ "${{ github.event.inputs.only_upscale || '1' }}" = "1" ] || python -m atelier.bench.finish_bench "$p" "$(cd ../old && pwd)"

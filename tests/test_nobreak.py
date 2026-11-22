@@ -166,7 +166,7 @@ class RealSampleTest(unittest.TestCase):
     """本物の部位分けで、見本の顔の寄りに整える・まとめて綺麗にするを掛けても、目の色と髪の色が変わらない"""
 
     def test_face_closeup(self):
-        src = Image.open(ROOT / "library/eyes/eyes-blue.jpg").convert("RGB")
+        src = Image.open(ROOT / "tests/fixtures/eyes-blue.jpg").convert("RGB")
         f0 = facefeat.features(src)
         self.assertIn("eye", f0)
         lab = facefeat.seg(src)

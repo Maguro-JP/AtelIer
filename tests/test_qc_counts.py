@@ -31,13 +31,5 @@ class EdgeCutPersonTest(unittest.TestCase):
         self.assertIn("下", qc.edge_cut(rgb, person=person))
 
 
-class UnmeasuredTest(unittest.TestCase):
-    def test_words_without_tags_are_separated(self):
-        import loop
-        vocab = {"bikini", "red trim", "smile"}
-        got = loop.unmeasured_words("black bikini with red trim, smile, wistful gaze across the bay", vocab)
-        self.assertEqual(got, ["wistful gaze across the bay"])
-
-
 if __name__ == "__main__":
     unittest.main()

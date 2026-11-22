@@ -52,7 +52,7 @@ jobs:
         env:
           ATELIER_HOME: ${{ runner.temp }}/cd
           LLM_HOME: ${{ runner.temp }}/llm
-        run: python -u -m atelier.bench.restyle_verify library/daily/2026-10-13/05-yukionna.png out ${{ matrix.kind }}
+        run: python -u -m atelier.bench.restyle_verify tests/fixtures/yukionna.png out ${{ matrix.kind }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

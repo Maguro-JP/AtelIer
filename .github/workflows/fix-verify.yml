@@ -38,7 +38,7 @@ jobs:
           ATELIER_HOME: ${{ runner.temp }}/cd
           LLM_HOME: ${{ runner.temp }}/llm
           FIX_STRENGTH: ${{ inputs.strength || '0.75' }}
-        run: python -u -m atelier.bench.fix_verify library/daily/2026-10-13/05-yukionna.png out 170,0,350,200 髪を赤くして 髪を黒くして 目を閉じて
+        run: python -u -m atelier.bench.fix_verify tests/fixtures/yukionna.png out 170,0,350,200 髪を赤くして 髪を黒くして 目を閉じて
       - name: draw-results に置く
         if: always()
         run: rm -rf out/saved; sh .github/scripts/draw-results.sh out
