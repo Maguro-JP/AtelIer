@@ -13,7 +13,6 @@ test_layerkeep
 test_memory
 test_menuaudit
 test_nobreak
-test_original_finish
 test_panels
 test_pause
 test_presetui
