@@ -42,7 +42,8 @@ def is_work_file(path: str | Path) -> bool:
     return name.endswith(ORA) or name.endswith(INFO)
 
 
-from atelier.files.redpen_clean import is_redpen_result, old_redpen_files  # noqa: E402,F401  前の版からの呼び名
+from atelier.files.redpen_clean import is_redpen_result, old_redpen_files  # noqa: E402
+_OLD_NAMES = (is_redpen_result, old_redpen_files)   # 前の版の呼び名を残す（tests/test_layerkeep.py などがここから読む）
 
 
 def discard_unused_redpen(canvas) -> int:
@@ -118,7 +119,6 @@ def read(key: str) -> dict | None:
         layers = []
         for i, (name, img, visible, opacity) in enumerate(parts):
             row = rows[i] if i < len(rows) else {}
-            from PySide6.QtGui import QImage
             layers.append(Layer(name, img.convertToFormat(QImage.Format_ARGB32_Premultiplied), visible, opacity,
                                 bool(row.get("locked", False)), bool(row.get("redpen", False))))
         return {"layers": layers, "info": data}

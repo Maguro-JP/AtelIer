@@ -490,7 +490,7 @@ def draw(studio, text: str, seed: int, say, size=None, meta: dict | None = None,
         o.compose_two = lambda text, seed, size, say: _compose_two(studio, text, seed, o.two, size, say)
     image, prompt, left, readable, s_k, m = o.run(text, seed, say, size=size, tries=studio.REDRAW_TRIES, rounds=studio.FIX_ROUNDS)
     if left:
-        say(f"検品を通る絵が出ませんでした（途中）。残った崩れ: " + "、".join(left[:5]))
+        say("検品を通る絵が出ませんでした（途中）。残った崩れ: " + "、".join(left[:5]))
     elif not readable:
         say("検品できなかったので、通ったかは分かりません（途中）")
     if m is not None:

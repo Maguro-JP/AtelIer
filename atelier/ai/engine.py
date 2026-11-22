@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-from atelier.files.paths import HOME, HUB  # noqa: E402
+from atelier.files.paths import HUB  # noqa: E402
 IMAGE_MODEL = os.environ.get("ATELIER_IMAGE_MODEL", "Laxhar/noobai-XL-Vpred-1.0")
 # ラフ（線の下描き）の形に沿って描かせる部品。元の絵を描き直す img2img では、ラフの線がそのまま残って絵にならなかった
 SKETCH_ADAPTER = "TencentARC/t2i-adapter-sketch-sdxl-1.0"
@@ -323,7 +323,7 @@ def quant_config(info, dtype):
         free = torch.cuda.mem_get_info()[0] / 1e9
         if free >= info.gb * 1.2:
             return None
-        import bitsandbytes  # noqa: F401
+        __import__('importlib').import_module("bitsandbytes")
         from diffusers import PipelineQuantizationConfig
     except Exception:
         return None
@@ -1006,7 +1006,7 @@ class Painter:
         """描く前のメモリの予算から、置き方・大きさ・軽くする設定を決める（atelier/ai/memory_budget.py）。
         読んだあとは置き方を替えず、重みは空きから引かれているので数えない"""
         from atelier.ai import memory_budget as mb
-        from atelier.models.catalog import family as fam, image_model
+        from atelier.models.catalog import family as fam
         gb, family, single, fp32 = self._weights()
         cuda = mb.has_cuda()
         b = b or mb.budget()
@@ -1354,7 +1354,6 @@ class Painter:
                reference=None, ref_scale: float = 0.6):
         """base（PIL のラフ）を渡すと、その線の形に沿って描く。strength が大きいほどラフに沿う。
         reference（PIL）を渡すと、その絵の絵柄や雰囲気を借りる。ref_scale が大きいほど寄せる"""
-        import torch
         was_loaded = self._pipe is not None
         from atelier.ai import memory_budget as mb
         self.stages = st = mb.Stages()
@@ -1367,7 +1366,6 @@ class Painter:
             st.close()
 
     def _paint_measured(self, pipe, was_loaded, prompt, seed, on_step, base, strength, size, on_preview, reference, ref_scale):
-        import torch
         # 読んだあとも 1 枚ごとに予算を見直す（ほかのアプリが空きを使ったかもしれない）。置き方は替えず、大きさと軽さを決める。
         # 本体を 4 ビットに縮めたかは読んでから分かるので、縮めた模型は読んだ直後にも見直す
         again = was_loaded or getattr(self, "quantized", False)
@@ -1499,11 +1497,9 @@ class Painter:
             return None
 
     def _paint_body(self, pipe, info, f, prompt, args, size, want, base, strength, reference, ref_scale, step, steps):
-        total = steps
         if f.edit and (base is not None or reference is not None):
             # 絵を頼みと一緒に渡す世代（FLUX.2 klein）。ラフと参考画像は絵だけを渡し、言葉は頼みの訳だけにする
             w, h = size
-            total = steps
             pics = [p.convert("RGB").resize((w, h)) for p in (base, reference) if p is not None]
             # 渡す言葉は頼みの訳だけにする（下描きや参考画像の扱いを英語の文で足すと、頼んでいない言葉が模型に渡った）
             args["prompt"] = args.get("prompt", prompt)
@@ -1527,7 +1523,6 @@ class Painter:
             w, h = size
             sketch = sketch_lines(base, (w, h))
             pass   # ラフの線を描かせない打ち消しも、頼んでいないので足さない
-            total = steps
             args.pop("callback_on_step_end", None)
 
             def old_step(i, t, latents):   # この描き方は古い形の途中報告だけを受ける。止めるときは例外で抜ける
@@ -1538,7 +1533,6 @@ class Painter:
                                adapter_conditioning_factor=1.0, callback=old_step, callback_steps=1, **args).images[0]
         else:
             w, h = size
-            total = steps
             self._use_reference(pipe, reference, ref_scale, args)
             out = pipe(width=w, height=h, **args).images[0]
         if self.stop:
@@ -1563,7 +1557,6 @@ class Painter:
         clean なら、描く前に直す所を消しゴムで消す（元の線が薄く残って二重になるのを防ぐ。開いた目を閉じるなど形を変えるとき）。
         """
         import torch
-        from PIL import Image
         from atelier.models.catalog import family as fam, image_model
         info = image_model(self.model)
         if not fam(info.family).inpaint:

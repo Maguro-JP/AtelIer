@@ -238,7 +238,6 @@ def count_people(im, least: float = 0.5, big: float = 0.3) -> int:
 
 def face_hidden(im, seg):
     """顔（部位分けの顔の塊を 1 割広げた枠）を灰で塗った絵。顔の外に目が描かれていれば、塗った絵でも目のタグが付く"""
-    import numpy as np
     from PIL import ImageDraw
     from scipy import ndimage
     out = im.copy()
@@ -282,7 +281,7 @@ def check(image, prompt: str = "", tags: dict | None = None) -> dict:
     from atelier.files.paths import use_tools_gen
     use_tools_gen()
     try:
-        import edit   # noqa: F401  部位分けの置き場（HF_HOME）を、transformers を読む前に決める
+        __import__('importlib').import_module("edit")   # 部位分けの置き場（HF_HOME）を、transformers を読む前に決める
     except Exception:
         pass
     try:

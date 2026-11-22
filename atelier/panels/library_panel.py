@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QListView, QListWidget,
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QInputDialog, QLabel, QListView, QListWidget,
                                QListWidgetItem, QMenu, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from atelier.files.library import DISLIKE, LIKE, NONE

@@ -16,8 +16,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QFrame, QGridLa
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from atelier.ai.engine import SKETCH, Painter
-from atelier.models.catalog import (IMAGES, PASS, WORDS, ImageModel, WordsModel, offered_images, offered_words, verified_images,
-                             verified_words)
+from atelier.models.catalog import (IMAGES, PASS, WORDS, ImageModel, WordsModel, offered_images, offered_words, verified_images)
 from atelier.files.paths import HUB, OWN_LLM, ensure_shared, find_gguf, llm_target
 
 LLM = OWN_LLM

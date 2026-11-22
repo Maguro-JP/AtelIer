@@ -173,8 +173,8 @@ def _upscale_ready() -> bool:
     """torch があれば使える。重み（18MB）は初めて使うときに upscale が取る（「絵を 2 倍に拡大」と同じ）。
     前は重みが無いと押せず、「模型の管理から取ってください」と出したが、模型の管理に取る所が無く、先へ進めなかった"""
     try:
-        from atelier.ai import upscale  # noqa: F401
-        import torch  # noqa: F401
+        __import__('importlib').import_module("atelier.ai.upscale")
+        __import__('importlib').import_module("torch")
     except ImportError:
         return False
     return True
@@ -290,7 +290,7 @@ def _restyle_ready() -> bool:
     if not callable(getattr(_PAINTER[0], "load", None)):
         return False   # 画風は描き手の読んだ模型の部品（load）から img2img の道を組む。組めない描き手では押しても落ちるだけ
     try:
-        import diffusers  # noqa: F401
+        __import__('importlib').import_module("diffusers")
     except ImportError:
         return False
     return True
@@ -405,7 +405,6 @@ def flaw_pixels(a):
 def repair(a, b, rounds: int = 3):
     """b（直した絵）に新しく出来た崩れの画素だけを、a（直す前）の画素に戻す。消しゴムで間違えた所だけを消すのと同じで、
     ほかの所の直しは残す。シャープは縁の際に粒と出っ張りを作り（10 枚で崩れ +1923）、絵ごと採らないと線の締まりも失った"""
-    import numpy as np
     from scipy.ndimage import binary_dilation
     old = _memo(a, "flaw_pixels", flaw_pixels)   # a は書き換えないので測った値を使い回す（b は直しながら書き換えるので毎回測る）
     b = b.copy()

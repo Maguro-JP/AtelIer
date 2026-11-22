@@ -119,7 +119,7 @@ class Recorder:
 def video_backend() -> str:
     """MP4 を書く手段: "imageio"（imageio-ffmpeg）、"ffmpeg"（PATH の ffmpeg）、"webp"（どちらも無い。動く WebP で代わりに書く）"""
     try:
-        import imageio_ffmpeg  # noqa: F401
+        __import__('importlib').import_module("imageio_ffmpeg")
         return "imageio"
     except ImportError:
         import shutil

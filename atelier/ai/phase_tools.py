@@ -211,7 +211,6 @@ def eye_boxes(points: dict) -> list[tuple[int, int, int, int]]:
 
 def catchlights(image, points: dict) -> dict:
     """目の光: 両目の囲みの中の一番明るい画素"""
-    import numpy as np
     lum = luminance(image)
     boxes = eye_boxes(points)
     if not boxes:
@@ -226,7 +225,6 @@ def catchlights(image, points: dict) -> dict:
 
 def shrink_view(image) -> dict:
     """縮めて見る: 1/8 に縮め、人物と紙の明るさの差（主役が目立つか）"""
-    import numpy as np
     from PIL import Image
     small = image.resize((max(8, image.width // SHRINK), max(8, image.height // SHRINK)), Image.BOX)
     m = silhouette(small)

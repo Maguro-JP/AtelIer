@@ -381,7 +381,7 @@ class ModelManager(QDialog):
 
     # ---- 役目ごとの編成（atelier/models/favorites.py）。構図・顔・背景などに使う模型の組を作る・名前を付ける・直す・消す・切り替える ----
     def _sets_row(self):
-        from PySide6.QtWidgets import QPushButton, QWidget
+        from PySide6.QtWidgets import QPushButton
         from atelier.models import favorites as favmodels
         box = QFrame()
         box.setObjectName("card")
