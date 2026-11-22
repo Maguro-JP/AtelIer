@@ -305,3 +305,4 @@
 | 2026-11-22 | 全画面のあいだは別ウィンドウの欄・帯・まとめた窓に WindowStaysOnTopHint を付け、戻したら外す。全画面の間は主の窓の真ん中に札を置き、欄の大きさを前に戻す | 全画面の窓の後ろに隠れると液タブで色も道具も選べない。真ん中を空けると下の欄が広がり、戻したキャンバスが細い帯になった | `atelier/app/window/fullscreen.py` の `_float_on_top`、`_put_dock_sizes` | 常に最前面にする（ふだんの窓の邪魔になる） |
 | 2026-11-22 | 配置の保存に、まとめた窓（中の欄と帯、並び、窓の位置）と全画面の画面と有無を入れる。まとめた窓は主の窓の restoreState のあとに作る | 先に作ると、主の窓の restoreState が子の窓の中の欄まで名前で取り戻した | `atelier/ui/layouts.py` の `snapshot`、`restore` | 主の窓の状態だけを残す |
 | 2026-11-22 | AtelIer は CharacterDesigner の置き場・設定・模型の選びを読まない・写さない。引き継ぎの処理と確かめの段を外した | 2 つのアプリを別の物として整理する（利用者の指示）。片方の環境に頼ると、片方を消したり直したりしたときにもう片方が壊れる | atelier/files/paths.py、atelier/app/migrate.py、packaging/installer.nsi |
+| 2026-11-22 | 初めて入れた人の置き場は C:\\ProgramData\\AtelIer の 1 か所と、模型の共有の C:\\LLM だけにする。cd の置き場、AdaptiveAIStudio の模型の置き場、前の版（%LOCALAPPDATA%）からの移しを外す | 流用元の都合で残っていた置き場と移しが、初めて入れた人に変な環境を作っていた（利用者の指示） | atelier/files/paths.py、packaging/installer.nsi |

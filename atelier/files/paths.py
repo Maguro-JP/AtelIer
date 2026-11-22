@@ -48,7 +48,6 @@ def config_file() -> Path:
     return data_home() / "places.json"
 
 
-STRAY = "cd"   # 前の版がずれて書いた所（data_home() の下）
 
 
 def _model_dir_in(path: Path) -> str:
@@ -100,12 +99,7 @@ OWN_LLM = HOME / "llm"   # 言葉の模型を動かす部品（llama-cpp-python�
 
 def legacy_gguf_dirs() -> list[Path]:
     """共有の置き場を決める前に、模型が置かれていた所。読むだけで、ここへは取らない"""
-    dirs = [OWN_LLM]
-    if WINDOWS:
-        dirs.append(Path(os.environ.get("ProgramData") or "C:\\ProgramData") / "AdaptiveAIStudio" / "models")
-    if os.environ.get("AAS_HOME"):
-        dirs.append(Path(os.environ["AAS_HOME"]) / "models")
-    return dirs
+    return [OWN_LLM]   # ほかのアプリの置き場は見ない（共有は C:\\LLM だけ）
 
 
 def llm_dirs() -> list[Path]:
@@ -139,22 +133,18 @@ def ensure_shared():
         readme.write_text(README, encoding="utf-8")
 
 
-# ---- 利用者の設定のファイル（model_prefs.json、favorites.json、places.json、learn）を版をまたいで守る ----
-# 置き場は data_home() の 1 か所。前の版は、手の検品と言葉の読み取りが ATELIER_HOME を「data_home()/cd」に書き換えていたため、
-# それ以降の読み書きが cd の下へずれ、★・非表示・ブロック・点・タグ・絵の ★・模型の置き場・学んだ基準が消えたように見えた。
-# 部品（tools/gen）の置き場は cdhome.HOME を直接向け、環境変数は変えない。
-# 前の版がずれて書いた所（data_home() の下）は STRAY（上で決める。模型の置き場を決める時にも読むため）
+# 部品（tools/gen）の置き場は cdhome.HOME を data_home() に直接向け、環境変数は変えない
 
 
 def use_tools_gen():
-    """tools/gen の部品を読めるようにし、その置き場（cdhome.HOME）をアプリのデータの置き場の cd に向ける。
+    """tools/gen の部品を読めるようにし、その置き場（cdhome.HOME）をアプリのデータの置き場に向ける。
     環境変数 ATELIER_HOME は書き換えない（書き換えると data_home() がずれ、利用者の設定が読めなくなる）"""
     gen = ROOT / "tools" / "gen"
     if str(gen) not in sys.path:
         sys.path.insert(0, str(gen))
     import cdhome
     if not os.environ.get("ATELIER_HOME"):
-        cdhome.HOME = data_home() / STRAY
+        cdhome.HOME = data_home()
     return cdhome
 
 
@@ -198,59 +188,3 @@ def write_json(path: Path, data):
     part.replace(path)
 
 
-def adopt_stray(home: Path | None = None) -> list[str]:
-    """前の版が cd の下へずれて書いた設定を、本来の置き場へ合わせる。起動のたびに呼んでよい（合わせた物は .adopted に名前を替える）"""
-    home = Path(home) if home is not None else data_home()
-    stray = home / STRAY
-    done: list[str] = []
-    if not stray.is_dir():
-        return done
-
-    def retire(p: Path):
-        try:
-            p.replace(p.with_name(p.name + ".adopted"))
-        except OSError:
-            pass
-
-    src = stray / "model_prefs.json"
-    if src.is_file():
-        new = read_json(src, dict, {})
-        cur = read_json(home / "model_prefs.json", dict, {})
-        for repo, entry in new.items():
-            if isinstance(entry, dict):
-                base = cur.get(repo) if isinstance(cur.get(repo), dict) else {}
-                cur[repo] = {**base, **entry}   # ずれた方が後で付けた印
-        write_json(home / "model_prefs.json", cur)
-        retire(src)
-        done.append("model_prefs.json")
-    src = stray / "favorites.json"
-    if src.is_file():
-        new = [str(p) for p in read_json(src, list, [])]
-        cur = [str(p) for p in read_json(home / "favorites.json", list, [])]
-        write_json(home / "favorites.json", new + [p for p in cur if p not in new])
-        retire(src)
-        done.append("favorites.json")
-    src = stray / "places.json"
-    if src.is_file():
-        new = read_json(src, dict, {})
-        cur = read_json(home / "places.json", dict, {})
-        write_json(home / "places.json", {**cur, **{k: v for k, v in new.items() if v}})
-        retire(src)
-        done.append("places.json")
-    learn = stray / "learn"
-    if learn.is_dir():
-        import shutil
-        for f in learn.rglob("*"):
-            if not f.is_file():
-                continue
-            dst = home / "learn" / f.relative_to(learn)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if f.name == "records.jsonl" and dst.exists():
-                with open(dst, "a", encoding="utf-8") as out:   # 手本の記録は足し合わせる
-                    text = f.read_text(encoding="utf-8")
-                    out.write(text if text.endswith("\n") or not text else text + "\n")
-            elif not dst.exists():
-                shutil.copy2(f, dst)
-        retire(learn)
-        done.append("learn")
-    return done

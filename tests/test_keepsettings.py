@@ -65,30 +65,10 @@ class KeepSettings(unittest.TestCase):
             cdhome = paths.use_tools_gen()
             self.assertNotIn("ATELIER_HOME", os.environ)
             self.assertEqual(paths.data_home(), before)
-            self.assertEqual(Path(cdhome.HOME), before / "cd")
+            self.assertEqual(Path(cdhome.HOME), before)   # 部品の置き場もデータの置き場と同じ 1 か所
             self.assertTrue(ratings.is_favorite("a/b"))
         for name in ("hand_check.py", "request_check.py"):
             self.assertNotIn('os.environ["ATELIER_HOME"]', (ROOT / "atelier" / "qc" / name).read_text(encoding="utf-8"))
-
-    def test_adopts_stray_settings(self):
-        """前の版が cd の下にずらして書いた印を、本来の置き場へ合わせる。元からある印も残す"""
-        self.write("model_prefs.json", {"a/b": {"favorite": True, "rating": 60}})
-        self.write("cd/model_prefs.json", {"a/b": {"hidden": True}, "e/f": {"blocked": True}})
-        self.write("favorites.json", ["old.png"])
-        self.write("cd/favorites.json", ["new.png"])
-        self.write("cd/places.json", {"model_dir": "D:/LLM"})
-        self.write("cd/learn/records.jsonl", '{"x": 1}\n')
-        done = paths.adopt_stray()
-        self.assertEqual(set(done), {"model_prefs.json", "favorites.json", "places.json", "learn"})
-        self.assertTrue(ratings.is_favorite("a/b"))
-        self.assertTrue(ratings.is_hidden("a/b"))
-        self.assertEqual(ratings.user_rating("a/b"), 60)
-        self.assertTrue(ratings.is_blocked("e/f"))
-        self.assertEqual(ownstyle.favorites(), ["new.png", "old.png"])
-        self.assertEqual(paths.chosen_model_dir(), "D:/LLM")
-        self.assertTrue((self.home / "learn" / "records.jsonl").is_file())
-        self.assertEqual(paths.adopt_stray(), [])   # 2 度目は何もしない
-        self.assertTrue((self.home / "cd" / "model_prefs.json.adopted").is_file())
 
     def test_broken_file_is_kept(self):
         """読めないファイルは消さずに控えを残し、次の保存で元の中身を失わない"""

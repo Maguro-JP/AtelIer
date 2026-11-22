@@ -1068,12 +1068,7 @@ def dark(app: QApplication, name: str | None = None):
 
 def main():
     from atelier.app import crash_log as crashlog
-    from atelier.files.paths import adopt_stray
     crashlog.install()
-    try:
-        adopt_stray()   # 前の版がずれた置き場（cd）に書いた ★・非表示などを、本来の置き場へ合わせる
-    except OSError:
-        pass
     app = QApplication(sys.argv)
     dark(app)
     from atelier.ui import window_fit as fit

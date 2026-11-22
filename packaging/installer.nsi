@@ -1,12 +1,11 @@
 ﻿; AtelIerの Setup.exe。build.sh から makensis で組む（SRC、OUT、VERSION を渡す）
 ;
-; 置き場（atelier/files/paths.py と同じ。自作の AdaptiveAIStudio にそろえる）
+; 置き場（atelier/files/paths.py と同じ）
 ;   C:\Program Files\AtelIer\      プログラム（入れ直すたびに丸ごと置き換える）
 ;   C:\ProgramData\AtelIer\        部品（torch など。初回の起動で取る）と記録
 ;   C:\LLM\gguf、C:\LLM\huggingface          模型（自作アプリで共有。消さない）
 ;   ピクチャ\AtelIer\              描いた絵
 ;
-; 入れる: 前の版（%LOCALAPPDATA%\Programs\AtelIer）があれば、模型と描いた物を新しい置き場へ移してから、前の版を消す
 ; 更新: 同じ場所に入れ直す。前のプログラムを消してから置くので、古いファイルが残らない。部品・模型・描いた絵はそのまま
 ; 消す: プログラム、ショートカット、登録を消す。部品（ProgramData）は聞いてから消す。利用者の設定（QSettings と ProgramData の設定のファイル）、模型、描いた絵は消さない
 Target amd64-unicode
@@ -44,7 +43,6 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Japanese"
 
-Var OLD
 
 Section "Install"
   ; 更新のとき、前のプログラムを先に消す（消したファイルが残って古いまま読まれないように）
@@ -65,24 +63,6 @@ Section "Install"
   CreateDirectory "$1LLM\manual"
   nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$1LLM" /grant *S-1-5-32-545:(OI)(CI)M /Q'
 
-  ; 前の版からの移行。前の版は利用者ごとに入れていたので、HKCU の登録から場所を読む
-  SetShellVarContext current
-  ReadRegStr $OLD HKCU "${UNINST}" "InstallLocation"
-  StrCmp $OLD "" 0 +2
-    StrCpy $OLD "$LOCALAPPDATA\Programs\${APP}"
-  IfFileExists "$OLD\*.*" 0 no_old
-    DetailPrint "前の版を移しています: $OLD"
-    nsExec::ExecToLog '"$INSTDIR\python\python.exe" -m atelier.app.migrate "$OLD"'
-    Pop $0
-    StrCmp $0 "0" 0 migrate_failed
-      Delete "$SMPROGRAMS\${APP}\*.lnk"
-      RMDir "$SMPROGRAMS\${APP}"
-      Delete "$DESKTOP\${APP}.lnk"
-      DeleteRegKey HKCU "${UNINST}"
-      Goto no_old
-    migrate_failed:
-      MessageBox MB_OK|MB_ICONEXCLAMATION "前の版の一部を移せなかったので、前の版はそのまま残しました。$\r$\n記録: $COMMONPROGRAMDATA\${APP}\migrate.log"
-  no_old:
 
   SetShellVarContext all
   SetOutPath "$INSTDIR"
