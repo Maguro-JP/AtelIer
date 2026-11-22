@@ -185,24 +185,38 @@ def low_memory_size(size, family: str = "sdxl"):
 _BF16_FAST: bool | None = None
 
 
+_BF16_PROBE = """
+import time, torch
+took = {}
+with torch.no_grad():
+    for dt in (torch.float32, torch.bfloat16):
+        a, w = torch.randn(512, 1024, dtype=dt), torch.nn.Linear(1024, 1024, dtype=dt)
+        w(a)
+        t = time.perf_counter()
+        for _ in range(4):
+            w(a)
+        took[dt] = time.perf_counter() - t
+print("fast" if took[torch.bfloat16] < took[torch.float32] else "slow")
+"""
+
+
 def bf16_fast() -> bool:
     """この CPU で bfloat16 の計算が float32 より速いか（1 回だけ測って覚える。約 0.2 秒）。
     bf16 の命令（AVX512_BF16、AMX）がある CPU では bf16 が数倍速く、無い CPU では命令をまねるので 4〜8 倍遅い。
-    同じ Actions の構図の段が、機械によって 6 分と 70 分以上に分かれた原因がこれだった"""
+    同じ Actions の構図の段が、機械によって 6 分と 70 分以上に分かれた原因がこれだった。
+    測るのは別の処理で行う。CPU によっては bf16 の計算そのものが使えない命令（0xc000001d）で落ち、
+    アプリごと消えて描けなかった。別の処理が落ちたら「遅い」とみなし、bf16 を使わない"""
     global _BF16_FAST
     if _BF16_FAST is None:
-        import time
-        import torch
-        took = {}
-        with torch.no_grad():
-            for dt in (torch.float32, torch.bfloat16):
-                a, w = torch.randn(512, 1024, dtype=dt), torch.nn.Linear(1024, 1024, dtype=dt)
-                w(a)
-                t = time.perf_counter()
-                for _ in range(4):
-                    w(a)
-                took[dt] = time.perf_counter() - t
-        _BF16_FAST = took[torch.bfloat16] < took[torch.float32]
+        import subprocess
+        import sys
+        try:
+            r = subprocess.run([sys.executable, "-E", "-s", "-c", "import sys; sys.path[:0] = " + repr(sys.path) + "\n" + _BF16_PROBE],
+                               capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            _BF16_FAST = r.returncode == 0 and r.stdout.strip().endswith("fast")
+        except (OSError, subprocess.SubprocessError):
+            _BF16_FAST = False
     return _BF16_FAST
 
 
