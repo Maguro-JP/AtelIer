@@ -386,5 +386,202 @@ class SelectionOpsTest(unittest.TestCase):
         self.assertFalse(c.selection_path().contains(QPointF(150, 150)))
 
 
+def alpha_at(c, x, y, layer=None):
+    from PySide6.QtGui import QColor
+    return QColor.fromRgba(c.layers[c.current if layer is None else layer].image.pixel(x, y)).alpha()
+
+
+class FreeTransformTest(unittest.TestCase):
+    """自由変形。メニューから窓を開き、数を入れて確定・取り消しを押し、画素と元に戻すで確かめる"""
+
+    def _square(self):
+        from PySide6.QtGui import QColor, QPainter
+        w = window()
+        c = w.canvas
+        c.set_selection(None)
+        p = QPainter(c.layers[c.current].image)
+        p.fillRect(40, 40, 40, 40, QColor("red"))
+        p.end()
+        return w, c
+
+    def _ok(self, dlg):
+        from PySide6.QtWidgets import QDialogButtonBox
+        return next(b for b in dlg.findChildren(QDialogButtonBox)[0].buttons() if b.text() == "確定")
+
+    def test_scale_selection_commit_and_undo(self):
+        from PySide6.QtCore import QRect
+        w, c = self._square()
+        c.set_selection(QRect(40, 40, 40, 40))
+        menu_action(w, "選択範囲", "自由変形…").trigger()
+        dlg = w.transform_dialog
+        dlg.boxes["scale_x"].setValue(200)   # 縦横の比を保つので縦も 200%
+        self.assertEqual(alpha_at(c, 25, 25), 255)   # 確定の前から絵の上で見える
+        self._ok(dlg).click()
+        self.assertEqual(alpha_at(c, 25, 25), 255)
+        self.assertEqual(alpha_at(c, 15, 15), 0)
+        self.assertEqual(c.selection, QRect(20, 20, 80, 80))
+        self.assertEqual(c.undo_names[-1], "自由変形")
+        c.undo()
+        self.assertEqual(alpha_at(c, 25, 25), 0)
+        self.assertEqual(alpha_at(c, 50, 50), 255)
+
+    def test_rotate_flip_shear_and_cancel(self):
+        w, c = self._square()
+        n = len(c.undo_stack)
+        menu_action(w, "レイヤー", "自由変形…").trigger()
+        dlg = w.transform_dialog
+        dlg.boxes["angle"].setValue(45)
+        dlg.flip_h.setChecked(True)
+        dlg.boxes["shear_x"].setValue(30)
+        self.assertNotEqual(alpha_at(c, 41, 41), 255)   # 回して角がずれた
+        dlg.reject()   # 取り消し（Esc と同じ）
+        self.assertEqual(alpha_at(c, 41, 41), 255)
+        self.assertEqual(len(c.undo_stack), n)   # 取り消しは履歴に残さない
+
+    def test_flip_whole_layer(self):
+        w, c = self._square()
+        menu_action(w, "レイヤー", "自由変形…").trigger()
+        dlg = w.transform_dialog
+        dlg.flip_h.setChecked(True)
+        self._ok(dlg).click()
+        W = c.size_px()[0]
+        self.assertEqual(alpha_at(c, W - 41, 50), 255)
+        self.assertEqual(alpha_at(c, 50, 50), 0 if W - 80 > 50 else 255)
+
+
+class LayerFolderTest(unittest.TestCase):
+    """レイヤーフォルダー。メニューと欄の右クリックから入れる・出す・畳む・表示・不透明度・合成を押し、
+    重ねた絵の画素、元に戻す、作業ファイルと PSD の往復で確かめる"""
+
+    def _setup(self):
+        from PySide6.QtGui import QColor
+        from atelier.panels.layer_panel import LayerPanel
+        w = window()
+        c = w.canvas
+        c.layers[0].image.fill(QColor("white"))
+        c.layers[c.current].image.fill(QColor(0, 0, 255))
+        lp = w.findChild(LayerPanel)
+        return w, c, lp
+
+    def test_folder_ops_from_menu_and_panel(self):
+        from PySide6.QtGui import QColor
+        from atelier.panels.layer_panel import ROLE_FOLDER
+        w, c, lp = self._setup()
+        menu_action(w, "レイヤー", "新しいフォルダー").trigger()
+        name = c.layers[c.current].folder
+        self.assertTrue(name)
+        lp.refresh()
+        r = lp.folder_row(name)
+        self.assertGreaterEqual(r, 0)
+        head = lp.list.item(r)
+        # 見出しの右クリックから不透明度 50%
+        m = lp.context_menu(lp.list.visualItemRect(head).center())
+        op = next(a for a in m.actions() if a.text() == "フォルダーの不透明度").menu()
+        next(a for a in op.actions() if a.text() == "50%").trigger()
+        self.assertAlmostEqual(c.folders[name].opacity, 0.5)
+        px = QColor(c.flatten().pixel(5, 5))
+        self.assertTrue(120 <= px.red() <= 135 and px.blue() == 255, px.getRgb())
+        # 合成を乗算に（白の上の青は青のまま、不透明度 50% で薄い青）
+        lp.refresh()
+        m = lp.context_menu(lp.list.visualItemRect(lp.list.item(lp.folder_row(name))).center())
+        bl = next(a for a in m.actions() if a.text() == "フォルダーの合成モード").menu()
+        next(a for a in bl.actions() if a.text() == "乗算").trigger()
+        self.assertEqual(c.folders[name].blend, "multiply")
+        # 見出しのチェックで中を全部隠す
+        lp.refresh()
+        head = lp.list.item(lp.folder_row(name))
+        head.setCheckState(Qt_unchecked())
+        spin()
+        self.assertFalse(c.folders[name].visible)
+        self.assertEqual(QColor(c.flatten().pixel(5, 5)).name(), "#ffffff")
+        # 畳むと中の行が隠れる
+        lp._double(lp.list.item(lp.folder_row(name)))
+        lp.refresh()
+        self.assertTrue(lp.list.item(lp.row_of(c.current)).isHidden())
+        self.assertEqual(head.data(ROLE_FOLDER) if False else name, name)
+        # 元に戻すで表示・合成・不透明度が順に戻る
+        c.undo()
+        self.assertTrue(c.folders[name].visible)
+        c.undo()
+        self.assertEqual(c.folders[name].blend, "pass")
+        # 出す・入れる
+        c.add_layer()
+        self.assertEqual(c.layers[c.current].folder, "")
+        menu_action(w, "レイヤー", "フォルダーに入れる")   # 行き先は開くたびに作る
+        w.fill_folder_menu(w.folder_in_menu)
+        next(a for a in w.folder_in_menu.actions() if a.text() == name).trigger()
+        self.assertEqual(c.layers[c.current].folder, name)
+        menu_action(w, "レイヤー", "フォルダーから出す").trigger()
+        self.assertEqual(c.layers[c.current].folder, "")
+
+    def test_folder_roundtrip_project_and_psd(self):
+        import tempfile
+        from atelier.files import project_file as pf
+        from atelier.paint.canvas import Canvas
+        w, c, lp = self._setup()
+        name = c.new_folder("影")
+        c.set_folder_prop(name, "blend", "multiply")
+        c.set_folder_prop(name, "opacity", 0.5)
+        c.set_folder_collapsed(name, True)
+        before = c.flatten()
+        with tempfile.TemporaryDirectory() as tmp:
+            pf.save(c, Path(tmp) / "a.atelier")
+            c2 = Canvas()
+            pf.load(c2, Path(tmp) / "a.atelier")
+            self.assertEqual([l.folder for l in c2.layers], [l.folder for l in c.layers])
+            f = c2.folders[name]
+            self.assertEqual((f.blend, f.opacity, f.collapsed), ("multiply", 0.5, True))
+            self.assertEqual(c2.flatten(), before)
+            pf.export_psd(c, Path(tmp) / "a.psd")
+            got = pf.read_psd(Path(tmp) / "a.psd")
+            self.assertEqual([l.name for l in got["layers"]], [l.name for l in c.layers])
+            self.assertEqual([l.folder for l in got["layers"]], [l.folder for l in c.layers])
+            g = got["folders"][name]
+            self.assertEqual((g.blend, g.collapsed), ("multiply", True))
+            self.assertAlmostEqual(g.opacity, 0.5, places=2)
+
+
+def Qt_unchecked():
+    from PySide6.QtCore import Qt
+    return Qt.Unchecked
+
+
+def spin():
+    from PySide6.QtWidgets import QApplication
+    for _ in range(3):
+        QApplication.processEvents()
+
+
+class SelectionGrowTest(unittest.TestCase):
+    """選択範囲の拡張・縮小・境界のぼかし・反転。メニューから押し、塗った画素で確かめる"""
+
+    def test_grow_shrink_feather_invert(self):
+        from PySide6.QtCore import QPointF, QRect
+        from PySide6.QtGui import QColor
+        w = window()
+        c = w.canvas
+        c.set_selection(QRect(50, 50, 40, 40))
+        w.selection_resize("grow", 5)
+        self.assertEqual(c.selection, QRect(45, 45, 50, 50))
+        w.selection_resize("shrink", 10)
+        self.assertEqual(c.selection, QRect(55, 55, 30, 30))
+        w.selection_resize("shrink", 40)   # 縮めすぎると選択が無くなる（落ちない）
+        self.assertIsNone(c.selection)
+        c.set_selection(QRect(50, 50, 40, 40))
+        menu_action(w, "選択範囲", "選択範囲を反転").trigger()
+        self.assertFalse(c.selection_path().contains(QPointF(70, 70)))
+        self.assertTrue(c.selection_path().contains(QPointF(10, 10)))
+        c.set_selection(QRect(50, 50, 40, 40))
+        w.selection_resize("feather", 8)
+        c.color = QColor("red")
+        self.assertTrue(c.fill_selection())
+        inside, edge, out = alpha_at(c, 70, 70), alpha_at(c, 50, 70), alpha_at(c, 30, 70)
+        self.assertGreater(inside, 240)
+        self.assertTrue(60 < edge < 200, edge)   # 境目は半分ほど
+        self.assertEqual(out, 0)
+        c.undo()
+        self.assertEqual(alpha_at(c, 70, 70), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

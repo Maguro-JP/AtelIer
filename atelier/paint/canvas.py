@@ -44,10 +44,28 @@ class Layer:
     blend: str = "normal"  # 合成モード（BLEND_MODES の鍵）。影は乗算、光はスクリーンのように、塗りを分けて重ねるため
     clip: bool = False     # 下のレイヤーでクリッピング。下の絵の描いてある所にだけ見せる（はみ出しを気にせず塗るため）
     alpha_lock: bool = False   # 透明部分の保護。描いてある所の上だけに塗れる（線画の色替え・影の塗り）
+    folder: str = ""       # 入っているレイヤーフォルダーの名前。空なら入っていない（フォルダーは 1 段だけ）
 
     def copy(self) -> "Layer":
         return Layer(self.name, self.image.copy(), self.visible, self.opacity, self.locked, self.redpen, self.path,
-                     self.blend, self.clip, self.alpha_lock)
+                     self.blend, self.clip, self.alpha_lock, self.folder)
+
+
+@dataclass
+class Folder:
+    """レイヤーフォルダー。中のレイヤーは並びの中で続けて置く。
+    合成は既定で「通過」（中のレイヤーをそのまま下へ重ねる。CLIP STUDIO PAINT・Photoshop の既定と同じ）。
+    通過以外か不透明度が 100% 未満なら、中を 1 枚に重ねてからフォルダーの合成と不透明度で重ねる"""
+    visible: bool = True
+    opacity: float = 1.0
+    blend: str = "pass"
+    collapsed: bool = False
+
+    def copy(self) -> "Folder":
+        return Folder(self.visible, self.opacity, self.blend, self.collapsed)
+
+    def grouped(self) -> bool:
+        return self.blend != "pass" or self.opacity < 1.0
 
 
 # 合成モード。名前は CLIP STUDIO PAINT・Photoshop と同じ語にし、PSD の鍵と組にする（PSD で読み書きしても崩れないように）
@@ -98,6 +116,44 @@ def layer_look(layers: list, i: int, rect: QRect, buffer: QImage | None = None, 
             p.drawImage(0, 0, layers[j].image, rect.x(), rect.y(), rect.width(), rect.height())
         else:
             p.fillRect(out.rect(), Qt.transparent)   # 土台が隠れている・無いときは見せない（PSD と同じ）
+    p.end()
+    return out
+
+
+# 筆圧の曲線。柔らかいは軽い力で太く、硬いは強く押したときだけ太くなる（CSP の筆圧の設定・Krita の曲線と同じ役目）
+PRESSURE_CURVES = {"soft": ("柔らかい", 0.55), "linear": ("ふつう", 1.0), "hard": ("硬い", 1.8)}
+TILT_MAX = 2.0   # ペンを寝かせきったときの太さの倍率
+
+
+def pressure_curve(p: float, curve: str = "linear") -> float:
+    g = PRESSURE_CURVES.get(curve, PRESSURE_CURVES["linear"])[1]
+    return max(0.0, min(1.0, p)) ** g
+
+
+def tilt_factor(x_tilt: float, y_tilt: float) -> float:
+    """ペンの傾き（度。立てると 0、寝かせると 60 ほど）で太さを広げる倍率。鉛筆を寝かせて太く塗るのと同じ"""
+    t = min(60.0, (x_tilt ** 2 + y_tilt ** 2) ** 0.5) / 60.0
+    return 1.0 + (TILT_MAX - 1.0) * t
+
+
+def folder_members(layers: list, name: str) -> list[int]:
+    return [j for j, l in enumerate(layers) if l.folder == name]
+
+
+def folder_look(layers: list, folders: dict, name: str, rect: QRect, buffers: dict) -> QImage:
+    """フォルダーの中を rect の大きさで 1 枚に重ねた絵（フォルダーの合成と不透明度はまだ掛けない）。
+    buffers は {レイヤーの番号: (描いている途中の線, 濃さ)}"""
+    out = QImage(rect.size(), QImage.Format_ARGB32_Premultiplied)
+    out.fill(Qt.transparent)
+    p = QPainter(out)
+    for j in folder_members(layers, name):
+        layer = layers[j]
+        if not layer.visible:
+            continue
+        buf, bo = buffers.get(j, (None, 1.0))
+        p.setCompositionMode(blend_mode(layer.blend))
+        p.setOpacity(layer.opacity)
+        p.drawImage(0, 0, layer_look(layers, j, rect, buf, bo))
     p.end()
     return out
 
@@ -167,9 +223,25 @@ class LayerItem(QGraphicsItem):
         return self._rect
 
     def paint(self, p: QPainter, option, widget=None):
+        r = option.exposedRect.toAlignedRect().intersected(self.layer.image.rect())
+        c = self.canvas
+        f = c.folders.get(self.layer.folder) if c is not None and self.layer.folder else None
+        if f is not None:
+            if not f.visible:
+                return
+            if f.grouped():
+                # フォルダーの一番下のレイヤーの部品が、中を 1 枚にした絵を描く。ほかの部品は何も描かない
+                # （描き直しの四角は場面の全部の部品に届くので、上の部品の線もここで描き直される）
+                ls = c.layers
+                if self.layer not in ls or folder_members(ls, self.layer.folder)[0] != ls.index(self.layer) or r.isEmpty():
+                    return
+                bufs = {j: (it.buffer, it.buffer_opacity) for j, it in enumerate(c.items) if it.buffer is not None}
+                p.setCompositionMode(blend_mode(f.blend))
+                p.setOpacity(f.opacity)
+                p.drawImage(r.topLeft(), folder_look(ls, c.folders, self.layer.folder, r, bufs))
+                return
         if not self.layer.visible:
             return
-        r = option.exposedRect.toAlignedRect().intersected(self.layer.image.rect())
         p.setCompositionMode(blend_mode(self.layer.blend))
         p.setOpacity(self.layer.opacity)
         if self.layer.clip and self.canvas is not None and self.layer in self.canvas.layers:
@@ -247,6 +319,10 @@ class Canvas(QGraphicsView):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.layers: list[Layer] = []
+        self.pressure_curve = "linear"   # 筆圧の曲線（PRESSURE_CURVES の鍵）
+        self.tilt_size = False           # ペンの傾きで太さを変えるか
+        self.tilt_factor = 1.0
+        self.folders: dict[str, Folder] = {}   # レイヤーフォルダー（名前 → 表示・不透明度・合成・畳んだか）
         self.backdrop = None          # 絵の周りの模様を描く関数 (painter, 画面の四角)。None なら無地
         self.items: list[LayerItem] = []
         self.current = 0
@@ -468,8 +544,12 @@ class Canvas(QGraphicsView):
         self.current += len(added)
         self.rebuild()
 
-    def _reset(self, layers: list[Layer], current: int):
+    def _reset(self, layers: list[Layer], current: int, folders: dict | None = None):
         self.layers, self.current = layers, current
+        self.folders = dict(folders or {})
+        for layer in layers:   # フォルダーの印だけが残ったレイヤーには、フォルダーを作っておく（見えなくならないように）
+            if layer.folder and layer.folder not in self.folders:
+                self.folders[layer.folder] = Folder()
         self.sym_center = None   # 新しい絵では軸を真ん中に戻す
         self._clear_marks()
         self.set_selection(None)
@@ -493,6 +573,7 @@ class Canvas(QGraphicsView):
         img = self.flatten()
         self.snapshot_all()
         self.layers = [Layer(name, img)]
+        self.folders = {}
         self.current = 0
         self.rebuild()
         self.changed.emit()
@@ -662,7 +743,19 @@ class Canvas(QGraphicsView):
         w, h = self.size_px()
         out = blank(w, h)
         p = QPainter(out)
+        done = set()
         for i, layer in enumerate(self.layers):
+            f = self.folders.get(layer.folder) if layer.folder else None
+            if f is not None and not f.visible:
+                continue
+            if f is not None and f.grouped():
+                if layer.folder not in done:
+                    done.add(layer.folder)
+                    bufs = {self.current: (self.buffer, self.paint_opacity())} if self.buffer is not None else {}
+                    p.setCompositionMode(blend_mode(f.blend))
+                    p.setOpacity(f.opacity)
+                    p.drawImage(0, 0, folder_look(self.layers, self.folders, layer.folder, QRect(0, 0, w, h), bufs))
+                continue
             if layer.visible:
                 p.setCompositionMode(blend_mode(layer.blend))
                 p.setOpacity(layer.opacity)
@@ -842,13 +935,277 @@ class Canvas(QGraphicsView):
             return self.undo_stack[-1][2]
         return None
 
+    # ---- レイヤーフォルダー（どれも元に戻すで戻せる。畳むのは見た目だけなので履歴に入れない） ----
+    def _folder_name(self) -> str:
+        n = 1
+        while f"フォルダー {n}" in self.folders:
+            n += 1
+        return f"フォルダー {n}"
+
+    def new_folder(self, name: str | None = None) -> str | None:
+        """新しいフォルダーを作り、選んでいるレイヤーを入れる（入っていたフォルダーからは出す）"""
+        if not self.layers:
+            return None
+        if not isinstance(name, str) or not name.strip():
+            name = self._folder_name()
+        self.snapshot_all()
+        self.undo_names[-1] = "フォルダー"
+        self.folders[name] = Folder()
+        self.layers[self.current].folder = name
+        self.rebuild()
+        return name
+
+    def put_in_folder(self, name: str) -> bool:
+        """選んでいるレイヤーをフォルダーの一番上へ入れる（中のレイヤーが続けて並ぶように動かす）"""
+        if name not in self.folders or not self.layers or self.layers[self.current].folder == name:
+            return False
+        self.snapshot_all()
+        self.undo_names[-1] = "フォルダーに入れる"
+        layer = self.layers.pop(self.current)
+        members = folder_members(self.layers, name)
+        at = members[-1] + 1 if members else min(self.current, len(self.layers))
+        layer.folder = name
+        self.layers.insert(at, layer)
+        self.current = at
+        self.rebuild()
+        return True
+
+    def take_out_of_folder(self) -> bool:
+        """選んでいるレイヤーをフォルダーから出し、フォルダーのすぐ上に置く"""
+        if not self.layers or not self.layers[self.current].folder:
+            return False
+        name = self.layers[self.current].folder
+        self.snapshot_all()
+        self.undo_names[-1] = "フォルダーから出す"
+        layer = self.layers.pop(self.current)
+        members = folder_members(self.layers, name)
+        at = members[-1] + 1 if members else self.current
+        layer.folder = ""
+        self.layers.insert(at, layer)
+        self.current = at
+        self.rebuild()
+        return True
+
+    def set_folder_prop(self, name: str, key: str, value) -> bool:
+        """フォルダーの表示（visible）・不透明度（opacity）・合成（blend）・名前（name）を変える"""
+        f = self.folders.get(name)
+        if f is None or key not in ("visible", "opacity", "blend", "name"):
+            return False
+        if key == "blend" and value != "pass" and value not in BLEND_MODES:
+            return False
+        if key == "name":
+            value = str(value).strip()
+            if not value or value == name or value in self.folders:
+                return False
+            self.snapshot_all()
+            self.undo_names[-1] = "フォルダーの名前"
+            self.folders[value] = self.folders.pop(name)
+            for layer in self.layers:
+                if layer.folder == name:
+                    layer.folder = value
+            self.changed.emit()
+            return True
+        if getattr(f, key) == value:
+            return False
+        self.snapshot_all()
+        self.undo_names[-1] = {"visible": "フォルダーの表示", "opacity": "フォルダーの不透明度", "blend": "フォルダーの合成"}[key]
+        setattr(f, key, value)
+        self.scene().update()
+        self.changed.emit()
+        return True
+
+    def set_folder_collapsed(self, name: str, on: bool):
+        if name in self.folders:
+            self.folders[name].collapsed = on
+            self.changed.emit()
+
+    def remove_folder(self, name: str) -> bool:
+        """フォルダーを解く（中のレイヤーは消さず、フォルダーの外に出す）"""
+        if name not in self.folders:
+            return False
+        self.snapshot_all()
+        self.undo_names[-1] = "フォルダーを解く"
+        for layer in self.layers:
+            if layer.folder == name:
+                layer.folder = ""
+        del self.folders[name]
+        self.rebuild()
+        return True
+
+    # ---- 自由変形（拡大・縮小・回転・反転・ゆがみ）。選択範囲があればその中だけ、無ければレイヤー全体 ----
+    transform_state = None
+
+    def begin_transform(self) -> bool:
+        if not self.layers or not self.editable():
+            return False
+        if self.transform_state is not None:
+            self.cancel_transform()
+        img = self.layers[self.current].image
+        before = img.copy()
+        if self.selection is not None:
+            path = self.selection_path()
+            piece = blank(img.width(), img.height())
+            p = QPainter(piece)
+            p.setClipPath(path)
+            p.drawImage(0, 0, before)
+            p.end()
+            base = before.copy()
+            p = QPainter(base)
+            p.setCompositionMode(QPainter.CompositionMode_Clear)
+            p.fillPath(path, Qt.transparent)
+            p.end()
+            center = QRectF(self.selection).center()
+        else:
+            path, piece, base = None, before, blank(img.width(), img.height())
+            center = QRectF(img.rect()).center()
+        self.transform_state = {"before": before, "piece": piece, "base": base, "path": path, "center": center,
+                                "rect": self.selection, "params": {}}
+        return True
+
+    @staticmethod
+    def transform_matrix(center: QPointF, scale_x: float = 1.0, scale_y: float = 1.0, angle: float = 0.0,
+                         shear_x: float = 0.0, shear_y: float = 0.0, flip_h: bool = False, flip_v: bool = False):
+        from PySide6.QtGui import QTransform
+        t = QTransform()
+        t.translate(center.x(), center.y())
+        t.rotate(angle)
+        t.shear(shear_x, shear_y)
+        t.scale(scale_x * (-1 if flip_h else 1), scale_y * (-1 if flip_v else 1))
+        t.translate(-center.x(), -center.y())
+        return t
+
+    def set_transform(self, **params) -> bool:
+        """変形の見え方をレイヤーに出す（確定するまで履歴には入れない）。params は transform_matrix と同じ"""
+        st = self.transform_state
+        if st is None:
+            return False
+        st["params"] = dict(params)
+        t = self.transform_matrix(st["center"], **params)
+        out = st["base"].copy()
+        p = QPainter(out)
+        exact = all(abs(params.get(k, d) - d) < 1e-9 for k, d in (("scale_x", 1), ("scale_y", 1), ("angle", 0),
+                                                                     ("shear_x", 0), ("shear_y", 0)))
+        if not exact:   # 反転だけ・動かさないときは画素をそのまま移す（なめらかにすると縁の濃さが 1 下がった）
+            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            p.setRenderHint(QPainter.Antialiasing)
+        p.setTransform(t)
+        p.drawImage(0, 0, st["piece"])
+        p.end()
+        self.layers[self.current].image = out
+        self.items[self.current].layer = self.layers[self.current]
+        self.items[self.current].update()
+        if st["path"] is not None:
+            self.set_selection(None, t.map(st["path"]))
+        return True
+
+    def commit_transform(self) -> bool:
+        """変形を確定する。元に戻すで変形の前に戻る"""
+        st = self.transform_state
+        if st is None:
+            return False
+        self.transform_state = None
+        if not st["params"]:
+            return False
+        self.layers[self.current].image, now = st["before"], self.layers[self.current].image
+        self.snapshot()
+        self.undo_names[-1] = "自由変形"
+        self.layers[self.current].image = now
+        self._keep_alpha(st["before"])
+        self.items[self.current].layer = self.layers[self.current]
+        self.items[self.current].update()
+        self.changed.emit()
+        self.stroke_done.emit()
+        return True
+
+    def cancel_transform(self):
+        """変形を取り消す（絵と選択範囲を変形の前に戻す）"""
+        st = self.transform_state
+        if st is None:
+            return
+        self.transform_state = None
+        self.layers[self.current].image = st["before"]
+        self.items[self.current].layer = self.layers[self.current]
+        self.items[self.current].update()
+        if st["path"] is not None:
+            self.set_selection(None, st["path"])
+
+    # ---- 選択範囲の拡張・縮小・境界のぼかし・反転 ----
+    def _stroke_of(self, path: QPainterPath, px: float) -> QPainterPath:
+        from PySide6.QtGui import QPainterPathStroker
+        s = QPainterPathStroker()
+        s.setWidth(2 * px)
+        s.setJoinStyle(Qt.RoundJoin)
+        s.setCapStyle(Qt.RoundCap)
+        return s.createStroke(path)
+
+    def grow_selection(self, px: int) -> bool:
+        """選択範囲を px 画素広げる（負なら縮める）。縮めて無くなったら選択を外す"""
+        if self.selection is None or not px:
+            return False
+        path = self.selection_path()
+        edge = self._stroke_of(path, abs(px))
+        self.set_selection(None, (path.united(edge) if px > 0 else path.subtracted(edge)).simplified())
+        return True
+
+    def invert_selection(self) -> bool:
+        """選択範囲を反転する（選んでいない所を選ぶ）。選択が無ければ全体を選ぶ"""
+        w, h = self.size_px()
+        whole = QPainterPath()
+        whole.addRect(QRectF(0, 0, w, h))
+        if self.selection is None:
+            self.select_all()
+            return True
+        self.set_selection(None, whole.subtracted(self.selection_path()).simplified())
+        return True
+
+    def feather_selection(self, px: int) -> bool:
+        """選択範囲の境界を px 画素ぼかす。描く・消す・塗るは、境目で少しずつ薄く効く"""
+        import numpy as np
+        if self.selection is None or px <= 0:
+            return False
+        hard = self.selection_mask()
+        w, h = self.size_px()
+        m = np.frombuffer(hard.constBits(), np.uint8).reshape(h, hard.bytesPerLine())[:, :w].astype(np.float32) / 255
+        r = max(1, int(round(px / 2)))
+        for _ in range(3):   # 箱のぼかしを 3 回で、ガウスに近い山にする
+            for axis in (0, 1):
+                c = np.cumsum(np.pad(m, [(r + 1, r) if a == axis else (0, 0) for a in (0, 1)], mode="edge"), axis=axis)
+                m = (np.take(c, range(2 * r + 1, c.shape[axis]), axis=axis) - np.take(c, range(0, c.shape[axis] - 2 * r - 1), axis=axis)) / (2 * r + 1)
+        soft = np.clip(m, 0, 1).astype(np.float32)
+        path = self.selection_path()
+        self.set_selection(None, path.united(self._stroke_of(path, px * 1.5 + 1)).simplified())
+        self.selection_soft = soft
+        return True
+
+    selection_soft = None
+
+    def _soften(self, before: QImage | None):
+        """ぼかした選択範囲: 変えた絵と前の絵を、境目の濃さで混ぜる"""
+        import numpy as np
+        soft = self.selection_soft
+        layer = self.layers[self.current] if self.layers else None
+        if soft is None or before is None or layer is None or before.size() != layer.image.size():
+            return
+        w, h = layer.image.width(), layer.image.height()
+        if soft.shape != (h, w):
+            return
+        now = layer.image.convertToFormat(QImage.Format_ARGB32_Premultiplied)
+        old = before.convertToFormat(QImage.Format_ARGB32_Premultiplied)
+        a = np.frombuffer(now.constBits(), np.uint8).reshape(h, now.bytesPerLine() // 4, 4)[:, :w].astype(np.float32)
+        b = np.frombuffer(old.constBits(), np.uint8).reshape(h, old.bytesPerLine() // 4, 4)[:, :w].astype(np.float32)
+        mix = np.ascontiguousarray(np.clip(b + (a - b) * soft[..., None] + 0.5, 0, 255).astype(np.uint8))
+        layer.image = QImage(mix.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied).copy()
+        self.items[self.current].layer = layer
+        self.items[self.current].update()
+
     # ---- 元に戻す ----
     # 線や塗りは触ったレイヤー 1 枚だけを覚える。並びを変えたときだけ全部を覚える
     def snapshot(self):
         self._push(("one", self.current, self.layers[self.current].image.copy()))
 
     def snapshot_all(self):
-        self._push(("all", [layer.copy() for layer in self.layers], self.current))
+        self._push(("all", [layer.copy() for layer in self.layers], self.current,
+                    {k: f.copy() for k, f in self.folders.items()}))
 
     def _push(self, entry):
         self.undo_stack.append(entry)
@@ -884,9 +1241,12 @@ class Canvas(QGraphicsView):
             self.items[i].sync()
             self.changed.emit()
         else:
-            _, layers, cur = entry
-            other.append(("all", [layer.copy() for layer in self.layers], self.current))
+            layers, cur = entry[1], entry[2]
+            other.append(("all", [layer.copy() for layer in self.layers], self.current,
+                          {k: f.copy() for k, f in self.folders.items()}))
             self.layers, self.current = layers, cur
+            self.folders = entry[3] if len(entry) > 3 else {}
+            self.scene().update()
             self.rebuild()
 
     def undo(self):
@@ -1221,6 +1581,8 @@ class Canvas(QGraphicsView):
         elif self.selection is not None and self.undo_stack and self.undo_stack[-1][0] == "one":
             self._keep_outside(self.undo_stack[-1][2])
         before = self._before()
+        if self.selection_soft is not None and self.layers:
+            self._soften(before)
         if before is not None and self.layers and self.layers[self.current].alpha_lock:
             self._keep_alpha(before)
 
@@ -1369,7 +1731,7 @@ class Canvas(QGraphicsView):
             dirty = self.spray(target, b, pressure)
         else:
             brush = self.brushes["消しゴム"] if erase and self.brush.name != "消しゴム" else self.brush
-            size = self.size * (2 if erase and brush is not self.brush else 1)
+            size = self.size * (2 if erase and brush is not self.brush else 1) * self.tilt_factor
             color = QColor(0, 0, 0) if erase else self.stroke_color()
             segs = getattr(self, "stroke_segs", None)
             if segs is None:
@@ -1804,6 +2166,7 @@ class Canvas(QGraphicsView):
                 rect, shape = None, None
         self.selection = rect
         self.selection_shape = shape if rect is not None else None
+        self.selection_soft = None   # 形が変わったら、ぼかしはかけ直す
         self.poly_points = []
         self.sel_item.setVisible(rect is not None and shape is None)
         self.sel_path_item.setVisible(rect is not None and shape is not None)
@@ -1965,6 +2328,7 @@ class Canvas(QGraphicsView):
         p.setCompositionMode(QPainter.CompositionMode_Clear)
         p.fillPath(self.selection_path(), Qt.transparent)
         p.end()
+        self._soften(self._before())
         self.items[self.current].update()
         self.changed.emit()
         return True
@@ -1978,6 +2342,7 @@ class Canvas(QGraphicsView):
         p.setOpacity(self.paint_opacity())
         p.fillPath(self.selection_path(), self.opaque())
         p.end()
+        self._soften(self._before())
         self._keep_alpha(self._before())
         self.items[self.current].update()
         self.used_color.emit()
@@ -2340,6 +2705,7 @@ class Canvas(QGraphicsView):
             self._end_brush(self.mapToScene(e.position().toPoint()))
             self.last = None
             self.pressure = 1.0
+            self.tilt_factor = 1.0   # 次のマウスの線に、前のペンの傾きを残さない
             self.stroke_done.emit()
             return
         super().mouseReleaseEvent(e)
@@ -2349,7 +2715,8 @@ class Canvas(QGraphicsView):
     def tabletEvent(self, e):
         # ペンタブレットの筆圧で太さと濃さを変える
         pos = self.mapToScene(e.position().toPoint())
-        self.pressure = max(0.05, e.pressure())
+        self.pressure = max(0.05, pressure_curve(e.pressure(), self.pressure_curve))
+        self.tilt_factor = tilt_factor(e.xTilt(), e.yTilt()) if self.tilt_size else 1.0
         self._ring(pos)
         t = e.type()
         # ペンでも軸の丸をつかめるようにする（マウスと同じ働き）

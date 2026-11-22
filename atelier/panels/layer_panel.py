@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem
 
 THUMB = 40
 ROLE_INDEX = Qt.UserRole
+ROLE_FOLDER = Qt.UserRole + 1   # フォルダーの見出しの行（フォルダーの名前）。この行の ROLE_INDEX は None
+INDENT = "　"   # フォルダーの中のレイヤーの字下げ
 
 
 def thumbnail(image, size: int = THUMB) -> QPixmap:
@@ -27,7 +29,11 @@ def thumbnail(image, size: int = THUMB) -> QPixmap:
                 p.fillRect(x * s, y * s, s, s, QColor("#f4f4f4"))
     if not image.isNull():
         small = image.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        p.drawImage((size - small.width()) // 2, (size - small.height()) // 2, small)
+        x, y = (size - small.width()) // 2, (size - small.height()) // 2
+        p.drawImage(x, y, small)
+        # 白い紙（背景）は市松の明るい升と見分けがつかず、縮小図が空に見えた。紙の端に細い枠を引いて、絵の範囲を見せる
+        p.setPen(QColor("#7a7a7a"))
+        p.drawRect(x, y, small.width() - 1, small.height() - 1)
     p.end()
     return pm
 
@@ -51,6 +57,7 @@ class LayerPanel(QWidget):
         from PySide6.QtGui import QKeySequence, QShortcut
         QShortcut(QKeySequence.Delete, self.list, activated=self._delete)
         self.list.currentRowChanged.connect(self._selected)
+        self.list.itemDoubleClicked.connect(self._double)
         self.active = QLabel()
         self.active.setToolTip("線を描くレイヤー")
         self.opacity = QSlider(Qt.Horizontal)
@@ -129,8 +136,32 @@ class LayerPanel(QWidget):
         self.refresh()
 
     def row_of(self, index: int) -> int:
+        for r in range(self.list.count()):
+            if self.list.item(r).data(ROLE_INDEX) == index:
+                return r
         pen = getattr(self.canvas, "redpen", None)
         return len(self.canvas.layers) - 1 - index + (len(pen.marks) if pen is not None else 0)
+
+    def folder_row(self, name: str) -> int:
+        for r in range(self.list.count()):
+            if self.list.item(r).data(ROLE_FOLDER) == name:
+                return r
+        return -1
+
+    def _folder_item(self, name: str, f) -> QListWidgetItem:
+        from atelier.paint.canvas import BLEND_MODES
+        mode = "" if f.blend == "pass" else BLEND_MODES.get(f.blend, BLEND_MODES["normal"])[0]
+        extra = "・".join(x for x in (mode, f"{round(f.opacity * 100)}%" if f.opacity < 1 else "") if x)
+        item = QListWidgetItem(("▶ " if f.collapsed else "▼ ") + name + (f"（{extra}）" if extra else ""))
+        item.setFlags((item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable & ~Qt.ItemIsDragEnabled)
+        item.setCheckState(Qt.Checked if f.visible else Qt.Unchecked)
+        item.setData(ROLE_INDEX, None)
+        item.setData(ROLE_FOLDER, name)
+        fnt = QFont(item.font())
+        fnt.setItalic(True)
+        item.setFont(fnt)
+        item.setToolTip(f"フォルダー「{name}」。ダブルクリックで畳む・開く。チェックで中を全部隠す・出す。右クリックで名前・合成・不透明度")
+        return item
 
     def refresh(self):
         c = self.canvas
@@ -157,13 +188,20 @@ class LayerPanel(QWidget):
             self.list.addItem(item)
             if keep == -n:
                 keep_item = item
+        folders = getattr(c, "folders", {})
+        shown_folders = set()
         for i in reversed(range(len(c.layers))):
             layer = c.layers[i]
             on = i == c.current
+            fo = folders.get(layer.folder) if layer.folder else None
+            if fo is not None and layer.folder not in shown_folders:
+                shown_folders.add(layer.folder)
+                self.list.addItem(self._folder_item(layer.folder, fo))
             from atelier.paint.canvas import BLEND_MODES
             mode = BLEND_MODES.get(layer.blend, BLEND_MODES["normal"])[0] if layer.blend != "normal" else ""
             # クリッピングは CLIP STUDIO PAINT と同じく字下げと印で示し、どの絵に掛かっているかを一目で分かるようにする
-            item = QListWidgetItem(QIcon(thumbnail(layer.image)), ("　┗ " if layer.clip else "") + layer.name
+            item = QListWidgetItem(QIcon(thumbnail(layer.image)), (INDENT if fo is not None else "")
+                                   + ("　┗ " if layer.clip else "") + layer.name
                                    + (f"（{mode}）" if mode else ""))
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable)
             item.setCheckState(Qt.Checked if layer.visible else Qt.Unchecked)
@@ -174,6 +212,8 @@ class LayerPanel(QWidget):
             marks = ("✎ " if on else "") + ("ロック中 " if layer.locked else "") + ("透明部分を保護 " if layer.alpha_lock else "")
             item.setToolTip(marks + layer.name + ("（隠しています）" if not layer.visible else ""))
             self.list.addItem(item)
+            if fo is not None and fo.collapsed:
+                item.setHidden(True)
             if on and keep_item is None:
                 self.list.setCurrentItem(item)
         if keep_item is not None:
@@ -213,6 +253,11 @@ class LayerPanel(QWidget):
             self.canvas.select(i)
 
     def _changed(self, item: QListWidgetItem):
+        name = item.data(ROLE_FOLDER)
+        if name is not None:
+            on = item.checkState() == Qt.Checked
+            QTimer.singleShot(0, lambda: self.canvas.set_folder_prop(name, "visible", on))
+            return
         i = item.data(ROLE_INDEX)
         if i is not None and i < 0:
             pen, n = self.canvas.redpen, -i
@@ -242,6 +287,8 @@ class LayerPanel(QWidget):
     def plain_name(text: str, layer) -> str:
         """一覧の見出しから、クリッピングの印と合成モードの添え書きを外した名前（名前を変えたときに印を名前に入れない）"""
         from atelier.paint.canvas import BLEND_MODES
+        if layer.folder and text.startswith(INDENT):
+            text = text[len(INDENT):]
         if text.startswith("　┗ "):
             text = text[len("　┗ "):]
         mode = BLEND_MODES.get(layer.blend, BLEND_MODES["normal"])[0]
@@ -262,6 +309,42 @@ class LayerPanel(QWidget):
         j = n - 1 - layer_rows.index(i)
         QTimer.singleShot(0, lambda: self.canvas.move_layer_to(i, j))
 
+    def _double(self, item):
+        name = item.data(ROLE_FOLDER)
+        if name is not None and name in self.canvas.folders:
+            self.canvas.set_folder_collapsed(name, not self.canvas.folders[name].collapsed)
+
+    def folder_menu(self, m, name: str):
+        """フォルダーの見出しの右クリック: 畳む・名前・合成・不透明度・解く"""
+        from PySide6.QtGui import QActionGroup
+        from atelier.paint.canvas import BLEND_MODES
+        c = self.canvas
+        f = c.folders[name]
+        m.addAction("開く" if f.collapsed else "畳む", lambda: c.set_folder_collapsed(name, not f.collapsed))
+        m.addAction("フォルダーの名前を変える…", lambda: self._rename_folder(name))
+        blend = m.addMenu("フォルダーの合成モード")
+        group = QActionGroup(blend)
+        for key, label in [("pass", "通過")] + [(k, v[0]) for k, v in BLEND_MODES.items()]:
+            act = blend.addAction(label, lambda k=key: c.set_folder_prop(name, "blend", k))
+            act.setCheckable(True)
+            act.setChecked(f.blend == key)
+            group.addAction(act)
+        op = m.addMenu("フォルダーの不透明度")
+        group2 = QActionGroup(op)
+        for v in (100, 75, 50, 25):
+            act = op.addAction(f"{v}%", lambda v=v: c.set_folder_prop(name, "opacity", v / 100))
+            act.setCheckable(True)
+            act.setChecked(round(f.opacity * 100) == v)
+            group2.addAction(act)
+        m.addAction("選んでいるレイヤーをこのフォルダーに入れる", lambda: c.put_in_folder(name))
+        m.addAction("フォルダーを解く（中のレイヤーは残す）", lambda: c.remove_folder(name))
+
+    def _rename_folder(self, name: str):
+        from PySide6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(self, "フォルダーの名前", "名前", text=name)
+        if ok:
+            self.canvas.set_folder_prop(name, "name", text)
+
     def _menu(self, pos):
         from atelier.app.main_window import exec_once
         exec_once(self.context_menu(pos), self.list.viewport().mapToGlobal(pos))
@@ -273,7 +356,11 @@ class LayerPanel(QWidget):
         m = QMenu(self)
         m.setToolTipsVisible(True)
         m.addAction("新しいレイヤー", self.canvas.add_layer)
-        if item is not None:
+        m.addAction("新しいフォルダー（選んでいるレイヤーを入れる）", self.canvas.new_folder)
+        if item is not None and item.data(ROLE_FOLDER) is not None:
+            m.addSeparator()
+            self.folder_menu(m, item.data(ROLE_FOLDER))
+        elif item is not None:
             if item.data(ROLE_INDEX) < 0:
                 n = -item.data(ROLE_INDEX)
                 m.addAction(f"赤ペン {n} の指示を書き直す", lambda: self.list.editItem(item))
@@ -302,6 +389,8 @@ class LayerPanel(QWidget):
                 else:
                     m.addAction("下のレイヤーと結合", self.canvas.merge_down)
                 m.addAction("名前を変える", self.rename_current)
+                if self.canvas.layers[self.canvas.current].folder:
+                    m.addAction("フォルダーから出す", self.canvas.take_out_of_folder)
                 m.addAction("ロックを切り替える", self.toggle_lock)
         m.addAction("見えているレイヤーを結合", self.canvas.merge_visible)
         w = self.window()   # 欄は窓の中の dock にあるので、上の窓が Window

@@ -639,12 +639,52 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         self.quickshape.setToolTip("ペンで描き終えて少し止めると、直線・円・楕円・四角・三角に整えます。元に戻すで整える前の線に戻ります")
         self.quickshape.toggled.connect(lambda on: setattr(self.canvas, "quickshape", on))
         bform.addRow(self.quickshape)
+        # ペンの筆圧の曲線と傾き。ペンタブレットで描くときだけ効く
+        from atelier.paint.canvas import PRESSURE_CURVES
+        self.pressure_curve = QComboBox()
+        for key, (label, _g) in PRESSURE_CURVES.items():
+            self.pressure_curve.addItem(label, key)
+        self.pressure_curve.setCurrentIndex(self.pressure_curve.findData(self.canvas.pressure_curve))
+        self.pressure_curve.setToolTip("筆圧の効き方。柔らかいは軽い力でも太く濃く、硬いは強く押したときだけ太く濃くなります")
+        self.pressure_curve.currentIndexChanged.connect(
+            lambda _i: setattr(self.canvas, "pressure_curve", self.pressure_curve.currentData()))
+        bform.addRow("筆圧の曲線", self.pressure_curve)
+        self.tilt_size = QCheckBox("ペンの傾き→太さ")
+        self.tilt_size.setToolTip("ペンを寝かせるほど線を太くします（立てると元の太さ、寝かせきると 2 倍）")
+        self.tilt_size.toggled.connect(lambda on: setattr(self.canvas, "tilt_size", on))
+        bform.addRow(self.tilt_size)
+        # 入り抜きと塗りつぶしの設定。右クリックのメニューと同じ値を持つ（どちらで変えても同じキャンバスの値）
+        self.taper_boxes = {}
+        for attr, title, tip in (("taper_in", "入り", "線の始めを細くします"),
+                                 ("taper_out", "抜き", "線の終わりを細くします（手を離したときに掛かります）")):
+            box = QComboBox()
+            for value, label in self.TAPER_CHOICES:
+                box.addItem(label, value)
+            box.setToolTip(tip + "。ブラシごとに覚えます")
+            box.activated.connect(lambda _i, a=attr, b=box: setattr(self.canvas.brush, a, b.currentData()))
+            bform.addRow(title, box)
+            self.taper_boxes[attr] = box
+        self.fill_boxes = {}
+        for attr, (title, choices, tip) in self.FILL_CHOICES.items():
+            box = QComboBox()
+            for value, label in choices:
+                box.addItem(label, value)
+            box.setToolTip("塗りつぶし: " + tip)
+            box.activated.connect(lambda _i, a=attr, b=box: setattr(self.canvas, a, b.currentData()))
+            bform.addRow("塗り・" + title, box)
+            self.fill_boxes[attr] = box
+        self.sync_tool_boxes()
         bbox = QWidget()
         bbox.setLayout(bform)
         # タブで「ブラシ」（種類を選ぶ）と「設定」（硬さ・流量・間隔・筆圧）を切り替える
         self.brush_tabs = QTabWidget()
         self.brush_tabs.addTab(self.brush_list, "ブラシ")
-        self.brush_tabs.addTab(bbox, "設定")
+        from PySide6.QtWidgets import QScrollArea
+        bscroll = QScrollArea()   # 設定の行が増えたので、欄が低いときは潰さずに巻き取って見せる
+        bscroll.setWidgetResizable(True)
+        bscroll.setFrameShape(QScrollArea.NoFrame)
+        bscroll.setWidget(bbox)
+        self.brush_tabs.addTab(bscroll, "設定")
         # 見本の線。ブラシ・太さ・色・濃さ・硬さ・間隔・筆圧・色の出方を変えるたびに描き直す
         from atelier.panels.brush_preview import BrushPreview
         self.brush_preview = BrushPreview(self.canvas)
@@ -653,6 +693,8 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
                     self.color_panel.color_changed, self.canvas.color_picked, self.brush_list.currentTextChanged,
                     self.canvas.brush_changed, self.color_panel.mode_changed):
             sig.connect(lambda *_a: self.brush_preview.update())
+        for sig in (self.brush_list.currentTextChanged, self.canvas.brush_changed):
+            sig.connect(lambda *_a: self.sync_tool_boxes())
         bwrap = QWidget()
         bl = QVBoxLayout(bwrap)
         bl.setContentsMargins(6, 4, 6, 4)
@@ -822,6 +864,18 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         sel.addAction(S["sel_fill"])
         sel.addAction(S["copy"])
         sel.addAction(S["cut"])
+        sel.addSeparator()
+        sel.addAction(QAction("選択範囲を反転", self, shortcut="Ctrl+Shift+I", triggered=self.selection_invert,
+                              toolTip="選んでいない所を選びます"))
+        sel.addAction(QAction("選択範囲を広げる…", self, triggered=lambda: self.selection_resize("grow"),
+                              toolTip="選択範囲の境を、決めた画素の数だけ外へ広げます"))
+        sel.addAction(QAction("選択範囲を縮める…", self, triggered=lambda: self.selection_resize("shrink"),
+                              toolTip="選択範囲の境を、決めた画素の数だけ内へ縮めます"))
+        sel.addAction(QAction("境界をぼかす…", self, triggered=lambda: self.selection_resize("feather"),
+                              toolTip="描く・消す・塗るが、選択範囲の境で少しずつ薄く効くようにします"))
+        sel.addAction(QAction("自由変形…", self, shortcut="Ctrl+T", triggered=self.open_transform,
+                              toolTip="選択範囲の中（無ければレイヤー全体）を拡大・縮小・回転・反転・ゆがみで変形します"))
+        sel.addSeparator()
         sel.addAction(QAction("選択範囲を AI で直す", self, triggered=self.fix_marked,
                               toolTip="選択範囲の中だけを、指示の欄の言葉で AI が直します"))
         layer_menu = self.menuBar().addMenu("レイヤー")
@@ -836,6 +890,15 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         layer_menu.addSeparator()
         layer_menu.addAction(S["flip_layer_h"])
         layer_menu.addAction(S["flip_layer_v"])
+        layer_menu.addAction(QAction("自由変形…", self, triggered=self.open_transform,
+                                     toolTip="選んでいるレイヤー（選択範囲があればその中）を拡大・縮小・回転・反転・ゆがみで変形します"))
+        layer_menu.addSeparator()
+        layer_menu.addAction(QAction("新しいフォルダー", self, triggered=self.new_layer_folder,
+                                     toolTip="フォルダーを作り、選んでいるレイヤーを入れます"))
+        self.folder_in_menu = layer_menu.addMenu("フォルダーに入れる")
+        self.folder_in_menu.aboutToShow.connect(lambda: self.fill_folder_menu(self.folder_in_menu))
+        layer_menu.addAction(QAction("フォルダーから出す", self, triggered=self.canvas.take_out_of_folder,
+                                     toolTip="選んでいるレイヤーをフォルダーの外（すぐ上）へ出します"))
         layer_menu.addSeparator()
         layer_menu.addAction(QAction("画像をレイヤーとして読み込む…", self, triggered=self.import_layer))
         layer_menu.addAction(QAction("レイヤーを PNG で保存…", self, triggered=self.save_layer_png))

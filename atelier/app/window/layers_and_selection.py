@@ -173,6 +173,52 @@ class LayersAndSelectionMixin:
         if self._need_selection() and self.canvas.fill_selection():
             self.statusBar().showMessage("選択範囲を塗りました（Ctrl+Z で戻せます）", 3000)
 
+    def selection_resize(self, kind: str, px: int | None = None) -> bool:
+        """選択範囲の拡張（grow）・縮小（shrink）・境界のぼかし（feather）。px が無ければ画素の数を聞く"""
+        if not self._need_selection():
+            return False
+        title = {"grow": "選択範囲を広げる", "shrink": "選択範囲を縮める", "feather": "境界をぼかす"}[kind]
+        if px is None:
+            from PySide6.QtWidgets import QInputDialog
+            px, ok = QInputDialog.getInt(self, title, "画素の数", 4, 1, 200)
+            if not ok:
+                return False
+        c = self.canvas
+        done = c.feather_selection(px) if kind == "feather" else c.grow_selection(px if kind == "grow" else -px)
+        if done:
+            self.statusBar().showMessage(f"{title}: {px} 画素", 3000)
+        if c.selection is None:
+            self.notify("選択範囲が無くなりました", "info", "縮める画素が範囲より大きかったので、選択を外しました")
+        return done
+
+    def selection_invert(self):
+        self.canvas.invert_selection()
+        self.statusBar().showMessage("選択範囲を反転しました", 3000)
+
+    def open_transform(self):
+        """自由変形の窓を開く。選択範囲があればその中だけ、無ければ選んでいるレイヤー全体を変形する"""
+        if not self.canvas.begin_transform():
+            return None
+        from atelier.panels.transform_dialog import TransformDialog
+        self.transform_dialog = TransformDialog(self.canvas, self)
+        self.transform_dialog.open()
+        return self.transform_dialog
+
+    def new_layer_folder(self):
+        name = self.canvas.new_folder()
+        if name:
+            self.statusBar().showMessage(f"「{name}」を作り、選んでいるレイヤーを入れました", 3000)
+
+    def fill_folder_menu(self, menu):
+        """「フォルダーに入れる」の行き先を、開くたびに今のフォルダーで作り直す"""
+        menu.clear()
+        c = self.canvas
+        names = [n for n in c.folders if any(l.folder == n for l in c.layers)]
+        for n in names:
+            menu.addAction(n, lambda n=n: c.put_in_folder(n))
+        if not names:
+            menu.addAction("フォルダーがありません").setEnabled(False)
+
     def selection_copy(self) -> bool:
         """選択があればその中を、無ければ見えている絵全体をコピーする"""
         from PySide6.QtWidgets import QApplication

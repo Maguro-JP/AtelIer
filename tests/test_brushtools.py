@@ -330,5 +330,71 @@ class FillAndTaperTest(unittest.TestCase):
         self.assertGreater(c.layers[c.current].image.pixelColor(100, 100).alpha(), 200)   # 入り抜きで点が消えない
 
 
+def tablet(c, pts, pressure=0.5, tilt=(0.0, 0.0)):
+    """ペンタブレットの押す・動かす・離すを、筆圧と傾きを付けて流す"""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QPointingDevice, QTabletEvent
+    vp = c.viewport()
+    dev = QPointingDevice.primaryPointingDevice()
+    kinds = [QEvent.TabletPress] + [QEvent.TabletMove] * (len(pts) - 2) + [QEvent.TabletRelease]
+    for kind, (x, y) in zip(kinds, pts):
+        p = QPointF(c.mapFromScene(x, y))
+        ev = QTabletEvent(kind, dev, p, QPointF(vp.mapToGlobal(p.toPoint())), pressure, tilt[0], tilt[1], 0.0, 0.0, 0.0,
+                          Qt.NoModifier, Qt.LeftButton, Qt.LeftButton if kind != QEvent.TabletRelease else Qt.NoButton)
+        c.tabletEvent(ev)
+
+
+def thickness(c, x):
+    from PySide6.QtGui import QColor
+    img = c.layers[c.current].image
+    return sum(1 for y in range(img.height()) if QColor.fromRgba(img.pixel(x, y)).alpha() > 128)
+
+
+class PenCurveTiltTest(unittest.TestCase):
+    """筆圧の曲線とペンの傾き。ブラシの欄の「設定」で選び、ペンタブレットの線の太さで確かめる"""
+
+    def _line(self, w, **kw):
+        c = w.canvas
+        c.layers[c.current].image.fill(0)
+        tablet(c, [(20, 100), (60, 100), (100, 100), (140, 100), (180, 100)], **kw)
+        return thickness(c, 100)
+
+    def test_curve_and_tilt_from_brush_panel(self):
+        w = window()
+        w.tool_actions["pen"].trigger()
+        w.canvas.size = 20
+        w.canvas.brush.size_pressure = True
+        w.canvas.brush.taper_in = w.canvas.brush.taper_out = 0.0
+        box = w.pressure_curve
+        widths = {}
+        for key in ("soft", "linear", "hard"):
+            box.setCurrentIndex(box.findData(key))
+            self.assertEqual(w.canvas.pressure_curve, key)
+            widths[key] = self._line(w, pressure=0.4)
+        self.assertGreater(widths["soft"], widths["linear"])
+        self.assertGreater(widths["linear"], widths["hard"])
+        box.setCurrentIndex(box.findData("linear"))
+        upright = self._line(w, pressure=0.4)
+        w.tilt_size.setChecked(True)
+        flat = self._line(w, pressure=0.4, tilt=(60.0, 0.0))
+        self.assertGreater(flat, upright * 1.5)
+        w.tilt_size.setChecked(False)
+        self.assertEqual(self._line(w, pressure=0.4, tilt=(60.0, 0.0)), upright)   # 切ると傾きは効かない
+
+    def test_fill_and_taper_boxes_in_brush_panel(self):
+        w = window()
+        b = w.fill_boxes["fill_gap"]
+        b.setCurrentIndex(b.findData(4))
+        b.activated.emit(b.currentIndex())
+        self.assertEqual(w.canvas.fill_gap, 4)
+        t = w.taper_boxes["taper_in"]
+        t.setCurrentIndex(t.findData(3.0))
+        t.activated.emit(t.currentIndex())
+        self.assertEqual(w.canvas.brush.taper_in, 3.0)
+        w.canvas.fill_gap = 8   # 右クリックのメニューで変えたときも、欄の表示を合わせる
+        w.sync_tool_boxes()
+        self.assertEqual(b.currentData(), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -127,6 +127,18 @@ class CanvasMenuMixin:
     }
     TAPER_CHOICES = ((0.0, "無し"), (1.5, "短い"), (3.0, "中"), (6.0, "長い"))
 
+    def sync_tool_boxes(self):
+        """ブラシの欄の入り抜き・塗りつぶしの選びを、今のブラシとキャンバスの値に合わせる（右クリックで変えたあとも）"""
+        c = self.canvas
+        for attr, box in getattr(self, "taper_boxes", {}).items():
+            vals = [box.itemData(i) for i in range(box.count())]
+            now = getattr(c.brush, attr)
+            box.setCurrentIndex(min(range(len(vals)), key=lambda i: abs(vals[i] - now)))
+        for attr, box in getattr(self, "fill_boxes", {}).items():
+            i = box.findData(getattr(c, attr))
+            if i >= 0:
+                box.setCurrentIndex(i)
+
     def tool_settings_menu(self, parent):
         """塗りつぶしと入り抜きの設定（今の値に印を付ける）。選んだ値はキャンバスに持ち、次に押したときから効く"""
         from PySide6.QtGui import QActionGroup
@@ -138,7 +150,7 @@ class CanvasMenuMixin:
             sub.setToolTipsVisible(True)
             group = QActionGroup(sub)
             for value, label in choices:
-                act = sub.addAction(label, lambda a=attr, v=value: setattr(c, a, v))
+                act = sub.addAction(label, lambda a=attr, v=value: (setattr(c, a, v), self.sync_tool_boxes()))
                 act.setCheckable(True)
                 act.setChecked(getattr(c, attr) == value)
                 act.setToolTip(tip)
@@ -149,7 +161,7 @@ class CanvasMenuMixin:
             sub.setToolTipsVisible(True)
             group = QActionGroup(sub)
             for value, label in self.TAPER_CHOICES:
-                act = sub.addAction(label, lambda a=attr, v=value: setattr(c.brush, a, v))
+                act = sub.addAction(label, lambda a=attr, v=value: (setattr(c.brush, a, v), self.sync_tool_boxes()))
                 act.setCheckable(True)
                 act.setChecked(abs(getattr(brush, attr) - value) < 1e-6)
                 act.setToolTip("線の始めを細くします" if attr == "taper_in" else "線の終わりを細くします（手を離したときに掛かります）")
