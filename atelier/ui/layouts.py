@@ -189,15 +189,16 @@ def _progress_idle(w):
 
 def recommended(w):
     """おすすめ（初めの配置）。絵を広く見せるため、リボンと下の帯は出さず、道具はよく使うものだけにする。
-    左に色とレイヤー、右の上に表示、右の中に AI の設定、右の下に履歴、真ん中の上に進み、真ん中の下にチャット"""
+    左に色とレイヤー、右の上に AI の設定、右の下に履歴（裏のタブに表示とライブラリー）、真ん中の上に進み、真ん中の下にチャット"""
     _reset(w)
     bars(w, ribbon=False, tools=ESSENTIAL_TOOLS)
     _column(w, L, ["color", "layers"], [5, 5])
     _hide(w, ["brushes"])
-    # 右は上から表示・AI・履歴（ライブラリーは表示の裏のタブ）。履歴の裏に表示を重ねると、表示が前に出たり
-    # 細い所に押し込まれたりして、1280×720 で表示の欄に流す棒が出た
-    _column(w, R, ["view", "chat", "history"], [2, 4, 4])
-    _tabs(w, ["view", "library"])
+    # 右は AI と履歴の 2 段（表示とライブラリーは履歴の裏のタブ）。表示を AI の上に積むと、1366×768 で
+    # AI の欄が描くワードの入れ物も見えないほど潰れ、タブが切れて流す棒が出た（0.1.5 の並びに戻す）
+    _column(w, R, ["chat", "history"], [5, 5])
+    _tabs(w, ["history", "view", "library"])
+    w.panels["history"][0].raise_()
     w.addDockWidget(T, w.panels["progress"][0])
     w.addDockWidget(B, w.panels["talk"][0])
     w.panels["talk"][0].show()
@@ -206,7 +207,6 @@ def recommended(w):
     # チャットは会話を読み返せる高さにする（200 のままだと 1080 の高さでも吹き出しが 2 つしか見えなかった。低い画面では絵の場所を残す）
     fit_talk(w, 200 if w.height() < 900 else int(w.height() * 0.3))
     fit_heights(w, ["color", "layers"])
-    _top_first(w, ["view", "chat", "history"])
     _progress_idle(w)
     _first_tool(w, "hand")
 
