@@ -93,6 +93,8 @@ class ActivityPanel(QWidget):
         head.addWidget(self.time)
         head.addWidget(self.resume_tool)
         head.addWidget(self.stop_tool)
+        # 動いていない間は隠す。上の帯にも緊急停止があり、待っている間は 2 つ並んで見えた（動いている間だけ進みの横に出す）
+        self.stop_tool.hide()
         top.addLayout(head)
         top.addLayout(self.steps)
         top.addWidget(self.bar)
@@ -172,6 +174,7 @@ class ActivityPanel(QWidget):
         return "残り約 " + fmt(left)
 
     def begin(self, text: str, mode: str):
+        self.stop_tool.show()
         self.sheet = (1, 1)
         self.phase, self.phase_last, self.words_log = None, None, []
         self.detail.setToolTip("")
@@ -321,6 +324,7 @@ class ActivityPanel(QWidget):
 
     def end(self, result: str, path: str | None = None, record: bool = True):
         """1 回分を終える。record なら履歴の先頭に足す（できた絵を add で足したときは足さない）。状態を待ちに戻す"""
+        self.stop_tool.hide()
         took = fmt(time.time() - self.started) if self.started else ""
         stamp = time.strftime("%H:%M")
         item = None
