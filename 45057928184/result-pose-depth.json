@@ -1,0 +1,19 @@
+{
+ "passed": false,
+ "seed": 8,
+ "bad": [
+  "手 1: pinkyの手の色 0.33（0.85〜1.01）",
+  "手 1: 指を数えられない（切った線ごとに数が揺れる（3 本と同じ線が 2 本））",
+  "手 2: 手の形が読めない（指がくっついたか、ぼやけている）",
+  "手 3: 手の形が読めない（指がくっついたか、ぼやけている）"
+ ],
+ "missing": [
+  "toned",
+  "wide hips",
+  "cleavage",
+  "long legs",
+  "hand up"
+ ],
+ "readable": true,
+ "checked": false
+}
