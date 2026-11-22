@@ -381,6 +381,24 @@ class PenCurveTiltTest(unittest.TestCase):
         w.tilt_size.setChecked(False)
         self.assertEqual(self._line(w, pressure=0.4, tilt=(60.0, 0.0)), upright)   # 切ると傾きは効かない
 
+    def test_tilt_kept_when_taper_redraws_on_release(self):
+        """入り抜きと傾きを一緒に使うと、離したときの抜きの描き直しで太さが傾きの無い太さに戻っていた"""
+        w = window()
+        w.tool_actions["pen"].trigger()
+        c = w.canvas
+        c.size = 20
+        c.brush.size_pressure = True
+        c.brush.taper_in = c.brush.taper_out = 1.0
+        w.pressure_curve.setCurrentIndex(w.pressure_curve.findData("linear"))
+        upright = self._line(w, pressure=0.4)
+        w.tilt_size.setChecked(True)
+        flat = self._line(w, pressure=0.4, tilt=(60.0, 0.0))
+        w.tilt_size.setChecked(False)
+        c.brush.taper_in = c.brush.taper_out = 3.0
+        self.assertGreater(flat, upright * 1.5, (upright, flat))
+        c.undo()
+        self.assertEqual(thickness(c, 100), 0)   # 元に戻すで線ごと消える
+
     def test_fill_and_taper_boxes_in_brush_panel(self):
         w = window()
         b = w.fill_boxes["fill_gap"]

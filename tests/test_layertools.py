@@ -425,6 +425,22 @@ class FreeTransformTest(unittest.TestCase):
         self.assertEqual(alpha_at(c, 25, 25), 0)
         self.assertEqual(alpha_at(c, 50, 50), 255)
 
+    def test_undo_restores_selection_with_picture(self):
+        """自由変形を元に戻すと、絵と一緒に選択範囲も変形の前に戻る（前は変形のあとの形のまま残った）"""
+        from PySide6.QtCore import QRect
+        w, c = self._square()
+        c.set_selection(QRect(40, 40, 40, 40))
+        menu_action(w, "選択範囲", "自由変形…").trigger()
+        w.transform_dialog.boxes["scale_x"].setValue(200)
+        self._ok(w.transform_dialog).click()
+        self.assertEqual(c.selection, QRect(20, 20, 80, 80))
+        menu_action(w, "編集", "元に戻す").trigger()
+        self.assertEqual(c.selection, QRect(40, 40, 40, 40))
+        self.assertEqual(alpha_at(c, 25, 25), 0)
+        c.redo()
+        self.assertEqual(c.selection, QRect(20, 20, 80, 80))
+        self.assertEqual(alpha_at(c, 25, 25), 255)
+
     def test_rotate_flip_shear_and_cancel(self):
         w, c = self._square()
         n = len(c.undo_stack)
@@ -513,6 +529,84 @@ class LayerFolderTest(unittest.TestCase):
         self.assertEqual(c.layers[c.current].folder, name)
         menu_action(w, "レイヤー", "フォルダーから出す").trigger()
         self.assertEqual(c.layers[c.current].folder, "")
+
+    def _three_in_folder(self):
+        """下から 背景・A・B（フォルダー「F」）・C の並びを作る"""
+        w, c, lp = self._setup()
+        c.layers[c.current].name = "A"
+        name = c.new_folder("F")
+        c.add_layer()
+        c.layers[c.current].name = "B"
+        c.put_in_folder(name)
+        c.add_layer()
+        c.layers[c.current].name = "C"
+        lp.refresh()
+        return w, c, lp
+
+    def assertTogether(self, c):
+        for name in c.folders:
+            idx = [j for j, l in enumerate(c.layers) if l.folder == name]
+            self.assertEqual(idx, list(range(idx[0], idx[-1] + 1)) if idx else [], [(l.name, l.folder) for l in c.layers])
+
+    def test_arrows_keep_folder_together(self):
+        """▲▼ でフォルダーの端から外へ出すと、中のレイヤーの間に外のレイヤーが挟まって合成が崩れていた"""
+        w, c, lp = self._three_in_folder()
+        self.assertEqual([l.folder for l in c.layers], ["", "F", "F", ""])
+        names = lambda: [(l.name, l.folder) for l in c.layers]
+        c.current = 1   # A（フォルダーの一番下）
+        lp.buttons["down_b"].click()           # 外へ出る（並びは同じ）
+        self.assertEqual(c.layers[1].folder, "")
+        self.assertTogether(c)
+        lp.buttons["up_b"].click()             # 外からはフォルダーを飛び越える
+        self.assertEqual(c.layers[c.current].name, "A")
+        self.assertEqual(c.layers[c.current].folder, "")
+        self.assertTogether(c)
+        c.undo()
+        c.undo()
+        self.assertEqual(c.layers[1].folder, "F")
+        c.current = [l.name for l in c.layers].index("B")
+        lp.buttons["up_b"].click()             # 一番上の B は外へ出る
+        self.assertEqual(c.layers[c.current].folder, "")
+        self.assertTogether(c)
+        before = names()
+        c.undo()
+        c.redo()
+        self.assertEqual(names(), before)
+
+    def test_drag_in_and_out_of_folder(self):
+        """欄でドラッグして、フォルダーへ入れる・出す。中のレイヤーは続けて並ぶ"""
+        from PySide6.QtCore import QModelIndex
+        w, c, lp = self._three_in_folder()
+
+        def drag_row(src, dest):
+            lp.list.model().moveRows(QModelIndex(), src, 1, QModelIndex(), dest)
+            spin()
+        # 一覧は上から C・見出し F・B・A・背景。C を見出しのすぐ下へ落とすとフォルダーに入る
+        rows = lambda: [lp.list.item(r).text() for r in range(lp.list.count())]
+        drag_row(rows().index("C"), lp.folder_row("F") + 1)
+        lp.refresh()
+        self.assertEqual(c.layers[[l.name for l in c.layers].index("C")].folder, "F")
+        self.assertTogether(c)
+        # A を一番下（背景の下）へ落とすとフォルダーから出る
+        a = next(r for r, t in enumerate(rows()) if t.strip() == "A")
+        drag_row(a, lp.list.count())
+        lp.refresh()
+        self.assertEqual([l.name for l in c.layers][0], "A")
+        self.assertEqual(c.layers[0].folder, "")
+        self.assertTogether(c)
+        import tempfile
+        from atelier.files import project_file as pf
+        from atelier.paint.canvas import Canvas
+        with tempfile.TemporaryDirectory() as tmp:   # 動かしたあとの並びとフォルダーが作業ファイルと PSD で往復する
+            pf.save(c, Path(tmp) / "a.atelier")
+            c2 = Canvas()
+            pf.load(c2, Path(tmp) / "a.atelier")
+            self.assertEqual([(l.name, l.folder) for l in c2.layers], [(l.name, l.folder) for l in c.layers])
+            pf.export_psd(c, Path(tmp) / "a.psd")
+            got = pf.read_psd(Path(tmp) / "a.psd")
+            self.assertEqual([(l.name, l.folder) for l in got["layers"]], [(l.name, l.folder) for l in c.layers])
+        c.undo()
+        self.assertEqual(c.layers[[l.name for l in c.layers].index("A")].folder, "F")
 
     def test_folder_roundtrip_project_and_psd(self):
         import tempfile
