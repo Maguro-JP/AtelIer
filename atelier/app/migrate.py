@@ -77,12 +77,13 @@ CD_APP = "CharacterDesigner"   # キャラクターデザイン以外を AtelIer
 IMPORTED = "imported-from-CharacterDesigner.txt"   # 引き継ぎ済みの印（data_home の下）。2 回目からは何もしない
 
 
+MODEL_SUFFIXES = (".gguf", ".part")   # 模型の本体（数 GB）と取りかけ。写さずに元の場所から読む（paths.legacy_gguf_dirs）
+
+
 def character_designer_home() -> Path | None:
-    """CharacterDesigner のデータの置き場（C:\\ProgramData\\CharacterDesigner）。無ければ None"""
-    if os.name != "nt":
-        return None
-    d = Path(os.environ.get("ProgramData") or "C:\\ProgramData") / CD_APP
-    return d if d.is_dir() else None
+    """CharacterDesigner のデータの置き場（CD_HOME > C:\\ProgramData\\CharacterDesigner）。無ければ None"""
+    from atelier.files.paths import character_designer_home as home
+    return home()
 
 
 def import_character_designer(src: Path, dst: Path) -> list[str]:
@@ -93,6 +94,8 @@ def import_character_designer(src: Path, dst: Path) -> list[str]:
     copied = skipped = failed = 0
     for path in sorted(src.rglob("*")):
         if not path.is_file() or path.name == IMPORTED:
+            continue
+        if path.suffix.lower() in MODEL_SUFFIXES:   # 言葉の模型を 2 か所に持たない（写すと数 GB ずつ増えた）
             continue
         target = dst / path.relative_to(src)
         if target.exists():
