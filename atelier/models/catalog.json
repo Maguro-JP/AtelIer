@@ -18,7 +18,7 @@
   "steps": 28,
   "guidance": 5.0,
   "score": 0,
-  "note": "2026-10-26: 公式の札の設定（Euler、v_prediction と rescale_betas_zero_snr、CFG 4〜5、工程 28〜35）で載せた。Windows の実機の描画で確かめるまで点は 0",
+  "note": "2026-10-26: 公式の札の設定（Euler、v_prediction と rescale_betas_zero_snr、CFG 4〜5、工程 28〜35）で載せた。Windows の実機の描画で確かめるまで点は 0 / 2026-11-22 自動の検証（実行 44996062705）: 頼み 1/5 件、描けた語 60%、崩れのある絵 2 枚 → 点 0",
   "commercial": "商用不可（fair-ai-public-license-1.0-sd に NoobAI の追加条項。描いた絵の商用利用も禁止）",
   "vram": 6,
   "ram": 16
@@ -282,7 +282,7 @@
   "steps": 28,
   "guidance": 5.0,
   "score": 0,
-  "note": "2026-10-31: Hugging Face の API で置き場と重みのファイルを確かめて載せた。描いて確かめるまで点は 0",
+  "note": "2026-10-31: Hugging Face の API で置き場と重みのファイルを確かめて載せた。描いて確かめるまで点は 0 / 2026-11-22 自動の検証（実行 44996062705）: 頼み 1/5 件、描けた語 100%、崩れのある絵 1 枚 → 点 0",
   "commercial": "条件付きで商用可（openrail++）",
   "vram": 6,
   "ram": 16,
