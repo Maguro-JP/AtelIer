@@ -111,11 +111,41 @@ class AiResultsMixin:
         if not rows:
             return
         self.canvas.add_phase_layers([(f"工程 {i}: {r['phase']}", r["image"]) for i, r in enumerate(rows, 1) if r.get("image")])
-        from atelier.ai.phases import PHASES
-        for i, r in enumerate(rows, 1):
+        for r in rows:
             left = r["after"] if r["fixed"] else r["found"]
-            self.say(f"工程 {i}/{len(PHASES)}「{r['phase']}」{r['seconds']} 秒: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:3]))
+            self.say(f"「{r['phase']}」{r['seconds']} 秒: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:3]))
                      + ("（1 回直しました）" if r["fixed"] else ""))
+
+    def _put_stopped_phases(self):
+        """精度優先で描いている途中に「止める」を押されたら、止めた所までの絵を一番上のレイヤーに、工程ごとの絵を隠したレイヤーに置く。
+        裏の糸は止められて返りが無いので、phases.draw が工程ごとに書く progress.json から読む。「描けました」「完成」とは出さない。
+        返りは (見出し, 説明)。精度優先の回でなければ None"""
+        import json
+        if getattr(self, "job_kind", None) != "draw":
+            return None
+        studio = getattr(self, "job_studio", None) or self.studio
+        keep = getattr(studio, "last_phase_keep", None)
+        f = Path(keep) / "progress.json" if keep else None
+        if f is None or not f.exists():
+            return None
+        try:
+            got = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        studio.last_phase_keep = None   # 同じ回を 2 度置かない
+        total, need, left = got.get("total", 0), got.get("need", 0), list(got.get("left") or [])
+        head = f"止めました（工程 {total} で止めました）"
+        try:
+            if got.get("image") and self.canvas.layers:
+                self.put_result(got["image"], f"止めた所までの絵（工程 {total}「{got.get('phase', '')}」）")
+                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in
+                                              enumerate(zip(got.get("names", []), got.get("images", [])), 1)])
+                self._refresh_layers()
+        except (OSError, ValueError) as e:
+            self.say(f"止めた所までの絵をレイヤーに置けませんでした（{e}）")
+        self.say(head + f"。要る工程は今 {need}、累計 {total} 工程を描きました")
+        self.say("残った崩れ: " + ("、".join(left[:5]) if left else "この工程はまだ検品していません"))
+        return head, (f"残った崩れ {len(left)} 件。" if left else "") + "止めた所までの絵を一番上のレイヤーに置きました"
 
     def _on_fixed(self, path: str):
         """赤ペン・選択範囲の直しの結果は、一番上の新しいレイヤーにだけ置いて選ぶ。描いた絵の履歴・ライブラリーには載せない

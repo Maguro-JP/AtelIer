@@ -1,12 +1,11 @@
 ﻿; AtelIerの Setup.exe。build.sh から makensis で組む（SRC、OUT、VERSION を渡す）
 ;
-; 置き場（atelier/files/paths.py と同じ。自作の AdaptiveAIStudio にそろえる）
+; 置き場（atelier/files/paths.py と同じ）
 ;   C:\Program Files\AtelIer\      プログラム（入れ直すたびに丸ごと置き換える）
 ;   C:\ProgramData\AtelIer\        部品（torch など。初回の起動で取る）と記録
 ;   C:\LLM\gguf、C:\LLM\huggingface          模型（自作アプリで共有。消さない）
 ;   ピクチャ\AtelIer\              描いた絵
 ;
-; 入れる: 前の版（%LOCALAPPDATA%\Programs\AtelIer）があれば、模型と描いた物を新しい置き場へ移してから、前の版を消す
 ; 更新: 同じ場所に入れ直す。前のプログラムを消してから置くので、古いファイルが残らない。部品・模型・描いた絵はそのまま
 ; 消す: プログラム、ショートカット、登録を消す。部品（ProgramData）は聞いてから消す。利用者の設定（QSettings と ProgramData の設定のファイル）、模型、描いた絵は消さない
 Target amd64-unicode
@@ -37,6 +36,7 @@ SetCompressor /SOLID lzma
 !define MUI_FINISHPAGE_RUN "$INSTDIR\python\pythonw.exe"
 !define MUI_FINISHPAGE_RUN_PARAMETERS "-E -s -m atelier"
 !define MUI_FINISHPAGE_RUN_TEXT "AtelIer を起動する"
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -44,9 +44,9 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Japanese"
 
-Var OLD
 
-Section "Install"
+Section "AtelIer" SecMain
+  SectionIn RO
   ; 更新のとき、前のプログラムを先に消す（消したファイルが残って古いまま読まれないように）
   RMDir /r "$INSTDIR\atelier"
   RMDir /r "$INSTDIR\tools"
@@ -65,29 +65,8 @@ Section "Install"
   CreateDirectory "$1LLM\manual"
   nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$1LLM" /grant *S-1-5-32-545:(OI)(CI)M /Q'
 
-  ; CharacterDesigner の部品（torch など）・設定・記録を写す（CharacterDesigner はそのまま使える。2 回目からは何もしない）
-  DetailPrint "CharacterDesigner の部品と設定を引き継いでいます"
-  nsExec::ExecToLog '"$INSTDIR\python\python.exe" -E -s -m atelier.app.migrate --import-only'
-  Pop $0
+  ; CharacterDesigner からの引き継ぎは、ここでは黙ってしない。初めての起動で利用者が窓で選ぶ（atelier/app/migrate_dialog.py）
 
-  ; 前の版からの移行。前の版は利用者ごとに入れていたので、HKCU の登録から場所を読む
-  SetShellVarContext current
-  ReadRegStr $OLD HKCU "${UNINST}" "InstallLocation"
-  StrCmp $OLD "" 0 +2
-    StrCpy $OLD "$LOCALAPPDATA\Programs\${APP}"
-  IfFileExists "$OLD\*.*" 0 no_old
-    DetailPrint "前の版を移しています: $OLD"
-    nsExec::ExecToLog '"$INSTDIR\python\python.exe" -m atelier.app.migrate "$OLD"'
-    Pop $0
-    StrCmp $0 "0" 0 migrate_failed
-      Delete "$SMPROGRAMS\${APP}\*.lnk"
-      RMDir "$SMPROGRAMS\${APP}"
-      Delete "$DESKTOP\${APP}.lnk"
-      DeleteRegKey HKCU "${UNINST}"
-      Goto no_old
-    migrate_failed:
-      MessageBox MB_OK|MB_ICONEXCLAMATION "前の版の一部を移せなかったので、前の版はそのまま残しました。$\r$\n記録: $COMMONPROGRAMDATA\${APP}\migrate.log"
-  no_old:
 
   SetShellVarContext all
   SetOutPath "$INSTDIR"
@@ -104,6 +83,23 @@ Section "Install"
   WriteRegStr HKLM "${UNINST}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "${UNINST}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINST}" "NoRepair" 1
+SectionEnd
+
+; 選べる項目。既定は外す。ネットから CharacterDesigner の最新の Release の Setup.exe を取って静かに入れる。
+; inetc プラグインは NSIS の標準に無く build.sh の環境に入れる手間が増えるので、Windows に必ずある PowerShell で取る
+Section /o "CharacterDesigner も入れる（ネットから取る）" SecCD
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File "${__FILEDIR__}\get-characterdesigner.ps1"
+  DetailPrint "CharacterDesigner の最新の Setup.exe を取っています"
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\get-characterdesigner.ps1"'
+  Pop $0
+  ${If} $0 == "2"
+    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner の Release に Setup.exe がまだありません。AtelIer だけを入れて先へ進みます。" /SD IDOK
+  ${ElseIf} $0 != "0"
+    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner を取れませんでした（ネットにつながっているかを確かめてください）。AtelIer だけを入れて先へ進みます。" /SD IDOK
+  ${EndIf}
+  SetOutPath "$INSTDIR"
 SectionEnd
 
 Section "Uninstall"

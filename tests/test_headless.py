@@ -48,7 +48,14 @@ class HeadlessTest(unittest.TestCase):
             model = "fake"
             stop = False
 
+            calls = 0
+
             def paint(self, prompt, seed, on_step=None, size=None, **kw):
+                # 平らな偽の絵は検品を通らず、工程を足し続ける（検品を通るまで描く決まり）。
+                # 画面の部品が要らないことを見るのが目的なので、何枚か描いたら利用者と同じ「止める」を立てる
+                Painter.calls += 1
+                if Painter.calls >= 6:
+                    self.stop = True
                 return Image.new("RGB", size or (64, 64), (200, 120, 120))
 
             def redraw(self, prompt, seed, image, mask, **kw):
@@ -77,9 +84,16 @@ class HeadlessTest(unittest.TestCase):
         with NoQt(), TemporaryDirectory() as d:
             from atelier.files import pause_keep as pausekeep
             from atelier.ai import phases
+            from atelier.ai import phase_tools as pt
+            from unittest import mock
             pausekeep.ROOT = Path(d) / "paused"
             try:
-                got = phases.draw(Painter(), "1girl", 1, (64, 64), Path(d) / "k", checks=Checks)
+                with mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+                    try:
+                        got = phases.draw(Painter(), "1girl", 1, (64, 64), Path(d) / "k", checks=Checks)
+                    except Exception as e:   # noqa: BLE001  止めたときは Stopped で返る
+                        self.assertEqual(type(e).__name__, "Stopped")
+                        got = {"phases": [p.name for p in (Path(d) / "k").glob("*")]}
             finally:
                 pausekeep.ROOT = None
             self.assertTrue(got["phases"])

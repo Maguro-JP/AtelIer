@@ -99,6 +99,39 @@ def load_entry_points() -> list[str]:
     return names
 
 
+MANIFEST = "extension.json"   # 拡張の置き場の 1 つの拡張の印: {"module": "...", "attr": "EXTENSION", "path": "."}
+
+
+def load_dropins(root) -> list[str]:
+    """拡張の置き場（C:\\ProgramData\\AtelIer\\extensions\\<名前>\\）の拡張を登録する。
+    ほかのアプリのインストーラーは AtelIer の Python に pip で入れられないので、ここへパッケージを置く。
+    <名前>（か extension.json の path）を sys.path の後ろに足し、module の attr を読む。返すのは登録した拡張の名前"""
+    import importlib
+    import json
+    from pathlib import Path
+    names: list[str] = []
+    root = Path(root)
+    if not root.is_dir():
+        return names
+    for folder in sorted(p for p in root.iterdir() if (p / MANIFEST).is_file()):
+        try:
+            spec = json.loads((folder / MANIFEST).read_text(encoding="utf-8"))
+            where = str((folder / spec.get("path", ".")).resolve())
+            if where not in sys.path:
+                # 後ろに足す。拡張に AtelIer と同じ名前の物（tools/gen の台本など）があっても、AtelIer の物を先に読む
+                sys.path.append(where)
+            extension = getattr(importlib.import_module(spec["module"]), spec.get("attr", "EXTENSION"))
+            if isinstance(extension, type):
+                extension = extension()
+            if not isinstance(extension, Extension):
+                raise TypeError(f"{spec['module']} は name と attach(window) を持っていません")
+            register(extension)
+            names.append(extension.name)
+        except Exception:   # noqa: BLE001  1 つの拡張の失敗で、ほかの拡張と本体を止めない
+            _warn(f"拡張の置き場の {folder.name} を読めませんでした")
+    return names
+
+
 def attach_all(window) -> None:
     """登録した拡張を、窓に 1 つずつ付ける。窓のメニューと欄を作り終えたあとに呼ぶ"""
     load_bundled()
