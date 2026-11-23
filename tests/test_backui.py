@@ -47,6 +47,19 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.app = QApplication.instance() or QApplication([])
         self.d = TemporaryDirectory()
+        # 描き手は偽物なので、描く部品（diffusers, torch）が入っていない機械でも描く道を通す。
+        # 入っていないと「描く部品が読めません」で描く前に止まり、torch の入った機械でしか試験が通らなかった
+        from atelier.app.window import ai_drawing
+        real = ai_drawing.check
+
+        def with_parts(painter=None, words=None):
+            import types
+            stubs = {n: types.ModuleType(n) for n in ("diffusers", "torch") if n not in sys.modules}
+            with mock.patch.dict(sys.modules, stubs):
+                return real(painter, words)
+        patcher = mock.patch.object(ai_drawing, "check", with_parts)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         sweep_windows()
