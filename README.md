@@ -33,7 +33,7 @@
 
 ほかのアプリとは、拡張の登録口でつながります。
 
-- 拡張の登録口: entry points（`atelier.extensions`）か、拡張の置き場（`C:\ProgramData\AtelIer\extensions`）に置いた拡張を起動のときに読み、メニューやモードを足します（`atelier/extensions.py`、[docs/knowledge/integration.md](docs/knowledge/integration.md)）。キャラクターデザイン（設定資料、三面図、表情差分）は、CharacterDesigner がこの口から足します。
+- 拡張の登録口: entry points（`atelier.extensions`）か、拡張の置き場（`C:\ProgramData\AtelIer\extensions`）に置いた拡張を起動のときに読み、メニューやモードを足します（`atelier/extensions.py`、[docs/knowledge/integration.md](docs/knowledge/integration.md)）。キャラクターデザイン（設定資料、三面図、表情差分）は、CharacterDesigner がこの口から足します。FashionDesigner、LogoDesigner、EmblemDesigner、3DDesigner、VirtualDesigner も同じ口で載せられます（一覧は `atelier/extension_catalog.py`）。拡張の置き場に入っている物だけを読み、Setup.exe の選べる部品には Release のあるデザイナーだけが出ます。
 - CharacterDesigner からの引き継ぎ: CharacterDesigner を使っていた人には、初めての起動で「CharacterDesigner から引き継ぐ」窓が出ます。引き継ぐ物（設定、模型の好み、ライブラリー、描く部品）は利用者が選び、あとから「ファイル」メニューでも開けます。黙って写すことはしません。
 
 ## クイックスタート

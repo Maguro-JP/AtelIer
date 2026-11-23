@@ -126,22 +126,12 @@ Section "AtelIer" SecMain
   WriteRegDWORD HKLM "${UNINST}" "NoRepair" 1
 SectionEnd
 
-; 選べる項目。既定は外す。ネットから CharacterDesigner の最新の Release の Setup.exe を取って静かに入れる。
+; 選べる項目（一緒に開発するデザイナー）。節は build.sh が atelier/extension_catalog.py の一覧から書き出す（EXTNSH）。
 ; inetc プラグインは NSIS の標準に無く build.sh の環境に入れる手間が増えるので、Windows に必ずある PowerShell で取る
-Section /o "CharacterDesigner も入れる（ネットから取る）" SecCD
-  InitPluginsDir
-  SetOutPath "$PLUGINSDIR"
-  File "${__FILEDIR__}\get-characterdesigner.ps1"
-  DetailPrint "CharacterDesigner の最新の Setup.exe を取っています"
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\get-characterdesigner.ps1"'
-  Pop $0
-  ${If} $0 == "2"
-    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner の Release に Setup.exe がまだありません。AtelIer だけを入れて先へ進みます。" /SD IDOK
-  ${ElseIf} $0 != "0"
-    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner を取れませんでした（ネットにつながっているかを確かめてください）。AtelIer だけを入れて先へ進みます。" /SD IDOK
-  ${EndIf}
-  SetOutPath "$INSTDIR"
-SectionEnd
+!define PKGDIR "${__FILEDIR__}"   ; 書き出した節は別の場所にあるので、packaging/ の道を渡す
+!ifdef EXTNSH
+  !include "${EXTNSH}"
+!endif
 
 Section "Uninstall"
   ; 入れた物だけを消す。インストール先に利用者が置いた物は残し、空になったときだけフォルダーを消す

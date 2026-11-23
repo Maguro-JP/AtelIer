@@ -33,6 +33,47 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(extensions.BUNDLED, ())
 
 
+class CatalogTest(unittest.TestCase):
+    """一緒に開発するデザイナーの一覧（atelier/extension_catalog.py）。名前を 1 か所で持ち、ほかはそこから取る"""
+
+    def test_six_designers(self):
+        from atelier import extension_catalog as cat
+        self.assertEqual([d.name for d in cat.DESIGNERS],
+                         ["CharacterDesigner", "FashionDesigner", "LogoDesigner", "EmblemDesigner", "3DDesigner", "VirtualDesigner"])
+        for d in cat.DESIGNERS:
+            self.assertEqual(d.repo, f"Maguro-JP/{d.name}")
+            self.assertTrue(d.dropin.isidentifier(), d.dropin)   # 置き場の名前はパッケージの名前にもできる形
+        self.assertEqual(len({d.key for d in cat.DESIGNERS}), 6)
+        self.assertEqual(len({d.dropin for d in cat.DESIGNERS}), 6)
+
+    def test_installer_sections_come_from_the_catalog(self):
+        """Release のあるデザイナーだけを選べる部品にし、取れないときは理由を出して飛ばす"""
+        from atelier import extension_catalog as cat
+        sys.path.insert(0, str(ROOT / "packaging"))
+        try:
+            import extension_sections
+        finally:
+            sys.path.remove(str(ROOT / "packaging"))
+        nsh = extension_sections.sections()
+        for d in cat.DESIGNERS:
+            shown = f'Section /o "{d.name} も入れる' in nsh
+            self.assertEqual(shown, d.installer, d.name)
+            if d.installer:
+                self.assertIn(f'-Repo "{d.repo}"', nsh)
+        self.assertEqual(nsh.count("MessageBox"), 2 * len(cat.for_installer()))
+        nsi = (ROOT / "packaging" / "installer.nsi").read_text(encoding="utf-8")
+        self.assertIn('!include "${EXTNSH}"', nsi)
+        self.assertNotIn("CharacterDesigner も入れる", nsi)   # 節を手で書かない
+        ps1 = (ROOT / "packaging" / "get-extension.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("CharacterDesigner", ps1)
+        self.assertIn("exit 2", ps1)
+
+    def test_migration_source_comes_from_the_catalog(self):
+        from atelier import extension_catalog as cat
+        from atelier.app import migrate
+        self.assertEqual(migrate.SOURCE_APP, cat.by_key("character").name)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.qapp = app()
@@ -189,6 +230,33 @@ class WithExtensionTest(Base):
         self.assertTrue(w.isVisible())
         self.assertIn("broken", err.getvalue())        # 失敗は捨てずに stderr へ出す
         self.assertIn("付けられない", err.getvalue())
+
+    def test_every_designer_loads_through_the_dropin_folder(self):
+        """6 つのデザイナーが、どれも同じ道（置き場の <dropin>\\extension.json）で読まれる。置き場に無い物は読まない"""
+        import json
+        from atelier import extension_catalog as cat
+        root = self.d / "extensions"
+        present = [d for d in cat.DESIGNERS if d.key != "virtual"]   # 1 つは入れずにおき、無い物に何も出ないことを見る
+        for d in present:
+            pkg = root / d.dropin / f"sample_{d.dropin}"
+            pkg.mkdir(parents=True)
+            (pkg / "__init__.py").write_text(
+                f"class E:\n    name = {d.name!r}\n    def attach(self, window):\n        pass\nEXTENSION = E()\n", encoding="utf-8")
+            (root / d.dropin / extensions.MANIFEST).write_text(
+                json.dumps({"module": f"sample_{d.dropin}", "attr": "EXTENSION"}), encoding="utf-8")
+        (root / cat.by_key("virtual").dropin).mkdir()   # extension.json の無いフォルダーは拡張ではない
+        added = []
+        try:
+            names = extensions.load_dropins(root)
+            added = [str((root / d.dropin).resolve()) for d in present]
+        finally:
+            for where in added:
+                if where in sys.path:
+                    sys.path.remove(where)
+            for d in present:
+                sys.modules.pop(f"sample_{d.dropin}", None)
+        self.assertEqual(sorted(names), sorted(d.name for d in present))
+        self.assertNotIn("VirtualDesigner", [e.name for e in extensions.registered()])
 
     def test_entry_points_load_and_skip_a_broken_one(self):
         class Good:

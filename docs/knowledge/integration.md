@@ -63,11 +63,18 @@ C:\ProgramData\AtelIer\extensions\<名前>\<パッケージ>\__init__.py ...
 
 CharacterDesigner の Setup.exe は、AtelIer の `InstallDir` が見つかったときに、この置き場へ自分の拡張を置く。
 
-### AtelIer の Setup.exe から CharacterDesigner を入れる
+### デザイナーの一覧
 
-コンポーネントのページに「CharacterDesigner も入れる（ネットから取る）」がある（既定は外す）。
-選ぶと、`Maguro-JP/CharacterDesigner` の最新の Release から名前に `Setup` を含む `.exe` を取り、`/S` で静かに入れる
-（`packaging/get-characterdesigner.ps1`）。AtelIer を入れたあとに動くので、CharacterDesigner の Setup.exe は AtelIer を見つけられる。
+一緒に開発するデザイナーは `atelier/extension_catalog.py` に並べる（CharacterDesigner、FashionDesigner、LogoDesigner、
+EmblemDesigner、3DDesigner、VirtualDesigner）。持つのは名前・リポジトリ・拡張の置き場の名前（`<名前>`）・インストーラーで取るか。
+置き場の名前は `character_designer`、`fashion_designer`、`logo_designer`、`emblem_designer`、`three_d_designer`、`virtual_designer`。
+
+### AtelIer の Setup.exe からデザイナーを入れる
+
+コンポーネントのページに「<デザイナー> も入れる（ネットから取る）」が出る（既定は外す）。出すのは一覧で `installer` が True の物
+（Release に Setup.exe がある物）だけで、`packaging/extension_sections.py` が組むたびに節を書き出す。
+選ぶと、そのリポジトリの最新の Release から名前に `Setup` を含む `.exe` を取り、`/S` で静かに入れる
+（`packaging/get-extension.ps1 -Repo <owner/name>`）。AtelIer を入れたあとに動くので、CharacterDesigner の Setup.exe は AtelIer を見つけられる。
 Release に Setup.exe が無いとき・取れないときは知らせて先へ進む。
 
 ### データの引き継ぎ

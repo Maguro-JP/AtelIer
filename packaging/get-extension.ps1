@@ -1,13 +1,20 @@
-# AtelIer の Setup.exe が、選ばれたときだけ呼ぶ。CharacterDesigner の最新の Release の Setup.exe を取って静かに入れる。
-# 終わりの番号: 0 は入れた、2 は Release に Setup.exe が無い、1 は取れなかった（どれでも AtelIer の入れ方は止めない）
+# AtelIer の Setup.exe が、選ばれたデザイナーごとに呼ぶ（-Repo owner/name）。最新の Release の Setup.exe を取って静かに入れる。
+# 呼ぶ節は packaging/extension_sections.py が atelier/extension_catalog.py の一覧から作る。
+# 終わりの番号: 0 は入れた、2 は Release か Setup.exe が無い、1 は取れなかった（どれでも AtelIer の入れ方は止めない。
+# 2 と 1 は呼んだ節が理由を窓で出して飛ばす）
+param([Parameter(Mandatory = $true)][string]$Repo)
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell 5.1 は進みの表示があると Invoke-WebRequest が何十倍も遅くなり、数百 MB の Setup.exe が終わらないように見える
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 try {
   $rel = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'AtelIer-Setup' } `
-    -Uri 'https://api.github.com/repos/Maguro-JP/CharacterDesigner/releases/latest'
-} catch { exit 1 }
+    -Uri "https://api.github.com/repos/$Repo/releases/latest"
+} catch {
+  # Release が 1 つも無いリポジトリは 404 を返す。ネットの失敗と分けて知らせる
+  if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { exit 2 }
+  exit 1
+}
 $asset = $rel.assets | Where-Object { $_.name -like '*Setup*.exe' } | Select-Object -First 1
 if (-not $asset) { exit 2 }
 $out = Join-Path $env:TEMP $asset.name

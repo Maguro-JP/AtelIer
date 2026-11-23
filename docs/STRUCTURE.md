@@ -25,6 +25,7 @@
 | `atelier/agent/` | AI が使う。チャット、言葉での操作、予約、音声 |
 | `atelier/bench/` | モデルを動かして確かめる台本（Actions から流す） |
 | `atelier/extensions.py` | 拡張の登録口。外の部品が、窓にメニュー・モード・欄・ファイルの種類を足す入口 |
+| `atelier/extension_catalog.py` | 一緒に開発するデザイナー（Character、Fashion、Logo、Emblem、3D、Virtual）の一覧。名前・リポジトリ・拡張の置き場の名前・インストーラーで取るか |
 | `atelier/assets/` | ロゴとアイコン（SVG） |
 | `tools/gen/`、`tools/engine/` | アプリが読む道具の台本（仕上げ、検品の測り方、3D）。置き場を `sys.path` に足して読む。置き場の組み立ては `tools/gen/data_home.py` |
 | `tools/llm/`、`tools/finishing_preview.py` | 言葉の模型を入れる台本と、仕上げの見比べの絵を作る台本（Actions の finish-quality） |
@@ -41,6 +42,8 @@
 - CharacterDesigner はキャラクターデザイン（設定資料、三面図、表情差分、キャラクターファイル）だけを持ち、AtelIer の上に載る
 - 本体はキャラクターデザインのパッケージを読まない。読んでいないことは `tests/test_extensions.py` が見張る
 - キャラクターデザインは CharacterDesigner のリポジトリの `character_designer` パッケージにあり、拡張として窓に付く。CharacterDesigner の `pyproject.toml` が entry points の `atelier.extensions` の組に `character_designer.extension:EXTENSION` を書き、起動のときに `atelier/extensions.py` の `load_entry_points` が読む
+- 拡張の置き場（`C:\ProgramData\AtelIer\extensions\<名前>\extension.json`）に置いた拡張は `load_dropins` が読む。置き場に無いデザイナーには何も出さない
+- デザイナーの名前は `atelier/extension_catalog.py` の一覧に 1 か所で持つ。AtelIer の Setup.exe の選べる部品は、一覧のうち Release のある物だけを `packaging/extension_sections.py` が NSIS の節にし（`installer.nsi` が !include する）、`packaging/get-extension.ps1` が取る。取れないときは理由を窓で出して飛ばす
 - 同梱の拡張（`BUNDLED`）はいまは無い。CharacterDesigner を入れていなければ、本体だけの形で起動する
 - キャラクターデザインの資料（`bible/`、`designs/`、`templates/`）とキャラクターデザインのテストも CharacterDesigner にある
 

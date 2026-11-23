@@ -20,7 +20,9 @@ import time
 from pathlib import Path
 from typing import Callable
 
-SOURCE_APP = "CharacterDesigner"
+from atelier import extension_catalog
+
+SOURCE_APP = extension_catalog.by_key("character").name   # 引き継ぐのは CharacterDesigner だけ（データの形を知っている物）
 DONE = "integrated-from-CharacterDesigner.txt"    # 引き継いだ記録（AtelIer の置き場の下）
 OLD_MARKS = ("imported-from-CharacterDesigner.txt", DONE)   # 0.1.1〜0.1.4 が丸ごと写したときの印
 STRAY = "cd"                                      # CharacterDesigner の前の版が設定をずれて書いた所

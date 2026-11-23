@@ -60,6 +60,10 @@ if [ ! -f "$SRC/atelier/ai/icon/app.ico" ]; then
 fi
 ICONDEF="-DICON=$SRC/atelier/ai/icon/app.ico"
 
+echo "== 選べる部品（atelier/extension_catalog.py の一覧のうち、Release のあるデザイナー）"
+python3 "$ROOT/packaging/extension_sections.py" > "$B/extensions.nsh"
+grep '^Section' "$B/extensions.nsh" || echo "（選べる部品なし）"
+
 echo "== Setup.exe"
-makensis -V2 $ICONDEF -DSRC="$SRC" -DOUT="$OUT/AtelIer-Setup.exe" -DVERSION="$VERSION" "$ROOT/packaging/installer.nsi"
+makensis -V2 $ICONDEF -DEXTNSH="$B/extensions.nsh" -DSRC="$SRC" -DOUT="$OUT/AtelIer-Setup.exe" -DVERSION="$VERSION" "$ROOT/packaging/installer.nsi"
 ls -la "$OUT/AtelIer-Setup.exe"
