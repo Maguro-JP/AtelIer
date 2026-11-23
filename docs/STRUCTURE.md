@@ -83,6 +83,7 @@
 | `assist.py` | `paint/drawing_assist.py` |
 | `redpen.py` | `paint/redpen.py` |
 | `timelapse.py` | `paint/timelapse.py` |
+| （AtelIer で足した） | `paint/brush_reveal.py`（AI の絵を筆で描き込んで見せる） |
 | `colorpanel.py` | `panels/color_panel.py` |
 | `layerpanel.py` | `panels/layer_panel.py` |
 | `brushpreview.py` | `panels/brush_preview.py` |

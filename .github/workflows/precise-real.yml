@@ -1,0 +1,59 @@
+# 精度優先が最後の工程まで検品を通るかを、人を描ける模型で見る重い試験（上限 340 分）。
+# 前は atelier-e2e の中にあり、main の回の組（取り消さない）を数時間ふさいで、次の版の release の段を待たせていた。
+name: precise-real
+on:
+  push:
+    branches: [main]
+    paths:
+      - "atelier/**"
+      - "tools/**"
+      - "packaging/**"
+      - "VERSION"
+      - ".github/workflows/precise-real.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # atelier-e2e と別の組にし、Release の段を待たせない。新しい回が来たら古い回を取り消す（最新の main だけを見れば足りる）
+  group: precise-real-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  # 精度優先が最後の工程まで検品を通るかを、人を描ける模型で見る（windows-heavy の小さな模型は人を描けず、検品を通る絵が出来ない）。
+  # 模型は目録の推奨で点の一番高い cagliostrolab/animagine-xl-4.0（私の推測。phase-bench の既定と同じ）。
+  # CPU で描き、描き直しの回数に上限が無いので、時間の上限を広く取る。Release は止めない。落ちたらこのジョブが赤くなる
+  precise-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: 置き場を空ける
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h / | tail -1; free -g; nproc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 部品
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image ai-edge-litert onnxruntime
+      - name: 精度優先で 1 枚を最後まで描く
+        timeout-minutes: 320
+        env:
+          LLM_HOME: ${{ runner.temp }}/llm
+          ATELIER_HOME: ${{ runner.temp }}/cd
+          ATELIER_FETCH: "1"
+          ATELIER_ASSUME_FREE_RAM_GB: "14"
+          BENCH_MODEL: cagliostrolab/animagine-xl-4.0
+          # 全身の入る頼み（phase-bench の既定）。「1girl, red hair」では胸から上だけが描かれ、体と手の点を読めなかった（run 45098290062）
+          BENCH_PROMPT: "1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer"
+          BENCH_STEPS: "20"
+          BENCH_SIZE: 832x1216
+          BENCH_SEED: "7"
+          BENCH_WAYS: phases
+          BENCH_REQUIRE_COMPLETE: "1"
+        run: python -u -m atelier.bench.phase_bench precise-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: precise-real
+          path: precise-out
+          retention-days: 7

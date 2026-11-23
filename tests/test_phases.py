@@ -804,6 +804,61 @@ class PreviewTest(unittest.TestCase):
         self.assertLessEqual(len(shown), 2 * got["total"])
 
 
+class PhaseWorkShownTest(unittest.TestCase):
+    """線画から先の工程の絵は、描けたら印（PHASE_TAG）を付けて窓に渡す。アタリまで（と体の形）は渡さない。
+    「工程 i/N」は 1 から順に、飛ばずに進む"""
+
+    def test_drawn_phases_tagged_and_numbers_in_order(self):
+        tagged, said = [], []
+
+        def show(im):
+            if phases.PHASE_TAG in im.info:
+                tagged.append(im.info[phases.PHASE_TAG])
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), say=said.append, checks=checks(False)[0], on_preview=show)
+        first = phases.NAMES.index(phases.SHOW_FROM)
+        self.assertTrue(tagged)   # 線画から先の絵が窓に届かないと落ちる
+        self.assertTrue(all(phases.NAMES.index(t["phase"]) >= first for t in tagged), tagged)
+        self.assertTrue(any(t["phase"] == "線画の清書" for t in tagged), tagged)
+        from atelier.ui.phase_display import relabel
+        said = [x for x in said if relabel(x) is not None]   # 進み具合の欄が見せる知らせ（描かない工程「目的」は出さない）
+        nos = [int(m.group(1)) for m in (re.match(r"工程 (\d+)/(\d+)「", x) for x in said) if m]
+        self.assertTrue(nos)   # 「工程 i/N」が出ないと落ちる
+        self.assertEqual(nos[0], 1)
+        self.assertTrue(all(b - a in (0, 1) for a, b in zip(nos, nos[1:])), nos)   # 番号が飛ばない
+        self.assertTrue(all("累計" in x for x in said if re.match(r"工程 \d+/\d+「", x)))
+
+
+class WorkLayerTest(unittest.TestCase):
+    """窓は印の付いた工程の絵を、一番上の作業用のレイヤー 1 枚に置き直して見せる。元の絵は変えず、元に戻すで消せる"""
+
+    def test_work_layer_on_top_and_undoable(self):
+        from PIL import Image
+        from atelier.app.main_window import Window
+        from tests.test_editing import app
+        qapp = app()
+        d = Path(self.enterContext(TemporaryDirectory()))
+        w = Window(Studio(FakeWords(), Painter(), d))
+        self.addCleanup(lambda: (setattr(w, "dirty", False), w.close()))
+        w.canvas.new_canvas(64, 64) if hasattr(w.canvas, "new_canvas") else None
+        before = [(l.name, l.visible) for l in w.canvas.layers]
+        w.thread = object()   # 描いている間だけ受け取る
+        for k, (c, name) in enumerate((((10, 10, 10), "顔・手・足の下描き"), ((200, 50, 50), "下塗り")), 1):
+            im = Image.new("RGB", (64, 64), c)
+            im.info[phases.PHASE_TAG] = {"phase": name, "no": k + 6, "need": 30, "total": k}
+            w.show_preview(im)
+            qapp.processEvents()
+        w.thread = None
+        top = w.canvas.layers[-1]
+        self.assertTrue(top.visible and top.name.startswith(w.WORK_LAYER), [l.name for l in w.canvas.layers])
+        self.assertIn("下塗り", top.name)
+        self.assertEqual(sum(1 for l in w.canvas.layers if l.name.startswith(w.WORK_LAYER)), 1)
+        self.assertEqual(top.image.pixelColor(5, 5).red(), 200)   # 2 回目の絵に置き直した
+        self.assertEqual([(l.name, l.visible) for l in w.canvas.layers[:-1]], before)   # 元のレイヤーはそのまま
+        w.canvas.undo()
+        self.assertFalse(any(l.name.startswith(w.WORK_LAYER) for l in w.canvas.layers))
+
+
 class NoSketchModelTest(unittest.TestCase):
     """線に沿う部品も範囲の直しも無い世代（FLUX.1 など）でも、線画と塗りの工程を描き重ねで進める（前は構図の絵のまま止まっていた）"""
 

@@ -254,7 +254,7 @@ class ActivityPanel(QWidget):
         p = re.match(r"工程 (\d+)/(\d+)「([^」]+)」", msg)
         if p:   # 工程に分けて描く（atelier/ai/phases.py）。どの工程かを覚え、帯は全体の進みで出す
             self.phase = (int(p.group(1)), int(p.group(2)), p.group(3))
-            c = re.search(r"（累計 (\d+) 工程）", msg)
+            c = re.search(r"累計 (\d+) 工程", msg)   # 知らせは「（直し n 回、累計 m 工程）」。前は「（累計」で探して一度も出なかった
             self.phase_total = int(c.group(1)) if c else None
         a = re.search(r"要る工程 (\d+)→(\d+)", msg)
         if a and self.phase:   # 直しで工程が足されたら、見出しの要る工程の数をすぐ増やす
