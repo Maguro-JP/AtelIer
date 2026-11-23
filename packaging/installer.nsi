@@ -126,9 +126,9 @@ Section "AtelIer" SecMain
   WriteRegDWORD HKLM "${UNINST}" "NoRepair" 1
 SectionEnd
 
-; 選べる項目。既定は外す。ネットから CharacterDesigner の最新の Release の拡張だけの Setup を取って静かに入れる（単体の Setup.exe は入れない）。
+; 選べる項目。既定で入れる（利用者が外せば入れない。/S でも既定どおり入れる）。拡張だけの Setup が Release にある拡張は既定で入れる決まりのため。ネットから CharacterDesigner の最新の Release の拡張だけの Setup を取って静かに入れる（単体の Setup.exe は入れない）。
 ; inetc プラグインは NSIS の標準に無く build.sh の環境に入れる手間が増えるので、Windows に必ずある PowerShell で取る
-Section /o "CharacterDesigner も入れる（ネットから取る）" SecCD
+Section "CharacterDesigner も入れる（ネットから取る）" SecCD
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
   File "${__FILEDIR__}\get-characterdesigner.ps1"

@@ -240,7 +240,8 @@ class InstallerPartTest(unittest.TestCase):
         self.assertNotIn("-like '*Setup*.exe'", ps1)
         self.assertIn("repos/Maguro-JP/CharacterDesigner/releases/latest", ps1)
         nsi = (ROOT / "packaging" / "installer.nsi").read_text(encoding="utf-8")
-        self.assertIn('Section /o "CharacterDesigner も入れる', nsi)   # 選べる部品として出す（既定は外す）
+        self.assertIn('Section "CharacterDesigner も入れる', nsi)   # 選べる部品として出し、既定で選ぶ（/o を付けない）
+        self.assertNotIn('Section /o "CharacterDesigner', nsi)
         self.assertIn("get-characterdesigner.ps1", nsi)
 
 
