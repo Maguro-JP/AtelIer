@@ -75,6 +75,35 @@ def main():
     tiny = ImageModel(TINY, "試験用の小さな SDXL", "", "", 0.1, 2, 5.0, files=FILES["bin"], family="sdxl", score=0)
     models.IMAGES = models.IMAGES + (tiny,)
 
+    # 見る人のいない試験で窓（QMessageBox など）が出ると、exec() の中で止まり、段の時間切れまで何も出なかった
+    # （赤ペンの直しで「元の頼みと食い違います」が出て、重い段が 40 分で切られた）。
+    # 答えを決めた窓はその答えを押し、決めていない窓は名前を残して閉じ、段を落ちとして先へ進める
+    answers: dict = {}
+    modals: list = []
+
+    def watch_modals():
+        from PySide6.QtWidgets import QMessageBox
+        box = qapp.activeModalWidget()
+        if box is None:
+            return
+        name = box.objectName() or type(box).__name__
+        want = answers.get(name)
+        if want and isinstance(box, QMessageBox):
+            hit = next((b for b in box.buttons() if b.text() == want), None)
+            if hit is not None:
+                modals.append(f"{name}: {want}")
+                print(f"MODAL {name} に「{want}」と答えた", flush=True)
+                hit.click()
+                return
+        modals.append(f"{name}: 閉じた（答えを決めていない窓）")
+        print(f"MODAL {name}（{box.windowTitle()}）を閉じた。答えを決めていない窓", flush=True)
+        box.reject()
+
+    from PySide6.QtCore import QTimer
+    modal_timer = QTimer()
+    modal_timer.timeout.connect(watch_modals)
+    modal_timer.start(500)
+
     def window():
         w = app.Window()
         w.show()
@@ -311,16 +340,22 @@ def main():
         before, count = pixels(w), len(w.canvas.layers)
         snap(w, "redpen-marked.png")
         w.entry.clear()
-        w.fix_marked()
+        # 描いた言葉（red hair）と印の指示（blue hair）が食い違うので、利用者と同じく「新しい頼みにする」を押す
+        answers["confirm_intent"] = "新しい頼みにする"
+        m0 = len(modals)
+        try:
+            w.fix_marked()
+        finally:
+            answers.pop("confirm_intent", None)
         if w.thread is None:
-            raise RuntimeError("「囲んだ所を直す」を押しても直し始めなかった: " + " / ".join(said[-3:]))
+            raise RuntimeError("「囲んだ所を直す」を押しても直し始めなかった: " + " / ".join(said[-3:] + modals[m0:]))
         if not pump(lambda: w.thread is None, 1800):
             raise RuntimeError("30 分たっても直し終わらない")
         after = pixels(w)
         changed = (before != after).any(axis=2)
         outside, within = int((changed & ~inside).sum()), int((changed & inside).sum())
         top = w.canvas.layers[-1]
-        detail = {"inside_pixels": int(inside.sum()), "changed_inside": within, "changed_outside": outside,
+        detail = {"inside_pixels": int(inside.sum()), "changed_inside": within, "changed_outside": outside, "modals": modals[m0:],
                   "layers": layer_names(w), "top_is_fix": bool(top.redpen), "shot": snap(w, "redpen-fixed.png")}
         if len(w.canvas.layers) <= count or not top.redpen:
             raise RuntimeError(f"直しが一番上の赤ペンのレイヤーに置かれていない: {detail}")
