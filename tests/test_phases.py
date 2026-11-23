@@ -1,7 +1,7 @@
 """工程に分けて描く（atelier/ai/phases.py）を偽の模型と偽の検品で通す。
 工程は人の描き方の 12。崩れは前の工程へ戻らず、今の絵の崩れた所の囲みの中だけを直す（外は 1 画素も変えない）。
-手を替えて直しても消えない崩れと囲めない崩れは、工程を足し続けずに利用者に聞いて止まる。ただし描かない工程（目的・サムネイル・アタリ）
-では聞かず、前の工程の絵を土台に種を替え強さを上げて描き直す（検品を通っていないアタリの絵をキャンバスに出さない）。
+囲めない崩れ（人数は余分な人の枠、読めない工程は読めなかった部位の枠で囲む）も、手を替えて直しても消えない崩れも、
+利用者に聞いて止まらず、絵の全体も描き直さない。絵を前のまま残し、残った崩れとして次の工程へ進み、最後に知らせる。
 累計は絵が変わった回だけを数える。
 偽の検品は必ず「何回目かで通る」形にして、試験が終わらなくならないようにする"""
 import os
@@ -284,44 +284,31 @@ class PhasesTest(unittest.TestCase):
         painter = Painter()
         painter.abilities = (False, False)
         got, painter, *_ = self.run_phases(always_bad=True, painter=painter)
-        # 囲みの中だけを直せない模型では、全体を描き直して直したことにせず、残った崩れと直し方を出して止まる（終わらない回り方にしない）
+        # 囲みの中だけを直せない模型では、全体を描き直して直したことにせず、聞いて止まらず、残った崩れとして最後まで進む
         self.assertFalse(got["complete"])
-        self.assertIsNotNone(got["asked"])
-        self.assertIn("赤ペンで囲んで直す", got["asked"]["choices"])
+        self.assertIsNone(got["asked"])
+        self.assertTrue(got["left"])
+        self.assertEqual(got["history"][-1]["phase"], "仕上げ")
         self.assertFalse(any(x[0] == "redraw" for x in painter.log))
 
     def test_fix_masks_are_regions_only(self):
-        """直しは囲みの中だけ（絵全体を描き直さない）"""
-        import numpy as np
+        """直しは囲みの中だけ（外は 1 画素も変えない）。手を替え尽くしても消えない崩れは聞いて止まらず、
+        絵を前のまま残して残った崩れとして次の工程へ進み、最後まで描いて残った崩れを返す"""
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             painter = Painter()
-            from atelier.files import pause_keep as pausekeep
-            pausekeep.ROOT = Path(d) / "paused"
-            self.addCleanup(setattr, pausekeep, "ROOT", None)
-            C = hand_only_checks(bad_times=10 ** 6)
-            key = pausekeep.key("phases", "masks")
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C, pause_key=key)
-            # 止まって聞いた所（聞く工程）から、窓の「このまま進む」の答えで続ける。済んだ工程は描き直さない
-            plan = got["plan"]
-            ask_at = next(k for k, s in enumerate(plan) if s["kind"] == "ask")
-            self.assertEqual(plan[ask_at]["status"], "todo")
-            self.assertTrue(all(s["status"] != "todo" for s in plan[:ask_at]))
-            paints = len(painter.log)
-            again = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k2", checks=C, pause_key=key, answer=phases.GO_ON)
-            self.assertEqual(again["plan"][ask_at]["answer"], phases.GO_ON)
-            self.assertFalse(any(x[0] in ("paint", "refine") for x in painter.log[paints:]))   # 構図から描き直さない
-            self.assertEqual(again["asked"]["phase"], "仕上げ")   # 次に消えない崩れの所でまた聞く
-        # ずっと通らない検品でも固まらず、手を替えた直しのあと、利用者に聞く所で止まる
+            C = hand_only_checks(bad_times=10 ** 6)   # ずっと消えない手の崩れ
+            said = []
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
         self.assertFalse(got["complete"])
-        self.assertEqual(got["asked"]["phase"], "顔・手・足の下描き")
-        draft = got["history"][-1]
+        self.assertIsNone(got["asked"])
+        self.assertFalse(any(s["kind"] == "ask" for s in got["plan"]))
+        self.assertEqual(got["history"][-1]["phase"], "仕上げ")   # 止まらずに最後の工程まで進んだ
+        self.assertTrue(any("指が 6 本" in f for f in got["left"]))   # 残った崩れとして返る
+        draft = next(r for r in got["history"] if r["phase"] == "顔・手・足の下描き")
         self.assertEqual({m["mend"] for m in draft["mends"]}, set(range(1, phases.MENDS + 1)))   # 強さの段を MENDS 回替えた
-        self.assertTrue(all(m["outside"] == 0 for m in draft["mends"]))
-        self.assertEqual([r["phase"] for r in got["history"]], phases.NAMES[:5])
-        self.assertTrue(painter.masks)
-        for m in painter.masks:
-            a = np.asarray(m)
-            self.assertLess((a > 0).mean(), 0.99)
+        self.assertTrue(all(m["outside"] == 0 for r in got["history"] for m in r["mends"]))
+        self.assertTrue(any("残った崩れとして次の工程へ進みます" in m for m in said))
+
 
     def test_confirm_redo_and_words(self):
         asked, answers = [], {2: ["redo", "go"], 5: [("words", "blue ribbon"), "go"]}
@@ -834,65 +821,109 @@ class NoSketchModelTest(unittest.TestCase):
             C, _seen = checks(False)
             got = phases.draw(p, "1girl, red scarf", 1, (64, 64), Path(d), checks=C)
         self.assertTrue(any(x[0] == "refine" for x in p.log), p.log)
-        self.assertFalse(got["complete"])   # 直せない崩れは聞いて止まる（全体の描き重ねを直しとして使わない）
-        self.assertIsNotNone(got["asked"])
+        self.assertFalse(got["complete"])   # 直せない崩れは残った崩れになる（全体の描き重ねを直しとして使わない）
+        self.assertIsNone(got["asked"])   # 聞いて止まらない
+        self.assertTrue(got["left"])
 
 
-class AtariRedrawTest(unittest.TestCase):
-    """アタリで囲めない崩れ（人数）が出ても聞いて止まらず、前の工程の絵を土台に描き直して、最後の工程まで検品を通す"""
+class NoWholeRedrawTest(unittest.TestCase):
+    """どの工程でも絵の全体を描き直さない。囲めない崩れは、余分な人の枠・読めなかった部位の枠で囲み、
+    それでも囲めなければ絵を前のまま残して、残った崩れとして次の工程へ進む（聞いて止まらない）"""
 
-    def test_unenclosable_atari_flaw_redraws_from_previous_until_passed(self):
+    def draw(self, C, silhouette=None, painter=None):
+        painter = painter or Painter()
+        said = []
+        patches = [mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), mock.patch.object(pt, "parts", lambda _im: None)]
+        if silhouette is not None:
+            patches.append(mock.patch.object(pt, "silhouette", silhouette))
+        with TemporaryDirectory() as d:
+            for pa in patches:
+                pa.start()
+            try:
+                got = phases.draw(painter, "1girl, red hair", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
+            finally:
+                for pa in patches:
+                    pa.stop()
+        return got, painter, said
+
+    def assert_no_whole(self, got, painter):
         import numpy as np
+        self.assertFalse(any(s["kind"] == "ask" for s in got["plan"]))
+        self.assertIsNone(got["asked"])
+        self.assertTrue(all(m["outside"] == 0 for r in got["history"] for m in r["mends"]))   # 囲みの外の差は 0
+        self.assertFalse(any(m.get("whole") for r in got["history"] for m in r["mends"]))
+        for m in getattr(painter, "masks", []):   # 模型に渡した囲みは、どれも絵の半分以下（全体の描き直しにしない）
+            self.assertLessEqual(float((np.asarray(m.convert("L")) > 0).mean()), phases.GROW_MOST)
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), phases.THUMBS)   # ゼロから描いたのはサムネイルだけ
 
-        class P(Painter):
-            def __init__(self):
-                super().__init__()
-                self.refines = []
-
-            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
-                self.refines.append({"seed": seed, "strength": strength, "base": image.copy(), "prompt": prompt})
-                if len(self.refines) == 1:   # 1 回目は前と同じ絵を返す（工程に数えない）
-                    return image.copy()
-                from PIL import ImageChops
-                return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 9 + seed % 5))
-
-        painter = P()
-
-        def bad():   # 描き直しが 2 回絵を変えるまで、人数の崩れを返す
-            return len(painter.refines[1:]) < 2
+    def test_people_unenclosable_is_carried_not_redrawn(self):
+        import numpy as np
 
         class C(hand_only_checks(bad_times=0)):
             @staticmethod
             def request(image, prompt):
-                return {"readable": True, "missing": [], "extra": [], "people": ["multiple girls 0.78"] if bad() else [], "body": []}
+                return {"readable": True, "missing": [], "extra": [], "people": ["multiple girls 0.78"], "body": []}
 
-        said = []
-        silhouette = pt.silhouette
+        whole = lambda im: np.ones((im.height, im.width), bool)   # noqa: E731  背景まで人と読む（塊を分けられない）
+        got, painter, said = self.draw(C, silhouette=whole)
+        self.assert_no_whole(got, painter)
+        self.assertFalse(got["complete"])
+        self.assertEqual(got["history"][-1]["phase"], "仕上げ")
+        self.assertTrue(any("人数が違う" in f for f in got["left"]))
+        self.assertTrue(any("残った崩れとして次の工程へ進みます" in m for m in said))
 
-        def whole(im):   # 人数が崩れている間は、人の形が絵の全体（囲めない）
-            return np.ones((im.height, im.width), bool) if bad() else silhouette(im)
-        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
-                mock.patch.object(pt, "parts", lambda _im: None), mock.patch.object(pt, "silhouette", whole):
-            got = phases.draw(painter, "1girl, red hair", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
-            thumb = got["history"][1]
-        self.assertTrue(got["complete"], said[-5:])   # 聞いて止まらず、最後の工程まで検品を通った
-        self.assertIsNone(got["asked"])
-        self.assertFalse(any(s["kind"] == "ask" for s in got["plan"]))
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint"), phases.THUMBS)   # ゼロから描き直さない（サムネイルの分だけ）
-        self.assertTrue(all(r["prompt"] == "1girl, red hair" for r in painter.refines))   # 頼みの言葉は変えない
-        atari = got["history"][2]
-        redraws = [m for m in atari["mends"] if m.get("whole")]
-        self.assertEqual(len(redraws), 3)
-        seeds = [m["seed"] for m in redraws]
-        self.assertEqual(len(seeds), len(set(seeds)))   # 回ごとに種を替える
-        strengths = [m["strength"] for m in redraws]
-        self.assertEqual(strengths, sorted(strengths))
-        self.assertGreater(strengths[-1], strengths[0])   # 強さを上げる
-        self.assertFalse(redraws[0]["changed"])   # 前と同じ絵は工程に数えない
-        self.assertIsNone(redraws[0]["image"])
-        self.assertEqual(sum(1 for m in redraws if m["changed"]), 2)
-        self.assertTrue(thumb["image"])
-        self.assertTrue(any("前の工程の絵を土台に" in m for m in said))
+    def test_extra_person_box_is_the_mask(self):
+        import numpy as np
+        state = {"n": 0}
+
+        class C(hand_only_checks(bad_times=0)):
+            @staticmethod
+            def request(image, prompt):
+                state["n"] += 1
+                return {"readable": True, "missing": [], "extra": [], "people": ["multiple girls 0.78"] if state["n"] <= 4 else [], "body": []}
+
+        def two(im):   # 本人（大きい塊）と、右上の余分な人（小さい塊）。縮めた絵でも同じ形になるよう割合で置く
+            h, w = im.height, im.width
+            m = np.zeros((h, w), bool)
+            m[h * 30 // 96:h * 90 // 96, w * 10 // 64:w * 30 // 64] = True
+            m[h * 5 // 96:h * 20 // 96, w * 45 // 64:w * 60 // 64] = True
+            return m
+        got, painter, said = self.draw(C, silhouette=two)
+        self.assert_no_whole(got, painter)
+        masks = getattr(painter, "masks", [])
+        self.assertTrue(masks)
+        a = np.asarray(masks[0].convert("L")) > 0
+        self.assertTrue(a[5:20, 45:60].all())   # 余分な人の枠を囲んだ
+        self.assertFalse(a[30:90, 10:30].any())   # 本人は囲まない
+
+    def test_unreadable_body_box_is_the_mask(self):
+        import numpy as np
+        seen = {"body": 0}
+
+        class C(hand_only_checks(bad_times=0)):
+            @staticmethod
+            def body(image, prompt, tags=None):
+                seen["body"] += 1
+                return {"readable": seen["body"] > 2, "bad": [], "avoid": []}
+
+        def person(im):
+            h, w = im.height, im.width
+            m = np.zeros((h, w), bool)
+            m[h * 20 // 96:h * 80 // 96, w * 20 // 64:w * 40 // 64] = True
+            return m
+        got, painter, said = self.draw(C, silhouette=person)
+        self.assert_no_whole(got, painter)
+        self.assertTrue(got["complete"], said[-4:])
+        a = np.asarray(painter.masks[0].convert("L")) > 0
+        self.assertTrue(a[20:80, 20:40].all())   # 読めなかった体の枠を囲んだ
+        self.assertFalse(a[:, 45:].any())
+
+    def test_every_scenario_keeps_outside(self):
+        for always_bad in (False, True):
+            C, _seen = checks(always_bad)
+            got, painter, _said = self.draw(C)
+            with self.subTest(always_bad=always_bad):
+                self.assert_no_whole(got, painter)
 
 
 class UndoneNotOnCanvasTest(unittest.TestCase):
