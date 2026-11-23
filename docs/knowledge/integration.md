@@ -69,22 +69,45 @@ CharacterDesigner の Setup.exe は、AtelIer の `InstallDir` が見つかっ�
 EmblemDesigner、3DDesigner、VirtualDesigner）。持つのは名前・リポジトリ・拡張の置き場の名前（`<名前>`）・インストーラーで取るか。
 置き場の名前は `character_designer`、`fashion_designer`、`logo_designer`、`emblem_designer`、`three_d_designer`、`virtual_designer`。
 
-### 拡張の設計（3 つの使われ方を 1 つの中身で支える）
+### 拡張の設計（AtelIer が統括し、拡張だけを入れる）
 
-6 つのデザイナーは AtelIer のために設計するが、単体のアプリとしても動き、ほかの AI サービスからも使えるようにする。
-使われ方ごとに中身を作り分けると、同じ処理が 3 か所に分かれて直し漏れが出るので、中身は 1 つにして入口だけを分ける。
+AtelIer が 6 つのデザイナーを統括する。開発はデザイナーごとのリポジトリで分担するが、AtelIer のための開発をする
+（AtelIer で使われない作り込みは、AtelIer を使う人に届かないため）。AtelIer を使う人は拡張だけを入れ、使う物は AtelIer のタイトルの画面で選ぶ。
+デザイナーごとに Python と PySide6 を持つと、容量がかさみ、同じ物が重なって入るため。
+拡張は単体でも動き、ほかの AI サービスからも使える。使われ方ごとに中身を作り分けると直し漏れが出るので、中身は 1 つにして入口だけを分ける。
 
 | 層 | 中身 |
 |---|---|
 | 中身の処理 | UI に頼らない部品（Python の関数・クラス）。窓・メニュー・AtelIer の型を読み込まない |
 | 入口 1: AtelIer の拡張 | `extension.json` とメニュー。拡張の置き場（`C:\ProgramData\AtelIer\extensions\<名前>`）に置かれ、AtelIer が読み込む |
-| 入口 2: 単体のアプリ | 自分のウィンドウと Setup.exe。AtelIer が無くても起動する |
+| 入口 2: 単体のアプリ | 自分のウィンドウ。AtelIer が無くても起動する |
 | 入口 3: ほかの AI サービスから使う口 | MCP のサーバーと、コマンドで呼べる口。中身の処理をそのまま呼ぶ |
 
+配る物は 2 つで、拡張だけの Setup が先、単体の Setup は後に作る。
+
+| 配る物 | 中身 | 誰向け |
+|---|---|---|
+| 拡張だけの Setup | 拡張のコードと、AtelIer の Python に無い依存だけ。AtelIer の Python と PySide6 で動く。小さい | AtelIer を使う人。AtelIer のインストーラーで選べる部品はこちらを入れる |
+| 単体の Setup | 自分の Python と PySide6 を持つ | AtelIer を使わない人 |
+
+- AtelIer のタイトルの画面に出す名前・絵・一言は、拡張の `extension.json` に持たせる（欄の名前はデザイナーの側の `docs/atelier-extension.md`。私の推測）。
 - 置き場と設定は、どの入口から使っても同じにする。入口ごとに置き場を持つと、同じ人の設定や作った物が入口ごとに分かれるため。
 - 言葉の模型は共通の置き場 `C:\LLM` に置く（shared-models）。
-- AtelIer が無くても動き、AtelIer があれば拡張として載る。中身の処理は AtelIer を読み込まない。
-- ほかの AI サービスから使う口を MCP のサーバー（標準入出力で話す形）にすること、コマンドの口を `python -m <パッケージ> <操作>` の形で JSON を返すものにすること、MCP のサーバーとコマンドが同じ操作の一覧を共有することは、私の推測。
+- ほかの AI サービスから使う口を MCP のサーバー（標準入出力で話す形）にすること、コマンドの口を `python -m <パッケージ> <操作>` の形で JSON を返すものにすることは、私の推測。
+
+#### 今の CharacterDesigner の Setup.exe は Python ごとの物
+
+`gh release view -R Maguro-JP/CharacterDesigner` で見た最新の Release（v0.5.38、2026-11-20）の資産は `CharacterDesigner-Setup.exe` の 1 つで、
+大きさは 84,670,803 バイト（約 81 MiB）。Release のコミットの `packaging/chatdraw/build.sh` は、python.org の埋め込み版の Python、PySide6-Essentials 6.9.3、
+numpy、Pillow、huggingface_hub を同梱して組む。拡張だけの物ではなく、単体の Setup（Python ごと）にあたる。
+AtelIer のインストーラーの `packaging/get-extension.ps1` は名前に `Setup` を含む最初の `.exe` を取るので、今はこの Python ごとの物を入れる。
+
+直し方（私の推測。まだ直していない）:
+
+1. CharacterDesigner の `packaging/character_designer/`（ブランチ `claude/FIX-atelier-extension-20261121`。拡張だけを置き場へ入れる形）で組んだ物を、
+   `CharacterDesigner-Extension-Setup.exe` の名前で Release に足す。単体の物（`CharacterDesigner-Setup.exe`）と同じ名前にすると取り違えるため。
+2. `get-extension.ps1` は `*Extension*Setup*.exe` を先に探し、無いデザイナーは選べる部品に出さない（Python ごとの物を代わりに入れない）。
+3. `atelier/extension_catalog.py` の `installer` は、拡張だけの Setup が Release にあるときだけ True にする。
 
 ### AtelIer の Setup.exe からデザイナーを入れる
 
