@@ -1,6 +1,8 @@
 """工程に分けて描く（atelier/ai/phases.py）を偽の模型と偽の検品で通す。
 工程は人の描き方の 12。崩れは前の工程へ戻らず、今の絵の崩れた所の囲みの中だけを直す（外は 1 画素も変えない）。
-手を替えて直しても消えない崩れと囲めない崩れは、工程を足し続けずに利用者に聞いて止まる。累計は絵が変わった回だけを数える。
+手を替えて直しても消えない崩れと囲めない崩れは、工程を足し続けずに利用者に聞いて止まる。ただし描かない工程（目的・サムネイル・アタリ）
+では聞かず、前の工程の絵を土台に種を替え強さを上げて描き直す（検品を通っていないアタリの絵をキャンバスに出さない）。
+累計は絵が変わった回だけを数える。
 偽の検品は必ず「何回目かで通る」形にして、試験が終わらなくならないようにする"""
 import os
 import re
@@ -834,3 +836,98 @@ class NoSketchModelTest(unittest.TestCase):
         self.assertTrue(any(x[0] == "refine" for x in p.log), p.log)
         self.assertFalse(got["complete"])   # 直せない崩れは聞いて止まる（全体の描き重ねを直しとして使わない）
         self.assertIsNotNone(got["asked"])
+
+
+class AtariRedrawTest(unittest.TestCase):
+    """アタリで囲めない崩れ（人数）が出ても聞いて止まらず、前の工程の絵を土台に描き直して、最後の工程まで検品を通す"""
+
+    def test_unenclosable_atari_flaw_redraws_from_previous_until_passed(self):
+        import numpy as np
+
+        class P(Painter):
+            def __init__(self):
+                super().__init__()
+                self.refines = []
+
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.refines.append({"seed": seed, "strength": strength, "base": image.copy(), "prompt": prompt})
+                if len(self.refines) == 1:   # 1 回目は前と同じ絵を返す（工程に数えない）
+                    return image.copy()
+                from PIL import ImageChops
+                return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 9 + seed % 5))
+
+        painter = P()
+
+        def bad():   # 描き直しが 2 回絵を変えるまで、人数の崩れを返す
+            return len(painter.refines[1:]) < 2
+
+        class C(hand_only_checks(bad_times=0)):
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": ["multiple girls 0.78"] if bad() else [], "body": []}
+
+        said = []
+        silhouette = pt.silhouette
+
+        def whole(im):   # 人数が崩れている間は、人の形が絵の全体（囲めない）
+            return np.ones((im.height, im.width), bool) if bad() else silhouette(im)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+                mock.patch.object(pt, "parts", lambda _im: None), mock.patch.object(pt, "silhouette", whole):
+            got = phases.draw(painter, "1girl, red hair", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
+            thumb = got["history"][1]
+        self.assertTrue(got["complete"], said[-5:])   # 聞いて止まらず、最後の工程まで検品を通った
+        self.assertIsNone(got["asked"])
+        self.assertFalse(any(s["kind"] == "ask" for s in got["plan"]))
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint"), phases.THUMBS)   # ゼロから描き直さない（サムネイルの分だけ）
+        self.assertTrue(all(r["prompt"] == "1girl, red hair" for r in painter.refines))   # 頼みの言葉は変えない
+        atari = got["history"][2]
+        redraws = [m for m in atari["mends"] if m.get("whole")]
+        self.assertEqual(len(redraws), 3)
+        seeds = [m["seed"] for m in redraws]
+        self.assertEqual(len(seeds), len(set(seeds)))   # 回ごとに種を替える
+        strengths = [m["strength"] for m in redraws]
+        self.assertEqual(strengths, sorted(strengths))
+        self.assertGreater(strengths[-1], strengths[0])   # 強さを上げる
+        self.assertFalse(redraws[0]["changed"])   # 前と同じ絵は工程に数えない
+        self.assertIsNone(redraws[0]["image"])
+        self.assertEqual(sum(1 for m in redraws if m["changed"]), 2)
+        self.assertTrue(thumb["image"])
+        self.assertTrue(any("前の工程の絵を土台に" in m for m in said))
+
+
+class UndoneNotOnCanvasTest(unittest.TestCase):
+    """精度優先で検品を通らずに返った絵（聞いて止まった絵）はキャンバスに出さず、隠したレイヤーにだけ置く。通った絵だけを出す"""
+
+    def run_one(self, passed):
+        from PIL import Image
+        from atelier.app.main_window import Window
+        from tests.test_editing import app
+        qapp = app()
+        d = Path(self.enterContext(TemporaryDirectory()))
+        w = Window(Studio(FakeWords(), Painter(), d))
+        self.addCleanup(lambda: (setattr(w, "dirty", False), w.close()))
+        atari = d / "atari.png"
+        Image.new("RGB", (64, 64), (200, 0, 0)).save(atari)
+        w.mode.setCurrentIndex(0)
+        w.job_kind = "draw"
+        w.studio.last_phases = [{"phase": "アタリ", "image": str(atari), "found": ["人数が違う"], "fixed": False, "after": [],
+                                 "seconds": 1.0}]
+        w.studio.last_passed = passed
+        w.batch, w.batch_items, w.images = [], [], []
+        before = [l.name for l in w.canvas.layers]
+        w.on_one("1girl", str(atari))
+        w.show_final()
+        qapp.processEvents()
+        return w, before
+
+    def test_undone_kept_off_canvas(self):
+        w, before = self.run_one(False)
+        visible = [l.name for l in w.canvas.layers if l.visible]
+        self.assertEqual(visible, [n for n in before])   # 見えるレイヤーは元のまま（アタリの絵を出さない）
+        hidden = [l.name for l in w.canvas.layers if not l.visible]
+        self.assertIn("工程 1: アタリ", hidden)
+        self.assertIn("検品を通っていない絵", hidden)
+
+    def test_passed_is_placed(self):
+        w, _before = self.run_one(True)
+        self.assertTrue(any(l.visible and l.name.startswith("AI の絵") for l in w.canvas.layers))

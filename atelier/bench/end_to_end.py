@@ -403,8 +403,9 @@ def main():
         return detail
 
     def precise_draw():
-        # 精度優先は検品を通るまで工程を足して続ける。小さな模型では終わらないので、決めた時間だけ描かせて「止める」を押し、
-        # 「止めました（工程 k で止めました）」が出て「描けました」が出ないこと、止めた所までの絵がレイヤーにあることを見る
+        # 精度優先は全部の工程が検品を通るまで描き続け、聞いて止まらない。最後まで進んで「全部の工程が検品を通りました」が出ることを求める。
+        # 描いている間ずっと見えるレイヤーを見張り、途中のアタリや検品を通っていない絵がキャンバスの見えるレイヤーに出たら落とす
+        import re as _re
         w = win.get("w") or open_window()
         win["w"] = w
         w._two_parts_asked = True
@@ -412,25 +413,39 @@ def main():
         w.mode.setCurrentIndex(0)
         w.entry.setText("1girl, red hair")
         n0 = len(said)
+        t0 = time.time()
         w.send()
         if w.thread is None:
             raise RuntimeError("描くを押しても描き始めなかった: " + " / ".join(said[-3:]))
-        pump(lambda: w.thread is None, float(os.environ.get("ATELIER_E2E_PHASE_SECONDS", "180")))
-        ran = said[n0:]
-        added = [m for m in ran if "直しを" in str(m) and "要る工程" in str(m)]
-        if w.thread is not None:
+        seen_visible: list = []
+
+        def watch():
+            for l in w.canvas.layers:
+                if l.visible and (l.name.startswith(("工程 ", "止めた所までの絵", "検品を通っていない絵")) or "アタリ" in l.name):
+                    if l.name not in seen_visible:
+                        seen_visible.append(l.name)
+            return w.thread is None
+
+        done = pump(watch, float(os.environ.get("ATELIER_E2E_PRECISE_SECONDS", "1500")))
+        ran = [str(m) for m in said[n0:]]
+        begun = [int(x.group(1)) for x in (_re.match(r"工程 (\d+)/\d+「", m) for m in ran) if x]
+        detail = {"seconds": round(time.time() - t0, 1), "steps": max(begun) if begun else 0,
+                  "redraws": sum(1 for m in ran if "前の工程の絵を土台に" in m), "fixes": sum(1 for m in ran if "囲みの中だけを直しています" in m),
+                  "said": ran[-6:], "layers": layer_names(w)[-5:], "shown_midway": seen_visible}
+        if not done:
             w.stop()
-        pump(lambda: False, 3)
-        ran = said[n0:]
-        layers = layer_names(w)
-        detail = {"added": added[-3:], "said": [str(m) for m in ran[-6:]], "layers": layers[-4:], "shot": snap(w, "precise.png")}
-        if any("描けました" in str(m) for m in ran) and not any("全部の工程が検品を通りました" in str(m) for m in ran):
-            raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
-        if not any("全部の工程が検品を通りました" in str(m) for m in ran):
-            if not any(str(m).startswith("止めました（工程") for m in ran):
-                raise RuntimeError(f"「止めました（工程 k で止めました）」が出ない: {detail}")
-            if not any(n.startswith("止めた所までの絵") for n in layers):
-                raise RuntimeError(f"止めた所までの絵がレイヤーに無い: {detail}")
+            pump(lambda: False, 3)
+            detail["shot"] = snap(w, "precise.png")
+            raise RuntimeError(f"精度優先が決めた時間で最後の工程まで進まなかった: {detail}")
+        detail["shot"] = snap(w, "precise.png")
+        if seen_visible:
+            raise RuntimeError(f"描いている途中・検品を通っていない絵がキャンバスの見えるレイヤーに出た: {detail}")
+        if any(m.startswith("未完成です") or "崩れが残ったので止めました" in m for m in ran):
+            raise RuntimeError(f"精度優先が聞いて止まった（最後まで描いていない）: {detail}")
+        if not any("全部の工程が検品を通りました" in m for m in ran):
+            raise RuntimeError(f"「全部の工程が検品を通りました」が出ない: {detail}")
+        if not any(m.startswith("描けました") or m == "描きました" for m in ran):
+            raise RuntimeError(f"検品を通ったのに「描けました」が出ない: {detail}")
         return detail
 
     # 段は 2 つに分ける（ATELIER_E2E_STAGE）。
