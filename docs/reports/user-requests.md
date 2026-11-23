@@ -384,3 +384,4 @@
 | F18 | 各拡張機能は AtelIer のために設計するが、単体でも機能させ、ほかの AI サービスからでも利用できるように設計する。6 つのデザイナー（Character、Fashion、Logo、Emblem、3D、Virtual）の設計の決まりにする（2026-11-23） | 決まりを書いた | CLAUDE.md、docs/knowledge/integration.md |
 | F19 | 精度優先で直せない崩れ（アタリの人数など）が出ても聞いて止まらず、前の工程の絵を土台に種を替え強さを上げて描き直す（ゼロから描かない、前と同じ絵は数えない、回数に上限なし）。聞いて止まったときも止めたときも、検品を通っていない絵（とくにアタリ）はキャンバスに出さず隠したレイヤーにだけ置き、最後まで通ったときだけ出して「描けました」と知らせる（2026-11-23） | 直した | atelier/ai/phases.py、atelier/app/window/ai_results.py、atelier/bench/end_to_end.py、tests/test_phases.py |
 | F20 | AtelIer を使う人は拡張機能だけを入れればよい（容量がかさみ重複するため）。使う物はタイトルで選ばせ、タイトルはビジュアルで魅せる。開発は分担するが、AtelIer が統括し、AtelIer のための開発をする（2026-11-23） | 決まりを書いた（タイトルの画面は別の作業） | CLAUDE.md、docs/knowledge/integration.md |
+| F21 | お互い良いところ、使えるところは採用していくことで開発工数を削減する（AtelIer と 6 つのデザイナー）（2026-11-23） | 決まりと、採用し合う物の表を書いた（コードは変えていない） | CLAUDE.md、docs/knowledge/integration.md |

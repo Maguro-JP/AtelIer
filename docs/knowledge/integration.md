@@ -109,6 +109,28 @@ AtelIer のインストーラーの `packaging/get-extension.ps1` は名前に `
 2. `get-extension.ps1` は `*Extension*Setup*.exe` を先に探し、無いデザイナーは選べる部品に出さない（Python ごとの物を代わりに入れない）。
 3. `atelier/extension_catalog.py` の `installer` は、拡張だけの Setup が Release にあるときだけ True にする。
 
+### 採用し合う物
+
+AtelIer と 6 つのデザイナーは、互いの良い所・使える所（部品、画面、検品、手順、試験、配る仕組み）を採用し合い、同じ物を二度作らない。
+共通に使える部品は AtelIer の側に置いてデザイナーが使い、デザイナーで出来た良い物は AtelIer に取り込む。開発の工数を減らすため。
+
+いま同じ役目を別々に持っている物を、コードを読んで並べた（動かして比べてはいない。CharacterDesigner は `claude/FIX-atelier-extension-20261121`
+と、Release の元の `chatdraw/`、FashionDesigner は `claude/FIX-atelier-extension-20261121`）。推奨はどれも私の推測で、コードはまだ変えていない。
+
+| 役目 | AtelIer | CharacterDesigner | FashionDesigner | 推奨 |
+|---|---|---|---|---|
+| 絵の模型の置き場と一覧 | `atelier/models/`（`catalog.py`、`manager.py`、`ratings.py`、`civitai.py`） | `tools/gen/models.py`（リポジトリの `models/` に置く）、流用元の `chatdraw/manager.py` | 無い（`FD_IMAGE_API_URL` の外の窓口に頼む） | AtelIer を採る。評価と推奨の並びまである。デザイナーは `atelier.models` を呼び、`models/` を自分で持たない |
+| 絵を描く窓口 | `atelier/ai/engine.py` | 拡張は `atelier.ai.engine` を呼ぶ。`tools/gen/` に開発用の描き方が別にある | `server.py` の `/api/generate`（OpenAI 互換の画像の窓口へ渡す） | AtelIer を採る。FashionDesigner の外の窓口へ渡す口は、AtelIer の engine の選べる描き手の 1 つとして取り込む |
+| 言葉の模型 | `atelier/ai/engine.py`、`atelier/agent/voice.py`（`C:\LLM`） | `tools/gen/local_llm.py`（OpenAI 互換の窓口で Ollama・LM Studio・llama.cpp を同じに扱う） | 無い | 置き場は AtelIer の `C:\LLM` を採る。窓口を道具に頼らない形にする所は CharacterDesigner の `local_llm.py` の考え方を AtelIer に取り込む |
+| 検品 | `atelier/qc/`（`hand_check.py`、`body_check.py`、`request_check.py`、`sanity.py` など） | 拡張は `atelier.qc` を呼ぶ。`tools/gen/qc.py`、`qcbench.py`、`facecheck.py`、`legcount.py` が開発用に別にある | 無い | AtelIer を採る。CharacterDesigner の `facecheck.py`・`legcount.py` のうち AtelIer に無い見方は `atelier/qc/` に取り込む |
+| データの置き場と道 | `atelier/files/paths.py` | 拡張は `atelier.files.paths` を呼ぶ。流用元は `chatdraw/paths.py`、`tools/gen/cdhome.py` | リポジトリの `library/` | AtelIer を採る。デザイナーの作った物も AtelIer の置き場の下に置く |
+| 設定の保存 | `QSettings("AtelIer", ...)`（`atelier/ai/references.py` など） | 拡張は AtelIer の物を使う | 画面の `localStorage`（`*.html`） | AtelIer の `QSettings` を採る。FashionDesigner の画面を AtelIer の窓に載せるとき、`localStorage` の値を AtelIer の設定へ移す |
+| 作業ファイル | `atelier/files/project_file.py` | `character_designer/chara_file.py` が AtelIer の作業ファイルを使う | 無い | AtelIer を採る |
+| インストーラー | `packaging/build.sh`・`installer.nsi`（Python ごと）、`get-extension.ps1`、`extension_sections.py` | `packaging/character_designer/`（拡張だけ）と、Release の元の `packaging/chatdraw/`（Python ごと） | 無い | 拡張だけの Setup は CharacterDesigner の `packaging/character_designer/` を見本として 6 つで同じ形にする。Python ごとの組み方は AtelIer の `packaging/` を採り、単体の Setup もそれを使う |
+| 試験の台本 | `tests/`（unittest、`QT_QPA_PLATFORM=offscreen`）と `atelier/bench/`、Actions の `*-bench.yml` | `tests/atelier_helpers.py`（AtelIer の窓と描き手の代わり）、Actions に同じ名前の `*-bench.yml` | `tests/test_atelier_extension.py`（AtelIer の窓に付けて確かめる） | 拡張を AtelIer の窓に付けて確かめる下ごしらえは、CharacterDesigner の `atelier_helpers.py` を AtelIer の側に移して 6 つが使う。測る台と Actions は AtelIer の物を採り、デザイナーの側の同じ名前の物は消す |
+| 子どもを描く頼みの止め | `atelier/words/child_safety.py` | 流用元の `chatdraw/childsafe.py` | 無い | AtelIer を採る（止めるのはこの 1 か所という決まりがあるため）。FashionDesigner の外の窓口へ渡す頼みも、ここを通す |
+| 服の型紙の画面 | 無い | 無い | `image-to-pattern.html`、`studio.html` | FashionDesigner で出来た物として、AtelIer の窓に載せる（今の `FashionExtension` が `QWebEngineView` で開く形） |
+
 ### AtelIer の Setup.exe からデザイナーを入れる
 
 コンポーネントのページに「<デザイナー> も入れる（ネットから取る）」が出る（既定は外す）。出すのは一覧で `installer` が True の物
