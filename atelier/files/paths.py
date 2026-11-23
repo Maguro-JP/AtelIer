@@ -186,5 +186,3 @@ def write_json(path: Path, data):
     part = path.with_name(path.name + ".part")
     part.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     part.replace(path)
-
-
