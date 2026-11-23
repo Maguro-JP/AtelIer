@@ -855,6 +855,7 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         # 0.5.19 までの版が書いた赤ペンの直しだけの絵を、履歴・ライブラリーから外してごみ箱へ移す（開いたあと裏で 1 度だけ）
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, self, self.sweep_old_redpen)   # 窓に結ぶ（先に閉じて消えた窓では呼ばない）
+        QTimer.singleShot(0, self, self.sweep_phase_interim)   # 前の版が溜めた精度優先の途中の絵を、1 回だけ聞いてごみ箱へ
         self.library_panel = LibraryPanel(self)
         self.thread_main = QThread.currentThread()
         self._learn_runner()

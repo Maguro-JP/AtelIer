@@ -1866,6 +1866,7 @@ class Studio:
               on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None) -> tuple[str, Path]:
         say = on_status or (lambda msg: None)
         self.last_phases = None   # 工程に分けて描いた回だけ、工程ごとの絵と検品を持つ（アプリが隠したレイヤーに置く）
+        self.last_asked = None   # 聞いて止まった回の印も、回ごとに戻す（AI モードの絵を途中の絵と取り違えない）
         self.last_plan = None   # 精度優先の工程の並び（atelier/ai/phase_plan.py）
         self.last_phase_keep = None   # 工程に分けて描いている回の工程の絵の置き場（止めたときに窓が読む）
         if refused(text):
@@ -2263,9 +2264,13 @@ class Studio:
         else:   # 最後の工程まで進んだが、囲みの中だけでは直らなかった崩れが残った。「描けました」とは言わず、判断を利用者に渡す
             say(f"最後の工程まで描きました（累計 {got.get('total')} 工程）。囲みの中だけでは直らなかった崩れが残っています: "
                 + "、".join(left[:4]) + "。見て決めてください（赤ペンで囲んで直せます）")
+        # 聞いて止まった回の絵は途中の絵。ライブラリーと履歴に入れる最後の絵ではないので、その回の作業の置き場（keep）にだけ置く。
+        # 前は日付のフォルダに書き、窓がライブラリーに足していて、聞いて再開するたびに途中の絵が溜まった
+        interim = bool(got.get("asked"))
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,
                                                    model=getattr(self.painter, "model", ""), way="phases", stages=str(keep),
-                                                   phases=got["phases"], passed=checked and not left))
+                                                   phases=got["phases"], passed=checked and not left, interim=interim),
+                          where=keep if interim else None)
         self._inspect(path, say)
         return prompt, path
 
@@ -2413,14 +2418,14 @@ class Studio:
         from atelier.ai import finishers
         finishers.write_record(path, "check.json", res)
 
-    def _save(self, image, seed: int, meta: dict) -> Path:
+    def _save(self, image, seed: int, meta: dict, where: Path | None = None) -> Path:
         """絵を残し、頼み・描く言葉・種・作風・模型を PNG の文字の欄に埋める。履歴から同じ設定で描き直すため。
         保存先には絵だけを置く（隣に .json を書くと、利用者には中身の分からないファイルが絵の数だけ並んだ）"""
         import json
         import time
         from PIL import PngImagePlugin
         from atelier.ai.finishers import KEY
-        day = self.out / time.strftime("%Y-%m-%d")   # 日付ごとのフォルダに分ける。前に保存した絵は動かさない
+        day = Path(where) if where is not None else self.out / time.strftime("%Y-%m-%d")   # 日付ごとのフォルダに分ける。前に保存した絵は動かさない
         day.mkdir(parents=True, exist_ok=True)
         path = day / f"{time.strftime('%Y%m%d-%H%M%S')}-{seed}.png"   # 種を固定して描き直しても前の絵を消さない
         info = PngImagePlugin.PngInfo()
