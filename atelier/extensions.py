@@ -33,6 +33,8 @@ class Extension(Protocol):
 
 _registered: list[Extension] = []
 _bundled_loaded = False
+# 置き場から読めた拡張の見せ方（タイルの画面が読む）。名前 → {"title", "tagline", "image", "folder", "dropin"}
+_dropin_info: dict[str, dict] = {}
 
 
 def _warn(what: str) -> None:
@@ -127,16 +129,53 @@ def load_dropins(root) -> list[str]:
                 raise TypeError(f"{spec['module']} は name と attach(window) を持っていません")
             register(extension)
             names.append(extension.name)
+            image = spec.get("image")
+            _dropin_info[extension.name] = {
+                "title": str(spec.get("title") or extension.name), "tagline": str(spec.get("tagline") or ""),
+                "image": str((folder / image).resolve()) if image else "", "folder": str(folder), "dropin": folder.name}
         except Exception:   # noqa: BLE001  1 つの拡張の失敗で、ほかの拡張と本体を止めない
             _warn(f"拡張の置き場の {folder.name} を読めませんでした")
     return names
 
 
+def dropin_info(name: str) -> dict:
+    """置き場の extension.json に書かれた見せ方（title・tagline・image）。置き場から読んでいない拡張は空"""
+    return dict(_dropin_info.get(name, {}))
+
+
+def _parts(window) -> dict:
+    """拡張を付ける前と後で比べるための、窓の目に見える部品（メニュー・欄・モード）"""
+    from PySide6.QtWidgets import QDockWidget
+    bar = window.menuBar() if hasattr(window, "menuBar") else None
+    return {"menus": [a for a in bar.actions() if a.menu() is not None] if bar is not None else [],
+            "docks": window.findChildren(QDockWidget) if hasattr(window, "findChildren") else [],
+            "modes": list(getattr(window, "mode_actions", {}) or {})}
+
+
 def attach_all(window) -> None:
-    """登録した拡張を、窓に 1 つずつ付ける。窓のメニューと欄を作り終えたあとに呼ぶ"""
+    """登録した拡張を、窓に 1 つずつ付ける。窓のメニューと欄を作り終えたあとに呼ぶ。
+    付けた前後で増えたメニュー・欄・モードを window.extension_parts に覚える。タイルの画面がデザイナーに入るとき、
+    拡張に open(window) が無ければ、ここで覚えた物を開く（拡張にどの物が自分の入口かを書かせなくて済む）"""
     load_bundled()
+    parts = getattr(window, "extension_parts", None)
+    if parts is None:
+        parts = {}
+        try:
+            window.extension_parts = parts
+        except Exception:   # noqa: BLE001  属性を持てない窓（試験の見本）でも付ける
+            parts = {}
     for extension in registered():
+        try:
+            before = _parts(window)
+        except Exception:   # noqa: BLE001
+            before = {"menus": [], "docks": [], "modes": []}
         try:
             extension.attach(window)
         except Exception:   # noqa: BLE001  拡張が付かなくても、本体の窓は開く
             _warn(f"拡張 {extension.name} を窓に付けられませんでした")
+            continue
+        try:
+            after = _parts(window)
+            parts[extension.name] = {k: [x for x in after[k] if x not in before[k]] for k in after}
+        except Exception:   # noqa: BLE001
+            pass

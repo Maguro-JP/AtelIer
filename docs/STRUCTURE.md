@@ -63,6 +63,7 @@
 ## まだ直していない所
 
 - `tools/gen/` は置き場に頼って読む平らな台本のまま
+- `atelier/app/title_screen.py` は起動したときのタイルの画面（描く画面と、入っているデザイナーを選んで入る）
 - `atelier/app/migrate.py` は CharacterDesigner からの引き継ぎと、前の版が写した物の片付けの中身。窓は `atelier/app/migrate_dialog.py`
 - モデルの部品（torch、diffusers）を入れた環境では、テストを流していない（`tests/needs_models.txt`）
 

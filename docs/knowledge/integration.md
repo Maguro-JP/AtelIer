@@ -55,6 +55,8 @@ C:\ProgramData\AtelIer\extensions\<名前>\<パッケージ>\__init__.py ...
 {"module": "character_designer.extension", "attr": "EXTENSION", "path": "."}
 ```
 
+- タイルの画面（`atelier/app/title_screen.py`）に出す見せ方は、任意の鍵 `"title"`（名前）、`"image"`（`<名前>\` からの絵の道）、`"tagline"`（一言）で書く。無いときは拡張の `name` と、名前の頭文字で作った絵を出す
+- タイルを押したとき、拡張に `open(window)` があればそれを呼ぶ。無ければ、`attach` で増えたモード、欄、メニューの最初の操作の順に開く
 - `path` は sys.path に足す所で、`<名前>\` からの道（既定は `.`）。AtelIer はそこを sys.path の後ろに足し（AtelIer と同じ名前の物は AtelIer の物が先に読まれる。CharacterDesigner の `tools/gen` は AtelIer の `tools/gen` と同じ名前の台本が多いので、拡張の中からは `character_designer` の下の道で読む）、`module` を import して `attr` を取る
 - `attr` は `name` と `attach(window)` を持つ物か、そのクラス（引数なしで作る）。既定は `EXTENSION`
 - 読めない拡張は stderr に理由を出して飛ばし、本体とほかの拡張は動く

@@ -285,5 +285,91 @@ class WithExtensionTest(Base):
         self.assertIn("not-extension", err.getvalue())
 
 
+class TitleScreenTest(Base):
+    """タイルの画面（atelier/app/title_screen.py）。入っている物だけを大きなタイルにし、押すとその画面に入る"""
+
+    def dropin(self, d, body: str, spec: dict | None = None):
+        import json
+        root = self.d / "extensions"
+        pkg = root / d.dropin / f"tile_{d.dropin}"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text(body, encoding="utf-8")
+        (root / d.dropin / extensions.MANIFEST).write_text(
+            json.dumps({"module": f"tile_{d.dropin}", **(spec or {})}), encoding="utf-8")
+        self.addCleanup(lambda: (sys.path.remove(str((root / d.dropin).resolve()))
+                                 if str((root / d.dropin).resolve()) in sys.path else None,
+                                 sys.modules.pop(f"tile_{d.dropin}", None)))
+        return root
+
+    def pick(self, w, key):
+        from atelier.app import title_screen as ts
+
+        def ask(dlg):
+            b = next(b for b in dlg.buttons if b.tile.key == key)
+            b.click()
+            return dlg.result()
+        return ts.open_title(w, ask=ask)
+
+    def test_without_extensions_only_paint_and_install(self):
+        from atelier.app import title_screen as ts
+        kinds = [(t.key, t.kind) for t in ts.tiles()]
+        self.assertEqual(kinds[0], ("paint", "paint"))
+        self.assertNotIn("designer", [k for _, k in kinds])   # 入っていない物は大きなタイルにしない
+        self.assertIn(("install:character", "install"), kinds)   # Release のある物だけ「入れる」
+        self.assertNotIn("install:logo", [k for k, _ in kinds])
+        w = self.window()
+        self.assertEqual(self.pick(w, "paint"), "paint")
+        self.assertEqual(w.layout_store.value(ts.KEY_LAST), "paint")
+
+    def test_menu_dock_and_open_designers(self):
+        from atelier import extension_catalog as cat
+        from atelier.app import title_screen as ts
+        menu = ("class E:\n    name = 'LogoDesigner'\n    hits = 0\n"
+                "    def attach(self, w):\n        m = w.menuBar().addMenu('LogoDesigner')\n"
+                "        m.addAction('新しく作る…', lambda: setattr(self, 'hits', self.hits + 1))\nEXTENSION = E()\n")
+        dock = ("from PySide6.QtCore import Qt\nfrom PySide6.QtWidgets import QDockWidget, QLabel\nclass E:\n"
+                "    name = 'EmblemDesigner'\n    def attach(self, w):\n        self.dock = QDockWidget('EmblemDesigner', w)\n"
+                "        self.dock.setWidget(QLabel('x'))\n        w.addDockWidget(Qt.RightDockWidgetArea, self.dock)\n"
+                "        self.dock.hide()\nEXTENSION = E()\n")
+        opener = ("class E:\n    name = '3DDesigner'\n    opened = 0\n    def attach(self, w):\n        pass\n"
+                  "    def open(self, w):\n        self.opened += 1\nEXTENSION = E()\n")
+        self.dropin(cat.by_key("logo"), menu, {"title": "LogoDesigner", "tagline": "ロゴを作る", "image": "tile.png"})
+        self.dropin(cat.by_key("emblem"), dock)
+        root = self.dropin(cat.by_key("3d"), opener)
+        names = extensions.load_dropins(root)
+        self.assertEqual(sorted(names), ["3DDesigner", "EmblemDesigner", "LogoDesigner"])
+        info = extensions.dropin_info("LogoDesigner")
+        self.assertEqual(info["tagline"], "ロゴを作る")
+        tiles = {t.key: t for t in ts.tiles()}
+        self.assertEqual(tiles["ext:LogoDesigner"].tagline, "ロゴを作る")
+        self.assertFalse(ts.tile_picture(tiles["ext:EmblemDesigner"], ts.QSize(120, 70)).isNull())   # 絵が無いと頭文字
+        w = self.window()
+        by = {e.name: e for e in extensions.registered()}
+        self.assertEqual(self.pick(w, "ext:LogoDesigner"), "menu")
+        self.assertEqual(by["LogoDesigner"].hits, 1)   # メニューの最初の操作を開いた
+        self.assertEqual(self.pick(w, "ext:EmblemDesigner"), "dock")
+        self.assertTrue(by["EmblemDesigner"].dock.isVisible())
+        self.assertEqual(self.pick(w, "ext:3DDesigner"), "open")
+        self.assertEqual(by["3DDesigner"].opened, 1)
+        self.assertEqual(w.layout_store.value(ts.KEY_LAST), "ext:3DDesigner")
+        # 「次から出さない」なら、起動では窓を出さずに最後に使った物に入る
+        w.layout_store.setValue(ts.KEY_SKIP, 1)
+        self.assertEqual(ts.open_title(w, ask=lambda dlg: self.fail("窓を出した"), on_start=True), "open")
+        self.assertEqual(by["3DDesigner"].opened, 2)
+        w.layout_store.setValue(ts.KEY_SKIP, 0)
+        self.assertIn("タイルの画面…", self.file_items(w))   # あとから「ファイル」で出せる
+
+    def test_install_tile_opens_release_page_and_keeps_window(self):
+        from atelier.app import title_screen as ts
+        w = self.window()
+        opened = []
+        with mock.patch.object(ts.QDesktopServices, "openUrl", lambda url: opened.append(url.toString())):
+            dlg = ts.TitleScreen(w)
+            next(b for b in dlg.buttons if b.tile.kind == "install").click()
+        self.assertEqual(opened, ["https://github.com/Maguro-JP/CharacterDesigner/releases/latest"])
+        self.assertEqual(dlg.result(), 0)   # 窓は閉じず、ほかのタイルを選べる
+        dlg.deleteLater()
+
+
 if __name__ == "__main__":
     unittest.main()

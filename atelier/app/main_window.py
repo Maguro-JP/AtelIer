@@ -427,6 +427,9 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         take = QAction("ほかのアプリから引き継ぐ…", self, triggered=lambda: __import__("atelier.app.migrate_dialog", fromlist=["x"]).open_import(self))
         take.setToolTip("CharacterDesigner の設定・模型の好み・ライブラリー・描く部品を、選んで引き継ぎます")
         file.addAction(take)
+        tiles = QAction("タイルの画面…", self, triggered=lambda: __import__("atelier.app.title_screen", fromlist=["x"]).open_title(self))
+        tiles.setToolTip("起動したときのタイルの画面を出します。描く画面と、入っているデザイナーから選んで入れます")
+        file.addAction(tiles)
         out = file.addMenu("書き出す")
         out.addAction(QAction("PNG（重ねた 1 枚）…", self, shortcut="Ctrl+E", triggered=self.save_as))
         out.addAction(QAction("PSD（レイヤーごと）…", self, triggered=self.export_psd))
@@ -1207,6 +1210,12 @@ def main():
     except OSError:
         pass
     w.start_mode()   # 起動したときにモードを選ぶ（覚えたモードで「次から聞かない」なら窓を出さない）
+    # タイルの画面は、引き継ぎ（offer_on_start）と「はじめに」（ask_models）が閉じたあとに出す。窓は 1 枚ずつ exec で出るので重ならない。
+    # 引き継ぎを先にするのは、引き継いだ設定と模型で「はじめに」の候補が変わるため。タイルを最後にするのは、
+    # 使う物を選んだらそのまま作業に入れるようにするため（選んだあとに確かめの窓が続かない）。モードの後にするのは、
+    # デザイナーのタイルが替えたモードを start_mode で上書きしないため
+    from atelier.app import title_screen
+    title_screen.open_title(w, on_start=True)
     if getattr(w, "mode_tour", None) is None:   # モードのツアーを出した回は、はじめのツアーを重ねない
         w.maybe_tour()
     from PySide6.QtCore import QTimer
