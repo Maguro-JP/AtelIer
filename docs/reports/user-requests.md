@@ -379,4 +379,5 @@
 | F16 | 落ちていないのに起動のたびに出る「前に落ちたときの記録があります」の窓を止める。本当に落ちた次の起動だけ出し、一度見せた記録・前の版が積み上げた古い記録・正しく閉じた回の記録は出さない（2026-11-23） | 直した | atelier/app/crash_log.py、atelier/app/main_window.py、tests/test_crashlog.py |
 | F17 | CharacterDesigner から引き継いだライブラリーが「ファイルが無い」と出るのを直す。絵のファイルも AtelIer の置き場へ写して道を直し、引き継ぎ済みの人の一覧も起動のときに直す。本当に無い物だけを「無い」と出し、選び直す・外すを残す。引き継ぐ物を項目ごとに確かめ、壊れている物を直す（2026-11-23） | 直した | atelier/app/migrate.py、atelier/app/main_window.py、tests/test_nojson.py |
 | F18 | CharacterDesigner を、AtelIer の拡張として入れられるようにする（拡張だけの Setup、インストーラーの部品）（2026-11-23） | 直した | packaging/get-characterdesigner.ps1、tests/test_extensions.py |
-| F19 | 作業ブランチで直して利用者に「直した」と伝えた不具合の直しのうち、main と配った版に無い物を洗い出して main に入れ、作業ブランチの直しが main に無いままになるのを検査で止める（2026-11-23） | 直した | scripts/unmerged_fixes.py、scripts/validate.sh、.github/workflows/unmerged-fixes.yml、tests/test_carryover_fixes.py |
+| F19 | 精度優先の全体の描き直しのループを無くす。どの工程でも絵の全体を描き直さず、囲めない崩れは余分な人の枠・読めなかった部位の枠で囲み、それでも直らない崩れは絵を前のまま残して残った崩れとして次の工程へ進み、最後に知らせる。聞いて止まらない。試験に「囲みの外の差が 0」を入れる（2026-11-23） | 直した | atelier/ai/phases.py、atelier/ai/engine.py、tests/test_phases.py |
+| F20 | 作業ブランチで直して利用者に「直した」と伝えた不具合の直しのうち、main と配った版に無い物を洗い出して main に入れ、作業ブランチの直しが main に無いままになるのを検査で止める（2026-11-23） | 直した | scripts/unmerged_fixes.py、scripts/validate.sh、.github/workflows/unmerged-fixes.yml、tests/test_carryover_fixes.py |

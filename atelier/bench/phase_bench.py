@@ -94,7 +94,7 @@ def run(out: Path):
             begun = [int(m.group(1)) for m in (re.match(r"工程 (\d+)/\d+「", str(x)) for x in said) if m]
             row["summary"] = {"passed": bool(getattr(studio, "last_passed", False)), "steps": max(begun) if begun else 0,
                               "total": sum(1 for r in (studio.last_phases or []) if r.get("image")),
-                              "redraws": sum(1 for x in said if "前の工程の絵を土台に" in str(x)),
+                              "carried": sum(1 for x in said if "残った崩れとして次の工程へ進みます" in str(x)),
                               "fixes": sum(1 for x in said if "囲みの中だけを直しています" in str(x)),
                               "asked": bool(getattr(studio, "last_asked", None)), "minutes": round(secs / 60, 1)}
             print("SUMMARY " + json.dumps(row["summary"], ensure_ascii=False), flush=True)
