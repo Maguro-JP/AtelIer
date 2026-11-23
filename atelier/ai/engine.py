@@ -2260,10 +2260,9 @@ class Studio:
         self.last_asked = got.get("asked")   # 窓が「どこで止めたか・直し方」を出す
         if got.get("complete"):
             say(f"全部の工程が検品を通りました（累計 {got.get('total', len(got['history']))} 工程）")
-        else:   # 囲みで直せなかった崩れが残った。描き直し続けずに止め、残った崩れと直し方の候補を利用者に出す
-            ask = got.get("asked") or {}
-            say(f"「{ask.get('phase', '')}」で崩れが残ったので止めました（累計 {got.get('total')} 工程）: " + "、".join(left[:4])
-                + "。直し方: " + "、".join(ask.get("choices") or ["赤ペンで囲んで直す", "言葉を足して直す", "構図から描き直す"]))
+        else:   # 最後の工程まで進んだが、囲みの中だけでは直らなかった崩れが残った。「描けました」とは言わず、判断を利用者に渡す
+            say(f"最後の工程まで描きました（累計 {got.get('total')} 工程）。囲みの中だけでは直らなかった崩れが残っています: "
+                + "、".join(left[:4]) + "。見て決めてください（赤ペンで囲んで直せます）")
         path = self._save(got["image"], seed, dict(meta or {}, text=text, prompt=prompt, seed=seed, style=style,
                                                    model=getattr(self.painter, "model", ""), way="phases", stages=str(keep),
                                                    phases=got["phases"], passed=checked and not left))
