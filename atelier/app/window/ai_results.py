@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPixmap
 from atelier.app.window.image_convert import qimage_from_pil
 from atelier.app.window.image_convert import qimage_to_pil
@@ -384,7 +385,12 @@ class AiResultsMixin:
             how = ("。「" + ask["phase"] + "」で止めました。直し方: " + "、".join(ask.get("choices") or [])) if ask.get("phase") else ""
             self.say("未完成です。残った崩れ: " + "、".join(bad[:5]) + how)
             if ask.get("key"):
-                self.offer_phase_ways(ask)
+                way = self.settings.get("phase_way")
+                if way == "毎回聞く":
+                    self.offer_phase_ways(ask)
+                else:   # 聞かずに既定の進め方で続ける（止めるのは利用者だけ）。決めたことは状態の帯に 1 行だけ出す
+                    self.statusBar().showMessage(f"崩れが残ったので「{way}」で続けます（決め方は「設定」の「描き方」で変えられます）", 8000)
+                    QTimer.singleShot(0, lambda a=ask, n=way: self.pick_phase_way(a, n))
         else:
             self.say(result if fixed else f"{n} 枚描きました。履歴から選べます" if n > 1 else "描きました")
         self.notify(result if fixed or undone else "描けました", "error" if bad else "ok",
