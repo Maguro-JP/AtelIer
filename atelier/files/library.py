@@ -98,6 +98,37 @@ class Library:
             except OSError:
                 pass
 
+    def phase_interim(self) -> list[str]:
+        """前の版が作品として足した、精度優先の途中の絵の置き場。見分けられる物だけを返す（裏の糸で呼ぶ。PNG を読む）。
+        見分け方は 3 つで、どれも描いた版が書いた印を読む。印の無い絵（見分けられない物）は返さない。
+        1. 置き場が工程の作業の置き場（.stages の下）にある
+        2. PNG に埋めた頼みに interim（聞いて止まった回の絵）の印がある
+        3. 精度優先（way=phases）の絵で、その回の作業の置き場の phases.json に、聞いて止まった（asked）記録がある"""
+        found = []
+        for item in list(self.items):   # 画面の糸が足し引きしても回せるよう写しを回す
+            if item.get("kind") != "work":
+                continue
+            p = Path(item.get("path", ""))
+            if ".stages" in p.parts:
+                found.append(str(p))
+                continue
+            if not p.is_file():
+                continue
+            from atelier.ai.finishers import sidecar
+            meta = sidecar(p)
+            if meta.get("way") != "phases":
+                continue
+            if meta.get("interim"):
+                found.append(str(p))
+                continue
+            try:
+                rec = json.loads((Path(str(meta.get("stages") or "")) / "phases.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if isinstance(rec, dict) and rec.get("asked"):
+                found.append(str(p))
+        return found
+
     def save(self):
         self.root.mkdir(parents=True, exist_ok=True)
         part = self.index.with_suffix(".part")
