@@ -386,3 +386,4 @@
 | F22 | 加工で色の境界に頼んでいない線（ゴミの線）を引かないようにする。線を足す加工は結果が正しいかを見直す（2026-11-23） | 直した | atelier/ai/finishers.py、tests/test_no_edge_lines.py |
 | F22 | 精度優先で「描いています」のまま何も見えず、工程も飛んで見える。線画から先の工程は描けたら筆で描き込む様子をキャンバスに見せ、アタリより前は出さず、進み具合の欄に「工程 i/N」と累計を出し続ける（2026-11-23） | 直した | atelier/ai/phases.py、atelier/app/window/results_and_progress.py、atelier/paint/brush_reveal.py、atelier/panels/activity_panel.py、tests/test_phases.py |
 | F23 | 直す・赤ペン・加工・描き直すのたびに直し方や進め方を選ばせる窓を出さない。食い違いは今書いた頼みを正として聞かずに直し、状態の帯に 1 行だけ出す。聞く窓は初めの 1 回だけにして「次から聞かない」を初めから入れ、設定の「描き方」で決め方を変えられるようにする（2026-11-23） | 直した | atelier/ui/confirm.py、atelier/app/window/ai_drawing.py、atelier/app/window/ai_results.py、atelier/app/settings.py、tests/test_confirm.py |
+| F24 | 拡張だけの Setup が Release にある拡張は、AtelIer のインストーラーで既定で入れる（外すこともできる）（2026-11-23） | 直した | packaging/installer.nsi、tests/test_extensions.py |
