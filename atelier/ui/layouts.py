@@ -139,6 +139,40 @@ def _top_first(w, keys: list[str]):
     w.resizeDocks(docks, want + [max(120, room - sum(want))], Qt.Vertical)
 
 
+def drop_stale_tab_bars(w) -> int:
+    """前の配置のタブの見出し（QTabBar）の残りを隠す。欄を並べ直すと、Qt は前のタブの見出しを窓の子として
+    出したまま残し、配置を当てるたびに同じ見出しが重なって（幅の違う物は少しずれて）、履歴の見出しが二重に見えた。
+    同じ見出しの組が 2 つ以上出ていたら、今出ている欄の真上にぴったり付いている物だけを残す。隠した数を返す"""
+    from PySide6.QtWidgets import QTabBar
+    titles = {d.windowTitle(): d for d, _ in w.panels.values()}
+    groups: dict = {}
+    for bar in w.findChildren(QTabBar, options=Qt.FindDirectChildrenOnly):
+        if bar.isVisible():
+            groups.setdefault(tuple(bar.tabText(i) for i in range(bar.count())), []).append(bar)
+    hidden = 0
+    for texts, bars in groups.items():
+        if not texts:
+            for bar in bars:
+                bar.hide()
+                hidden += 1
+            continue
+        if len(bars) < 2:
+            continue
+        docks = [titles[t] for t in texts if t in titles and not titles[t].visibleRegion().isEmpty()]
+
+        def gap(bar):
+            if not docks:
+                return 0
+            g, d = bar.geometry(), docks[0].geometry()
+            return abs(g.x() - d.x()) + abs(g.width() - d.width()) + abs(g.bottom() + 1 - d.y())
+        keep = min(reversed(bars), key=gap)   # 同じ所に重なった物は、後ろ（手前に描かれ、押される方）を残す
+        for bar in bars:
+            if bar is not keep:
+                bar.hide()
+                hidden += 1
+    return hidden
+
+
 def settle(w):
     """並べ終わったあとと、ウィンドウの大きさが変わったあとに、中身が収まらない欄のある列だけ高さを配り直す。
     ウィンドウを広げると Qt は増えた高さを今の比で配り、色の欄のように中身の多い欄が足りないまま残った。
@@ -147,7 +181,9 @@ def settle(w):
     自動で整えると、戻した配置が開くたびに数画素ずつずれ、毎回直すことになった"""
     if w.__dict__.get("_hand_placed"):
         hide_stale_tabbars(w)
+        drop_stale_tab_bars(w)
         return
+    drop_stale_tab_bars(w)
     for keys in list(w.__dict__.get("_fit_cols", [])):
         docks = [w.panels[k][0] for k in keys]
         if not all(not d.isHidden() and not d.isFloating() for d in docks):
