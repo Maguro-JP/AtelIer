@@ -378,3 +378,4 @@
 | F15 | 精度優先で直せない崩れ（アタリの人数など）が出ても聞いて止まらず、前の工程の絵を土台に種を替え強さを上げて描き直す（ゼロから描かない、前と同じ絵は数えない、回数に上限なし）。聞いて止まったときも止めたときも、検品を通っていない絵（とくにアタリ）はキャンバスに出さず隠したレイヤーにだけ置き、最後まで通ったときだけ出して「描けました」と知らせる（2026-11-23） | 直した | atelier/ai/phases.py、atelier/app/window/ai_results.py、atelier/bench/end_to_end.py、tests/test_phases.py |
 | F16 | 落ちていないのに起動のたびに出る「前に落ちたときの記録があります」の窓を止める。本当に落ちた次の起動だけ出し、一度見せた記録・前の版が積み上げた古い記録・正しく閉じた回の記録は出さない（2026-11-23） | 直した | atelier/app/crash_log.py、atelier/app/main_window.py、tests/test_crashlog.py |
 | F17 | CharacterDesigner から引き継いだライブラリーが「ファイルが無い」と出るのを直す。絵のファイルも AtelIer の置き場へ写して道を直し、引き継ぎ済みの人の一覧も起動のときに直す。本当に無い物だけを「無い」と出し、選び直す・外すを残す。引き継ぐ物を項目ごとに確かめ、壊れている物を直す（2026-11-23） | 直した | atelier/app/migrate.py、atelier/app/main_window.py、tests/test_nojson.py |
+| F18 | CharacterDesigner を、AtelIer の拡張として入れられるようにする（拡張だけの Setup、インストーラーの部品）（2026-11-23） | 直した | packaging/get-characterdesigner.ps1、tests/test_extensions.py |

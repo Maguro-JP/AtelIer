@@ -231,5 +231,18 @@ class WithExtensionTest(Base):
         self.assertIn("not-extension", err.getvalue())
 
 
+class InstallerPartTest(unittest.TestCase):
+    def test_characterdesigner_part_takes_extension_setup_only(self):
+        """インストーラーの選べる部品の CharacterDesigner は、Release の拡張だけの Setup（CharacterDesigner-Extension-Setup.exe）を取る。
+        Python ごと入った単体の CharacterDesigner-Setup.exe を取ると、AtelIer の横にアプリがもう 1 つ入るため"""
+        ps1 = (ROOT / "packaging" / "get-characterdesigner.ps1").read_text(encoding="utf-8")
+        self.assertIn("-like '*Extension*Setup*.exe'", ps1)
+        self.assertNotIn("-like '*Setup*.exe'", ps1)
+        self.assertIn("repos/Maguro-JP/CharacterDesigner/releases/latest", ps1)
+        nsi = (ROOT / "packaging" / "installer.nsi").read_text(encoding="utf-8")
+        self.assertIn('Section /o "CharacterDesigner も入れる', nsi)   # 選べる部品として出す（既定は外す）
+        self.assertIn("get-characterdesigner.ps1", nsi)
+
+
 if __name__ == "__main__":
     unittest.main()
