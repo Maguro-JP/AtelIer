@@ -69,6 +69,23 @@ CharacterDesigner の Setup.exe は、AtelIer の `InstallDir` が見つかっ�
 EmblemDesigner、3DDesigner、VirtualDesigner）。持つのは名前・リポジトリ・拡張の置き場の名前（`<名前>`）・インストーラーで取るか。
 置き場の名前は `character_designer`、`fashion_designer`、`logo_designer`、`emblem_designer`、`three_d_designer`、`virtual_designer`。
 
+### 拡張の設計（3 つの使われ方を 1 つの中身で支える）
+
+6 つのデザイナーは AtelIer のために設計するが、単体のアプリとしても動き、ほかの AI サービスからも使えるようにする。
+使われ方ごとに中身を作り分けると、同じ処理が 3 か所に分かれて直し漏れが出るので、中身は 1 つにして入口だけを分ける。
+
+| 層 | 中身 |
+|---|---|
+| 中身の処理 | UI に頼らない部品（Python の関数・クラス）。窓・メニュー・AtelIer の型を読み込まない |
+| 入口 1: AtelIer の拡張 | `extension.json` とメニュー。拡張の置き場（`C:\ProgramData\AtelIer\extensions\<名前>`）に置かれ、AtelIer が読み込む |
+| 入口 2: 単体のアプリ | 自分のウィンドウと Setup.exe。AtelIer が無くても起動する |
+| 入口 3: ほかの AI サービスから使う口 | MCP のサーバーと、コマンドで呼べる口。中身の処理をそのまま呼ぶ |
+
+- 置き場と設定は、どの入口から使っても同じにする。入口ごとに置き場を持つと、同じ人の設定や作った物が入口ごとに分かれるため。
+- 言葉の模型は共通の置き場 `C:\LLM` に置く（shared-models）。
+- AtelIer が無くても動き、AtelIer があれば拡張として載る。中身の処理は AtelIer を読み込まない。
+- ほかの AI サービスから使う口を MCP のサーバー（標準入出力で話す形）にすること、コマンドの口を `python -m <パッケージ> <操作>` の形で JSON を返すものにすること、MCP のサーバーとコマンドが同じ操作の一覧を共有することは、私の推測。
+
 ### AtelIer の Setup.exe からデザイナーを入れる
 
 コンポーネントのページに「<デザイナー> も入れる（ネットから取る）」が出る（既定は外す）。出すのは一覧で `installer` が True の物
