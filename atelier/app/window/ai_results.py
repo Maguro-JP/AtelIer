@@ -25,10 +25,13 @@ class AiResultsMixin:
         if self.job_kind == "fix":
             self._on_fixed(path)
             return
-        self.images.append(path)
+        # 精度優先で聞いて止まった回の絵は途中の絵。隠したレイヤーにだけ置き、ライブラリーと描いた絵の履歴には入れない
+        interim = self._phases_asked()
+        if not interim:
+            self.images.append(path)
         first = not self.batch
         self.batch.append(path)
-        if first and self.job_kind != "chibi":
+        if first and self.job_kind != "chibi" and not interim:
             self._record_result(path)
         bad = []
         try:
@@ -47,8 +50,9 @@ class AiResultsMixin:
                 self._put_phases()
         except (OSError, ValueError) as e:
             self.say(f"絵をキャンバスに置けませんでした（{e}）。履歴から押すと出せます")
-        self.batch_items.append(self.activity.add(path, prompt))
-        if first and not self.pin_action.isChecked():
+        if not interim:
+            self.batch_items.append(self.activity.add(path, prompt))
+        if first and not interim and not self.pin_action.isChecked():
             self.history.setCurrentRow(0)   # 選んでいた古い絵ではなく、出した新しい絵を選んだ形にする
         for f in bad:
             self.say(f"崩れ: {f}")
@@ -67,6 +71,8 @@ class AiResultsMixin:
             except (KeyError, TypeError) as e:
                 self.say(f"検品の結果を読めませんでした（{e}）。目で確かめてください")
         self._record()
+        if interim:
+            return
         item = self.library.add_work(path)
         if item:   # 赤ペンの直しだけの絵は作品にしない（空で返る）
             self.library_panel.add(item)
@@ -204,6 +210,11 @@ class AiResultsMixin:
         studio = getattr(self, "job_studio", None) or self.studio
         return self.job_kind == "draw" and bool(getattr(studio, "last_phases", None)) and getattr(studio, "last_passed", None) is False
 
+    def _phases_asked(self) -> bool:
+        """精度優先で、崩れが残って直し方を聞いて止まった回なら True（返った絵は途中の絵。再開した回が最後の絵を返す）"""
+        studio = getattr(self, "job_studio", None) or self.studio
+        return self.job_kind == "draw" and bool(getattr(studio, "last_phases", None)) and bool(getattr(studio, "last_asked", None))
+
     def _put_phases(self, also: tuple[str, str] | None = None):
         """工程に分けて描いた回は、工程ごとの絵を描いた絵の下に隠したレイヤーで置き、工程ごとの検品を会話に出す（atelier/ai/phases.py）。
         also=(絵, 名前) は、キャンバスに出さない絵（検品を通っていない絵）を同じく隠したレイヤーに足す"""
@@ -253,9 +264,33 @@ class AiResultsMixin:
                 self._refresh_layers()
         except (OSError, ValueError) as e:
             self.say(f"止めた所までの絵をレイヤーに置けませんでした（{e}）")
+        self._keep_stopped(got, studio)
         self.say(head + f"。要る工程は今 {need}、累計 {total} 工程を描きました")
         self.say("残った崩れ: " + ("、".join(left[:5]) if left else "この工程はまだ検品していません"))
         return head, (f"残った崩れ {len(left)} 件。" if left else "") + "キャンバスは元のままです。止めた所までの絵は隠したレイヤーにあります"
+
+    def _keep_stopped(self, got: dict, studio):
+        """止めたときは、その回の絵（止めた所までの絵）を 1 枚だけライブラリーに入れる。工程の絵は作業の置き場に残したまま。
+        写しは日付のフォルダに置く（作業の置き場の絵は途中の絵として見分けるので、そこを指す行は作らない）"""
+        import shutil
+        src = Path(got.get("image") or "")
+        out = getattr(studio, "out", None)
+        if not src.is_file() or out is None:
+            return
+        try:
+            day = Path(out) / time.strftime("%Y-%m-%d")
+            day.mkdir(parents=True, exist_ok=True)
+            dst = day / f"{time.strftime('%Y%m%d-%H%M%S')}-stopped.png"
+            shutil.copyfile(src, dst)
+            job = getattr(self, "job", None)
+            item = self.library.add_work(str(dst), {"text": getattr(job, "text", ""), "style_name": "", "seed": None,
+                                                    "model": getattr(getattr(studio, "painter", None), "model", ""), "way": "phases",
+                                                    "stopped": True})
+        except OSError as e:
+            self.say(f"止めた所までの絵をライブラリーに入れられませんでした（{e}）")
+            return
+        if item:
+            self.library_panel.add(item)
 
     def _on_fixed(self, path: str):
         """赤ペン・選択範囲の直しの結果は、一番上の新しいレイヤーにだけ置いて選ぶ。描いた絵の履歴・ライブラリーには載せない

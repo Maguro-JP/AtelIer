@@ -89,6 +89,46 @@ class LayersAndSelectionMixin:
             self.statusBar().showMessage(f"前の版の赤ペンの直しの絵 {len(found)} 枚を、履歴とライブラリーから外してごみ箱へ移しました", 8000)
         self.run_io(work, done, "前の版の赤ペンの直しを片付け")
 
+    INTERIM_KEY = "cleanup/phase_interim_0117"   # 精度優先の途中の絵を聞き終えた印（1 回だけ聞く）
+
+    def sweep_phase_interim(self):
+        """0.1.16 までの版は、精度優先で崩れが残って聞いて止まるたびに、その途中の絵をライブラリーに足していた。
+        起動のときに、見分けられる途中の絵（atelier/files/library.py の phase_interim）があれば 1 回だけ聞き、
+        「移す」ならごみ箱へ移す（ごみ箱から戻せる）。黙って消さない。見分けられない絵には触らない"""
+        if getattr(self, "_io_closed", False) or self.settings.store.value(self.INTERIM_KEY) or getattr(self, "_interim_busy", False):
+            return
+        self._interim_busy = True   # 探している間にもう一度呼ばれても、2 度は聞かない
+
+        def done(found):
+            self._interim_busy = False
+            if isinstance(found, BaseException) or getattr(self, "_io_closed", False):
+                return
+            self.settings.store.setValue(self.INTERIM_KEY, "asked")
+            if not found:
+                return
+            from atelier.ui import confirm
+            if confirm.ask(self, "phase_interim", "描いている途中の絵",
+                           f"描いている途中の絵が {len(found)} 枚、ライブラリーに入っています。ゴミ箱へ移しますか",
+                           [("yes", "ゴミ箱へ移す")], cancel="そのままにする",
+                           detail="精度優先で崩れが残って止まったときの絵です。「ファイル」→「ごみ箱…」から戻せます") != "yes":
+                return
+            items = self.library.take(found)
+            try:
+                key = self.trash.put(found, items, label="精度優先の途中の絵")
+            except OSError as e:
+                self.library.put_back(items)
+                self.notify("ゴミ箱へ移せませんでした", "error", str(e))
+                return
+            gone = set(found)
+            for row in reversed(range(self.history.count())):
+                if self.history.item(row).data(Qt.UserRole) in gone:
+                    self.history.takeItem(row)
+            self.images = [p for p in self.images if p not in gone]
+            self.library_panel.drop(found)
+            self._trash_changed()
+            self.notify(f"途中の絵 {len(found)} 枚をゴミ箱へ移しました", "ok", "押すと戻します", on_click=lambda: self.restore_trash(key))
+        self.run_io(self.library.phase_interim, done, "精度優先の途中の絵を探す")
+
     def trash_layer_file(self, path: str):
         """AI の結果のレイヤーを消したら、その画像ファイルもごみ箱へ移し、履歴とライブラリーから外す（聞かない。ごみ箱から戻せる）。
         今の絵そのもの（作業の土台の絵）と、出力の置き場の外のファイル（手元の絵・仮の置き場）には触らない"""
