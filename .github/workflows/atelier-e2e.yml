@@ -305,3 +305,42 @@ jobs:
           name: e2e-heavy
           path: ${{ runner.temp }}/e2e-heavy
           retention-days: 7
+  # 精度優先が最後の工程まで検品を通るかを、人を描ける模型で見る（windows-heavy の小さな模型は人を描けず、検品を通る絵が出来ない）。
+  # 模型は目録の推奨で点の一番高い cagliostrolab/animagine-xl-4.0（私の推測。phase-bench の既定と同じ）。
+  # CPU で描き、描き直しの回数に上限が無いので、時間の上限を広く取る。Release は止めない。落ちたらこのジョブが赤くなる
+  precise-real:
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && !inputs.gui_only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: 置き場を空ける
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h / | tail -1; free -g; nproc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 部品
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image ai-edge-litert onnxruntime
+      - name: 精度優先で 1 枚を最後まで描く
+        timeout-minutes: 320
+        env:
+          LLM_HOME: ${{ runner.temp }}/llm
+          ATELIER_HOME: ${{ runner.temp }}/cd
+          ATELIER_FETCH: "1"
+          ATELIER_ASSUME_FREE_RAM_GB: "14"
+          BENCH_MODEL: cagliostrolab/animagine-xl-4.0
+          BENCH_PROMPT: "1girl, red hair"
+          BENCH_STEPS: "20"
+          BENCH_SIZE: 832x1216
+          BENCH_SEED: "7"
+          BENCH_WAYS: phases
+          BENCH_REQUIRE_COMPLETE: "1"
+        run: python -u -m atelier.bench.phase_bench precise-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: precise-real
+          path: precise-out
+          retention-days: 7
