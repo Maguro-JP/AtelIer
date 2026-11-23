@@ -23,12 +23,66 @@ class ResultsAndProgressMixin:
         描き終えたあとに遅れて届いた途中の絵は捨てる（仕上がった絵を隠さない）"""
         if self.thread is None:
             return
+        from atelier.ai.phases import PHASE_TAG
+        if PHASE_TAG in getattr(img, "info", {}):
+            self.show_phase_work(img, img.info[PHASE_TAG])
+            return
         q = qimage_from_pil(img)
         if self.reveal_on():   # 前の途中の絵から筆で描き込んで見せる（描く処理は裏で続く）
             self.reveal().show(self.reveal().visible(), img, keep=True)
         else:
             self.canvas.show_overlay(q)
         self.progress_popup.set_thumb(q)   # 進みのポップアップにも途中の絵を小さく出す
+        self.recorder.add(img)
+
+    WORK_LAYER = "描いている絵"
+
+    def show_phase_work(self, img, tag: dict):
+        """精度優先で線画から先の工程が描けたら、その絵を一番上の作業用のレイヤー（描いている絵）に置き、
+        前の工程の絵から筆で描き込む様子を見せる（atelier/paint/brush_reveal.py）。
+        前は検品を全部通るまで何も出さず、何十分も「描いています」のまま何も見えなかった。
+        レイヤーは初めの 1 回だけ「元に戻す」に積んで足し（元に戻すで消せる。元の絵には触らない）、2 回目からは中身だけを差し替える"""
+        import os
+        import tempfile
+        from atelier.app.window.image_convert import qimage_to_pil
+        canvas = self.canvas
+        name = f"{self.WORK_LAYER}（工程 {tag.get('no', '')}/{tag.get('need', '')}「{tag.get('phase', '')}」）"
+        layer = next((l for l in canvas.layers if l is getattr(self, "_work_layer", None)), None)
+        if self.reveal_on():
+            self.reveal().finish()
+        before = qimage_to_pil(canvas.flatten()) if canvas.layers else None
+        q = qimage_from_pil(img.convert("RGBA"))
+        try:
+            if layer is None:
+                fd, tmp = tempfile.mkstemp(suffix=".png")
+                os.close(fd)
+                try:
+                    img.save(tmp)
+                    canvas.place_result(tmp, name)
+                finally:
+                    os.remove(tmp)
+                self._work_layer = canvas.layers[-1]
+                self._work_layer.path = ""   # 置くのに使った一時の絵は消したので、レイヤーを消すときに捨てるファイルは無い
+            else:
+                from PySide6.QtCore import Qt
+                w, h = canvas.size_px()
+                layer.image = q.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(layer.image.format())
+                layer.name = name
+                layer.visible = True
+                canvas.rebuild()
+            if hasattr(self, "_refresh_layers"):
+                self._refresh_layers()
+        except (OSError, ValueError) as e:
+            self.say(f"描けた工程の絵をレイヤーに置けませんでした（{e}）")
+            return
+        if self.reveal_on():
+            try:
+                self.reveal().show(before, qimage_to_pil(canvas.flatten()), keep=False)
+            except Exception:   # noqa: BLE001  見せ方の失敗で絵を出さないことはしない（絵はもうレイヤーにある）
+                canvas.show_overlay(None)
+        else:
+            canvas.show_overlay(None)
+        self.progress_popup.set_thumb(q)
         self.recorder.add(img)
 
     def put_result(self, path: str, name: str, replace: bool = False) -> bool:
