@@ -94,7 +94,8 @@ def tile_picture(tile: Tile, size: QSize) -> QPixmap:
     if tile.image:
         img = QPixmap(tile.image)
         if not img.isNull():
-            scaled = img.scaled(size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            # 切らずに収める。横長のタイルに正方形の絵を広げて入れると、絵の端（ロゴの字など）が切れたため
+            scaled = img.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             p = QPainter(pix)
             p.drawPixmap((size.width() - scaled.width()) // 2, (size.height() - scaled.height()) // 2, scaled)
             p.end()
