@@ -2,6 +2,10 @@
 
 版の番号は根の `VERSION` に 1 か所だけ置く。画面（`app/web/package.json`）、サーバー（`/openapi.json` の version）、Setup.exe の表示はそこに合わせる。
 
+## 0.1.15（2026-11-23）
+
+- CharacterDesigner の Release（v0.5.39）に拡張だけの Setup（CharacterDesigner-Extension-Setup.exe）が置かれたので、インストーラーの選べる部品「CharacterDesigner も入れる」で拡張が入るようになりました。Python と PySide6 は重ねて入りません。その部品が拡張だけの Setup だけを取ることを試験に入れました。
+
 ## 0.1.14（2026-11-23）
 
 - CharacterDesigner から引き継いだライブラリーが「ファイルが無い」と出ていたのを直しました。前は一覧だけを写し、絵の道が CharacterDesigner の置き場を指したままだったので、CharacterDesigner を外すと、AtelIer に写してあった資料まで「ファイルが無い」になりました。引き継ぎで絵も AtelIer の置き場へ写し、道を AtelIer の置き場の道に直します。AtelIer に一覧が既にあるときも、写さずに飛ばさずに一覧へ足します。★ と学習セットの絵の道も付け替えます。
