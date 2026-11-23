@@ -381,3 +381,4 @@
 | F18 | CharacterDesigner を、AtelIer の拡張として入れられるようにする（拡張だけの Setup、インストーラーの部品）（2026-11-23） | 直した | packaging/get-characterdesigner.ps1、tests/test_extensions.py |
 | F19 | 精度優先の全体の描き直しのループを無くす。どの工程でも絵の全体を描き直さず、囲めない崩れは余分な人の枠・読めなかった部位の枠で囲み、それでも直らない崩れは絵を前のまま残して残った崩れとして次の工程へ進み、最後に知らせる。聞いて止まらない。試験に「囲みの外の差が 0」を入れる（2026-11-23） | 直した | atelier/ai/phases.py、atelier/ai/engine.py、tests/test_phases.py |
 | F20 | 精度優先で描き続けると、ライブラリーに途中の絵が溜まるのを直す。1 回描くごとに増えるのは最後の絵 1 枚だけにし、溜まった分は起動のときに 1 回聞いてごみ箱へ移す（戻せる）（2026-11-23） | 直した | atelier/ai/engine.py、atelier/app/window/ai_results.py、atelier/files/library.py、atelier/app/window/layers_and_selection.py、tests/test_phase_library.py |
+| F21 | main に続けてマージすると、前の回の precise-real が終わるまで次の版の Release が出ないのを直す。precise-real と windows-heavy を別の workflow と別の組に分け、古い回は取り消す（2026-11-23） | 直した | .github/workflows/atelier-e2e.yml、.github/workflows/precise-real.yml、.github/workflows/windows-heavy.yml |

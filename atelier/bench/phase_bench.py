@@ -101,7 +101,7 @@ def run(out: Path):
         result["runs"].append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "said"}, ensure_ascii=False), flush=True)
         (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
-    # BENCH_REQUIRE_COMPLETE=1 のときは、精度優先が最後の工程まで検品を通らなければ落とす（atelier-e2e の precise-real の段）
+    # BENCH_REQUIRE_COMPLETE=1 のときは、精度優先が最後の工程まで検品を通らなければ落とす（precise-real.yml の段）
     if os.environ.get("BENCH_REQUIRE_COMPLETE") == "1":
         rows = [r for r in result["runs"] if r["way"] == "phases"]
         bad = [r.get("summary") for r in rows if not (r.get("summary") or {}).get("passed")]
