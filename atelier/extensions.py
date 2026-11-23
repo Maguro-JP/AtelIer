@@ -147,7 +147,11 @@ def _parts(window) -> dict:
     """拡張を付ける前と後で比べるための、窓の目に見える部品（メニュー・欄・モード）"""
     from PySide6.QtWidgets import QDockWidget
     bar = window.menuBar() if hasattr(window, "menuBar") else None
-    return {"menus": [a for a in bar.actions() if a.menu() is not None] if bar is not None else [],
+    # QAction.menu() は呼ばない。PySide6 6.9 では呼ぶと別の包みが作られ、窓が持っていたメニューが「消えた」扱いになり、
+    # 拡張を入れた Windows の AtelIer が窓を作る途中で落ちた（i18n.translate_menus と同じ避け方）。見出しの操作からメニューを引く
+    from PySide6.QtWidgets import QApplication, QMenu
+    subs = {m.menuAction(): m for m in QApplication.allWidgets() if isinstance(m, QMenu)}
+    return {"menus": [subs[a] for a in bar.actions() if a in subs] if bar is not None else [],
             "docks": window.findChildren(QDockWidget) if hasattr(window, "findChildren") else [],
             "modes": list(getattr(window, "mode_actions", {}) or {})}
 

@@ -326,9 +326,10 @@ def enter(window, tile: Tile | None) -> str:
         dock.show()
         dock.raise_()
         return "dock"
-    for menu_action in parts.get("menus", []):
-        first = next((a for a in menu_action.menu().actions() if not a.isSeparator() and a.isEnabled()
-                      and a.menu() is None), None)
+    from PySide6.QtWidgets import QApplication, QMenu
+    subs = {m.menuAction() for m in QApplication.allWidgets() if isinstance(m, QMenu)}
+    for menu in parts.get("menus", []):   # 窓のメニュー（QMenu）。QAction.menu() は PySide6 6.9 で包みを作り直すので呼ばない
+        first = next((a for a in menu.actions() if not a.isSeparator() and a.isEnabled() and a not in subs), None)
         if first is not None:
             first.trigger()
             return "menu"
