@@ -94,8 +94,10 @@ class BarEditTest(unittest.TestCase):
             w = fresh(d)
             try:
                 acts = w.quick_bar.actions()
-                for a in (w.shared["undo"], w.shared["redo"], w.tool_actions["redpen"], w.shared["draw"], w.emergency_stop):
+                for a in (w.shared["undo"], w.shared["redo"], w.tool_actions["redpen"], w.shared["draw"]):
                     self.assertIn(a, acts)
+                # 緊急停止は緊急停止の帯の 1 つだけに置く（ここにも置くと狭い窓で 2 つ並んだ。StressFixTest が数を見る）
+                self.assertNotIn(w.emergency_stop, acts)
                 self.assertTrue(all(a.toolTip() for a in acts if not a.isSeparator()))
             finally:
                 clean(w)
