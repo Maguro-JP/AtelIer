@@ -402,3 +402,4 @@
 | F19 | 精度優先の全体の描き直しのループを無くす。どの工程でも絵の全体を描き直さず、囲めない崩れは余分な人の枠・読めなかった部位の枠で囲み、それでも直らない崩れは絵を前のまま残して残った崩れとして次の工程へ進み、最後に知らせる。聞いて止まらない。試験に「囲みの外の差が 0」を入れる（2026-11-23） | 直した | atelier/ai/phases.py、atelier/ai/engine.py、tests/test_phases.py |
 | F20 | 精度優先で描き続けると、ライブラリーに途中の絵が溜まるのを直す。1 回描くごとに増えるのは最後の絵 1 枚だけにし、溜まった分は起動のときに 1 回聞いてごみ箱へ移す（戻せる）（2026-11-23） | 直した | atelier/ai/engine.py、atelier/app/window/ai_results.py、atelier/files/library.py、atelier/app/window/layers_and_selection.py、tests/test_phase_library.py |
 | F21 | 拡張だけの Setup が Release にある拡張は、AtelIer のインストーラーで既定で入れる（外すこともできる）（2026-11-23） | 直した | packaging/extension_sections.py、tests/test_extensions.py |
+| F22 | 加工で色の境界に頼んでいない線（ゴミの線）を引かないようにする。線を足す加工は結果が正しいかを見直す（2026-11-23） | 直した | atelier/ai/finishers.py、tests/test_no_edge_lines.py |

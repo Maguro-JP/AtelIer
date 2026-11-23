@@ -364,8 +364,10 @@ class CleanKeepsOriginalTest(unittest.TestCase):
         draw.point((64, 20), fill=(0, 0, 0))  # 主線から離れた孤立した粒
         candidate = Image.new("RGB", src.size, (180, 180, 180))
         out = finishers.preserve_lines(src, candidate)
-        self.assertEqual(out.getpixel((64, 64)), src.getpixel((64, 64)))
+        # 主線は明るくしない（周りが暗くなったので、線も同じだけ暗くして見え方を保つ）
+        self.assertTrue(all(o <= s for o, s in zip(out.getpixel((64, 64)), src.getpixel((64, 64)))))
         self.assertEqual(out.getpixel((64, 20)), candidate.getpixel((64, 20)))
+        self.assertEqual(out.getpixel((64, 40)), candidate.getpixel((64, 40)))   # 線から離れた地は加工の色（元の色の帯を残さない）
 
     def test_detail_addition_keeps_existing_main_lines(self):
         import numpy as np
@@ -387,7 +389,9 @@ class CleanKeepsOriginalTest(unittest.TestCase):
             with self.subTest(name=name):
                 out = finishers.run(name, src)
                 score = finishers.scores(src, out)
-                self.assertTrue(np.array_equal(np.asarray(src)[line], np.asarray(out)[line]), (name, score))
+                # 主線は明るくしない（周りが暗くなる加工では、線の見え方を保つために同じだけ暗くする）
+                lighter = np.asarray(out, np.int32)[line].sum(1) > np.asarray(src, np.int32)[line].sum(1)
+                self.assertEqual(int(lighter.sum()), 0, (name, score))
                 self.assertGreaterEqual(score["line_recall"], 0.99, (name, score))
 
     def test_real_clean_stays_close_to_original(self):

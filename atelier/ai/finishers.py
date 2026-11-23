@@ -89,7 +89,7 @@ def _tidy_apply(image):
 DETAIL_FINE, DETAIL_MID = 1.0, 2.6     # 立てる細部の細かさ（ぼかしの幅、画素）
 DETAIL_AMOUNT = (1.6, 0.9)              # 細かい方・中くらいの方を何倍立てるか
 DETAIL_CAP = 42.0                       # 1 画素で変えてよい明るさの上限（0〜255）
-DETAIL_EDGE = 18.0                      # これより明暗の差が大きい所は境目として触らない
+DETAIL_COLOR_EDGE = 40.0                # 色の差がこれより大きい所は面と面の境目として何も足さない（細かい模様は 30 前後）
 DETAIL_SHINE = 0.45                     # 光沢の所を白にどれだけ寄せるか
 LAST_DETAIL: dict = {}
 
@@ -147,12 +147,11 @@ def _detail_apply(image):
     flat = gaussian_filter(np.abs(fine) + np.abs(mid), 2) < 1.0      # 平らな所（背景のぼかし）にはざらつきを足さない
     line = _gen("cleanup").line_mask(a)
     # 強い境目（人物の輪郭、服と肌の境）には足さない。足すと輪郭の外に白い縁（光輪）が出た（狐の巫女の全身で目で見た）
-    # 境目の近くでは明るくする向きを止め、暗くする向きだけ残す（しわ・毛の分かれ目は暗い側なので残る）
-    edge = binary_dilation(gaussian_filter(np.abs(L - gaussian_filter(L, 3.0)), 1.0) > DETAIL_EDGE, iterations=2)
-    keep = binary_dilation(line, iterations=1)
+    # 前は境目の近くで暗くする向きだけを残していたが、色の境目の全部に沿って暗い筋（頼んでいない線）が出た（赤と青と白の面の絵で 7 本）。
+    # 境目は明るさだけでなく色でも見る（赤と青は明るさが近く、明るさだけでは境目と分からなかった）。境目の近くには何も足さない
+    edge = binary_dilation(color_edges(a) > DETAIL_COLOR_EDGE, iterations=3)
+    keep = binary_dilation(line, iterations=1) | edge
     add = np.clip(add, -DETAIL_CAP, DETAIL_CAP) * ~(flat | keep)
-    add = np.where(edge, np.minimum(add, 0), add)
-    keep = keep | edge
     # 光沢: 周りより明るい小さな所を白へ寄せる
     peak = (L - gaussian_filter(L, 4.0)) > 10
     peak &= L > 150
@@ -458,10 +457,29 @@ def _retouch(steps):
     return run
 
 
+INK_COLOR_SHARE = 0.08   # 鮮やかな色か中くらいの明るさの面がこれより多い絵は、線の絵ではなく塗った絵として扱う
+
+
+def is_line_sketch(image) -> bool:
+    """白い地に暗い線で描いた絵か。塗った面（鮮やかな色、灰色の面）が絵の INK_COLOR_SHARE を超えたら線の絵ではない"""
+    import numpy as np
+    from scipy.ndimage import binary_opening
+    a = np.asarray(image.convert("RGB").resize((256, 256)), np.int16)
+    sat = a.max(-1) - a.min(-1)
+    L = a.mean(-1)
+    painted = (sat > 60) | ((L > 70) & (L < 200))
+    painted = binary_opening(painted, iterations=2)   # 線の縁の混ざった画素は面に数えない
+    return painted.mean() <= INK_COLOR_SHARE
+
+
 def _ink(image):
     """線の清書。描いた線（白い地の暗い線）を 1 本の線にまとめ、白い地に置いて返す"""
     import tempfile
     from PIL import Image
+    if not is_line_sketch(image):
+        # 色を塗った絵に掛けると、面の色が消え、色の境目（暗い色の面の縁）に沿った線が引かれた（赤と青と白の面の絵で 6 本）。
+        # 清書の道具は白い地の線を 1 本にまとめる物で、塗った絵の主線だけを取り出せない。塗った絵には掛けずに理由を返す
+        raise Unavailable("ラフを清書するのは、白い地に描いた線の絵だけです。色を塗った絵は、線のレイヤーだけを選んで掛けてください")
     ik = _gen("inking")
     with tempfile.TemporaryDirectory() as d:
         src, out = Path(d) / "in.png", Path(d) / "out.png"
@@ -537,7 +555,7 @@ register(Finisher(
     _OWN, "tools/gen/retouch.py", _own_ready("retouch", "numpy", "scipy", "skimage"), _own_why("retouch", "numpy", "scipy", "skimage"),
     _retouch(RETOUCH_FULL), extra=dict(needs=("numpy", "scipy", "skimage"), scale="retouch", steps=RETOUCH_FULL)))
 register(Finisher(
-    "ink", "ラフを清書する", "重ねた線・途切れた線を 1 本の線にまとめ、太さをそろえます（白い地の線画にします）",
+    "ink", "ラフを清書する", "重ねた線・途切れた線を 1 本の線にまとめ、太さをそろえます（白い地に描いた線の絵に掛けます。色を塗った絵には掛けません）",
     _OWN, "tools/gen/inking.py", _own_ready("inking", "numpy", "scipy", "skimage"), _own_why("inking", "numpy", "scipy", "skimage"), _ink, group="ink",
     extra=dict(needs=("numpy", "scipy", "skimage"), scale="tile")))
 for _m, _label, _tip in (("holy", "神々しい光", "光の筋と光の粒、暖かい白金のにじみを重ねます"),
@@ -644,25 +662,62 @@ def structural_lines(rgb):
     return sizes[lab] >= cleanup.SPECK
 
 
-def preserve_lines(original, result):
-    """空気感・質感の色や光を足す加工から、元の主線と検出半径 6px の周辺を守る。"""
+def color_edges(a):
+    """色の境目の強さ（各画素の、周りのぼかしとの差の色ごとの最大。0〜255）。明るさの近い色どうしの境目も拾う"""
     import numpy as np
-    from PIL import Image, ImageFilter
+    from scipy.ndimage import gaussian_filter
+    a = np.asarray(a, np.float32)
+    d = np.stack([np.abs(a[..., c] - gaussian_filter(a[..., c], 3.0)) for c in range(3)], -1).max(-1)
+    return gaussian_filter(d, 1.0)
+
+
+def preserve_lines(original, result):
+    """空気感・質感の色や光を足す加工から、元の主線を守る。
+    前は主線の周り 13 画素の四角を元の画素に戻していたので、加工で色が変わった面の中に、線に沿って元の色の帯
+    （白い縁、赤い縁）が残り、頼んでいない線に見えた。今は加工で足した分（差）を、主線とその周りだけ周りの差で
+    埋め直して足す。主線は明るくしない（周りが暗くなるときは明暗の差を保つ分だけ暗くする）。周りは加工の色に滑らかにつながる"""
+    import numpy as np
+    from PIL import Image
+    from scipy.ndimage import binary_dilation, gaussian_filter
     src = original.convert("RGB")
     out = result.convert("RGB")
     if out.size != src.size:
         out = out.resize(src.size, Image.LANCZOS)
     a = np.asarray(src)
-    b = np.asarray(out).copy()
+    b = np.asarray(out)
     line = structural_lines(a)
-    if line.any():
-        # 主線の検出は半径 6px の近傍を見るため、同じ幅の周辺も保護して検出結果を安定させる。
-        # 小さな星・粒は主線ではないので、SPECK 未満の成分を先に除いて四角い保護跡を作らない。
-        protected = np.asarray(
-            Image.fromarray((line * 255).astype("uint8")).filter(ImageFilter.MaxFilter(13))
-        ) > 0
-        b[protected] = a[protected]
-    return Image.fromarray(b)
+    if not line.any():
+        return out
+    # 線の縁の混ざった画素まで線として扱い、その所の差は周りの差（線から離れた所）の重み付きの平均で埋める
+    from scipy.ndimage import minimum_filter
+    core = binary_dilation(line, iterations=3)
+    af = a.astype(np.float32)
+    delta = b.astype(np.float32) - af
+    w = gaussian_filter((~core).astype(np.float32), 3.0)
+    ww = (~core).astype(np.float32)
+
+    def fill(x):   # 線の所を、線の外の値の重み付きの平均で埋める
+        return gaussian_filter(x * ww, 3.0) / np.maximum(w, 1e-3)
+    d_fill = np.stack([fill(delta[..., c]) for c in range(3)], -1)
+    bg = np.stack([fill(af[..., c]) for c in range(3)], -1)   # 線の下の地の色（元の絵）
+    # 線の画素がどれだけ線の色か（1 = 線の芯、0 = 地）。縁の混ざった画素は、加工した地の色と線の色をその割合で混ぜ直す
+    lum = af @ np.float32([0.299, 0.587, 0.114])
+    lbg = bg @ np.float32([0.299, 0.587, 0.114])
+    lline = minimum_filter(np.where(line, lum, 255.0), size=7)
+    ink = np.clip((lbg - lum) / np.maximum(lbg - lline, 1.0), 0.0, 1.0)
+    ink = np.where(line, 1.0, ink)[..., None]
+    # 線の芯は明るくしない。周りが暗くなるときだけ同じだけ暗くし、線と地の明暗の差（線の見え方）を保つ
+    lum_d = (d_fill @ np.float32([0.299, 0.587, 0.114]))[..., None]
+    delta = np.where(core[..., None], d_fill * (1.0 - ink) + np.minimum(lum_d, 0.0) * ink, delta)
+    res = af + delta
+    # 線の芯は、加工のあとも周り（半径 6 画素の明るい方）との明暗の差を前と同じだけ持たせる（足りない分だけ暗くする）
+    from scipy.ndimage import grey_closing
+    size = (13, 13)
+    need = grey_closing(lum, size=size) - lum
+    lres = res @ np.float32([0.299, 0.587, 0.114])
+    short = np.where(line, np.maximum(lres - (grey_closing(lres, size=size) - need), 0.0), 0.0)
+    res = res - short[..., None]
+    return Image.fromarray(np.clip(res + 0.5, 0, 255).astype("uint8"))
 
 
 # ---- 大きな絵（拡大のあと）でも必ず終わる掛け方 ----
