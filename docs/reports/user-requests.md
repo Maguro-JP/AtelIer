@@ -386,3 +386,4 @@
 | F20 | AtelIer を使う人は拡張機能だけを入れればよい（容量がかさみ重複するため）。使う物はタイトルで選ばせ、タイトルはビジュアルで魅せる。開発は分担するが、AtelIer が統括し、AtelIer のための開発をする（2026-11-23） | 決まりを書いた（タイトルの画面は別の作業） | CLAUDE.md、docs/knowledge/integration.md |
 | F21 | お互い良いところ、使えるところは採用していくことで開発工数を削減する（AtelIer と 6 つのデザイナー）（2026-11-23） | 決まりと、採用し合う物の表を書いた（コードは変えていない） | CLAUDE.md、docs/knowledge/integration.md |
 | F22 | 後はタイトルで選択させて使わせる。タイトルもビジュアルで魅せる。AtelIer がデザイナーを統括する。起動するとロゴと、描く画面・拡張の置き場に入ったデザイナーのタイル（名前・絵・一言）を出し、押すとその画面に入る。入っていない物は Release のある物だけ小さな「入れる」のタイルにする。最後に使った物を覚え、「次から出さない」と「ファイル」の「タイルの画面…」を置く（2026-11-23） | 直した | atelier/app/title_screen.py、atelier/extensions.py、atelier/app/main_window.py、tests/test_extensions.py |
+| F23 | 落ちていないのに起動のたびに出る「前に落ちたときの記録があります」の窓を止める。本当に落ちた次の起動だけ出し、一度見せた記録・前の版が積み上げた古い記録・正しく閉じた回の記録は出さない（2026-11-23） | 直した | atelier/app/crash_log.py、atelier/app/main_window.py、tests/test_crashlog.py |

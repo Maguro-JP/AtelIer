@@ -38,6 +38,28 @@ class CrashLogTest(unittest.TestCase):
                     if crashlog._FILE:
                         crashlog._FILE.close()
 
+    def test_old_or_warning_records_are_not_shown(self):
+        """落ちていない回・古い記録・見せた記録では知らせない（前は起動のたびに出た）"""
+        from atelier.app import crash_log as crashlog
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "crash.log"
+            # 前の版が積み上げた記録: 捕まえて続けた例外と、昔落ちたときの記録
+            log.write_text("==== 起動 ====\n裏の糸 描く糸\nTraceback (most recent call last):\nZeroDivisionError\n"
+                           "Windows fatal exception: access violation\n", encoding="utf-8")
+            old = log.stat().st_size
+            with mock.patch.object(crashlog, "path", return_value=log):
+                self.assertEqual(crashlog.last_crash(None), "")   # 前に見た位置が無い（初めての起動・引き継いだ置き場）
+                with open(log, "a", encoding="utf-8") as f:
+                    f.write("==== 起動 ====\n裏の糸 描く糸\nTraceback (most recent call last):\nValueError\n")
+                self.assertEqual(crashlog.last_crash(old), "")   # 例外の記録だけ（落ちていない）
+                mid = log.stat().st_size
+                with open(log, "a", encoding="utf-8") as f:
+                    f.write("==== 起動 ====\nWindows fatal exception: code 0xe06d7363\n")
+                self.assertEqual(crashlog.last_crash(mid, crashed=False), "")   # 正しく閉じた回の faulthandler の出力
+                self.assertIn("fatal", crashlog.last_crash(mid, crashed=True))
+                self.assertEqual(crashlog.last_crash(log.stat().st_size), "")   # 一度見せた記録は二度と出さない
+                self.assertEqual(crashlog.last_crash(log.stat().st_size + 100), "")   # 記録が消されて短くなった
+
 
 if __name__ == "__main__":
     unittest.main()

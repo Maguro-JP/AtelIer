@@ -1190,6 +1190,8 @@ def main():
     w.ask_words_once()
     w.upgrade_models()
     w.check_ai()
+    from atelier.app.window.process_check import crashed_before
+    crashed = crashed_before(w.layout_store)   # 前の回が正しく閉じたか。offer_restore が印を書き換える前に見る
     opened = sys.argv[sys.argv.index("--open") + 1] if "--open" in sys.argv[:-1] else None
     if opened:
         w.open_path(opened)   # AI の結果を別ファイルで開くとき。自動保存から戻すかは聞かない
@@ -1199,11 +1201,13 @@ def main():
     # closeEvent を通らずに終わる道（更新を入れて閉じるなど）でも、正しく閉じた印を残す
     app.aboutToQuit.connect(lambda: (w.layout_store.setValue("running", 0), w.layout_store.sync()))
     # 前の回が落ちていたら、記録の場所を知らせる（次に直すときの手がかりにする）
+    # 前に見た位置が無いときは None にして、積み上がった古い記録を出さない。知らせたら位置を進め、二度と出さない
     try:
-        prev = int(w.layout_store.value("crashlog_size", 0) or 0)
+        raw = w.layout_store.value("crashlog_size", None)
+        prev = None if raw is None else int(raw)
     except (TypeError, ValueError):
-        prev = 0
-    if crashlog.last_crash(prev):
+        prev = None
+    if crashlog.last_crash(prev, crashed):
         w.notify("前に落ちたときの記録があります", "error", f"記録: {crashlog.path()}（ヘルプの「落ちた記録を開く」で開けます）")
     try:
         w.layout_store.setValue("crashlog_size", crashlog.path().stat().st_size)
