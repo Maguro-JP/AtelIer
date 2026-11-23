@@ -35,6 +35,15 @@ def figure(size=(160, 200), specks=True) -> Image.Image:
     return im
 
 
+def sketch(size=(160, 200)) -> Image.Image:
+    """白い地に暗い線だけで描いた絵"""
+    im = Image.new("RGB", size, (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.ellipse((30, 20, 130, 180), outline=(30, 30, 30), width=3)
+    d.line((40, 60, 120, 150), fill=(20, 20, 20), width=2)
+    return im
+
+
 def box_mask(size, box) -> Image.Image:
     m = Image.new("L", size, 0)
     ImageDraw.Draw(m).rectangle(box, fill=255)
@@ -104,9 +113,10 @@ class OwnFinishers(unittest.TestCase):
         mask = box_mask(im.size, (40, 15, 120, 90))
         names = ["retouch", "air_holy", "air_haze", "mat_metal", "mat_gem"] + (["retouch_full", "ink"] if SKIMAGE else [])
         for n in names:
-            out = finishers.run(n, im, mask)
+            src = im if n != "ink" else sketch(im.size)   # 清書は線の絵にだけ掛ける
+            out = finishers.run(n, src, mask)
             self.assertEqual(out.size, im.size, n)
-            self.assertTrue(outside_same(im, out, mask), n)   # 囲みの外は 1 画素も変えない
+            self.assertTrue(outside_same(src, out, mask), n)   # 囲みの外は 1 画素も変えない
 
     def test_atmosphere_changes_look(self):
         im = figure(specks=False)
