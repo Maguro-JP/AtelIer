@@ -5,6 +5,7 @@
 | 1 | 2026-11-21 | ルーティンのプロンプトに「PR #1 が開いている間は同じブランチに積む」と足した。スキルの形（毎朝 main から新しいブランチ）に戻すか | PR #1 をマージするまで今のまま | |
 | 2 | 2026-11-21 | CharacterDesigner の側で、キャラクターデザイン以外を消して AtelIer の上に載せ直してよいか（削除を伴う） | AtelIer の拡張の登録口が動いてから、CharacterDesigner に PR を出す | |
 | 3 | 2026-11-22 | PR 待ち: AtelIer の claude/FIX-rules-20261121、CharacterDesigner と FashionDesigner の claude/FIX-atelier-extension-20261121 を PR にしてマージしてよいか | テストを直してから 3 本ともマージする | |
+| 4 | 2026-11-23 | PR 待ち: claude/FIX-rules-20261121 を PR にしてマージしてよいか。中身はウィンドウ化（0201709、a47ed37、d5c4a90、4efd5d9）、描画の基本の 1・2 周目（8553140、7094e69、9effb79、ef42960、c616188）、新規キャンバスを元に戻す（36ead56、d1eab2b）、起動の確かめの窓を 1 枚にする（a4ad070）、needs_models.txt（7bc04b1）、lessons（f7119e0）、main の 0.1.5〜0.1.11 の取り込み、重い段の窓で止まる試験の直し、よく使う帯の試験の直し。キャラクターデザインの台本と文書の削除を含む | 作業ブランチの atelier-e2e が緑になってから PR を作ってマージする | |
 
 ## CharacterDesigner から引き継いだ判断待ち（2026-11-22 に写した）
 
