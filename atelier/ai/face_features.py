@@ -105,8 +105,11 @@ def features(image, labels=None) -> dict:
     skin = np.median(a[face], 0)
     band = np.zeros_like(face)
     band[y0 + int(h * EYE_BAND[0]):y0 + int(h * EYE_BAND[1]), x0:x1] = True
-    # 目は部位分けで顔に入ることも入らないこともあるので、顔の囲みの帯の中の髪でない画素を見る
-    cand = band & ~hair & (np.linalg.norm(a - skin, axis=2) > EYE_FROM_SKIN)
+    # 目は部位分けで顔に入ることも入らないこともあるので、顔の穴を埋めた形の中で、帯にある髪でない画素を見る。
+    # 囲みの四角のままだと、顔の外の角（背景）まで目として数え、背景を整えただけで目の色が変わったと測った
+    from scipy import ndimage
+    inside = ndimage.binary_fill_holes(face)
+    cand = band & inside & ~hair & (np.linalg.norm(a - skin, axis=2) > EYE_FROM_SKIN)
     if cand.sum() < 10:
         return out
     out["eye"] = a[cand].mean(0)

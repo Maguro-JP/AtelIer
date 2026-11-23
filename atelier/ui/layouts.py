@@ -314,8 +314,32 @@ def recommended(w):
     # 右の列も中身から配る。5:5 のままだと、どの窓の大きさでも AI の欄の指示のタブに縦の流す棒が出て、
     # 下の履歴だけが空いた場所を取った
     fit_ai(w)
+    _narrow(w)
     _progress_idle(w)
     _first_tool(w, "hand")
+
+
+NARROW = 1000   # これより狭い窓では、欄を右の 1 列にまとめる（私の推測の境目。800 幅で左右 2 列だと絵が 160 画素に潰れた）
+
+
+def _narrow(w):
+    """狭い窓の初めの配置。左の列（色・レイヤー）を右の AI とタブにまとめ、絵の幅を残す。
+    初めの推奨の配置のときだけ当て、利用者が手で置いた配置には当てない"""
+    if w.width() >= NARROW:
+        return
+    ai = w.panels["chat"][0]
+    for k in ("color", "layers"):
+        d = w.panels[k][0]
+        if not d.isHidden():
+            w.tabifyDockWidget(ai, d)
+    ai.raise_()
+    w.__dict__.pop("_fit_cols", None)
+    w.__dict__.pop("_fit_ai", None)
+    w.setCorner(Qt.BottomLeftCorner, B)
+    # 組み替えた直後は前の幅の場所にタブの帯が残り、履歴のタブが二重に見えた。並びが落ち着いてから隠す
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(0, lambda: hide_stale_tabbars(w))
+    QTimer.singleShot(50, lambda: hide_stale_tabbars(w))
 
 
 def creator(w):
