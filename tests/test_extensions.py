@@ -315,8 +315,8 @@ class TitleScreenTest(Base):
         kinds = [(t.key, t.kind) for t in ts.tiles()]
         self.assertEqual(kinds[0], ("paint", "paint"))
         self.assertNotIn("designer", [k for _, k in kinds])   # 入っていない物は大きなタイルにしない
-        # 「入れる」は拡張だけの Setup のある物だけ。今はどのデザイナーにも無いので出ない
-        self.assertEqual([k for k, kind in kinds if kind == "install"], [])
+        # 「入れる」は拡張だけの Setup のある物だけ（今は CharacterDesigner だけ）
+        self.assertEqual([k for k, kind in kinds if kind == "install"], ["install:character"])
         w = self.window()
         self.assertEqual(self.pick(w, "paint"), "paint")
         self.assertEqual(w.layout_store.value(ts.KEY_LAST), "paint")
@@ -369,10 +369,10 @@ class TitleScreenTest(Base):
         opened = []
         with mock.patch.object(cat, "DESIGNERS", fake), \
                 mock.patch.object(ts.QDesktopServices, "openUrl", lambda url: opened.append(url.toString())):
-            self.assertEqual([t.key for t in ts.tiles() if t.kind == "install"], ["install:logo"])
+            self.assertEqual([t.key for t in ts.tiles() if t.kind == "install"], ["install:character", "install:logo"])
             dlg = ts.TitleScreen(w)
             self.assertTrue(dlg.install_hint.isHidden())
-            next(b for b in dlg.buttons if b.tile.kind == "install").click()
+            next(b for b in dlg.buttons if b.tile.key == "install:logo").click()
         self.assertEqual(opened, ["https://github.com/Maguro-JP/LogoDesigner/releases/latest"])
         self.assertIn("Extension と Setup", dlg.install_hint.text())
         self.assertFalse(dlg.install_hint.isHidden())
@@ -386,7 +386,8 @@ class TitleScreenTest(Base):
         self.assertTrue(cat.is_extension_setup("characterdesigner_extension_setup_0.2.exe"))
         self.assertFalse(cat.is_extension_setup("CharacterDesigner-Setup.exe"))
         self.assertFalse(cat.is_extension_setup("Extension.zip"))
-        self.assertEqual(cat.for_installer(), ())   # 今はどのデザイナーにも拡張だけの Setup が無い
+        # Release に拡張だけの Setup（CharacterDesigner-Extension-Setup.exe）があるのは CharacterDesigner だけ
+        self.assertEqual([d.key for d in cat.for_installer()], ["character"])
         ps1 = (ROOT / "packaging" / "get-extension.ps1").read_text(encoding="utf-8")
         self.assertIn(f"-like '{cat.EXTENSION_SETUP_PATTERN}'", ps1)
         self.assertNotIn("-like '*Setup*.exe'", ps1)

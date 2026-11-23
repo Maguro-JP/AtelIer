@@ -34,7 +34,7 @@ class Designer:
 
 
 DESIGNERS: tuple[Designer, ...] = (
-    Designer("character", "CharacterDesigner", "Maguro-JP/CharacterDesigner", "character_designer", False),
+    Designer("character", "CharacterDesigner", "Maguro-JP/CharacterDesigner", "character_designer", True),
     Designer("fashion", "FashionDesigner", "Maguro-JP/FashionDesigner", "fashion_designer", False),
     Designer("logo", "LogoDesigner", "Maguro-JP/LogoDesigner", "logo_designer", False),
     Designer("emblem", "EmblemDesigner", "Maguro-JP/EmblemDesigner", "emblem_designer", False),

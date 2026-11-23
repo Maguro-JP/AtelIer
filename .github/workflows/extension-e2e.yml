@@ -1,0 +1,104 @@
+# デザイナーの拡張だけの Setup を、利用者と同じ順で Windows の機械に通す。
+# AtelIer を入れる → AtelIer のインストーラーの部品と同じ get-extension.ps1 で拡張だけの Setup を取って入れる →
+# AtelIer のタイトルの画面にタイルが出て、押すとデザイナーの画面（メニュー）が開く → 拡張をアンインストールすると拡張のフォルダーだけが消える。
+# 拡張は AtelIer の Python と PySide6 で動く決まりなので、拡張の置き場に Python や PySide6 が入っていないことも見る。
+# Linux の試験ではインストーラーの経路と ProgramData の置き場を通せないため、ここで本物の Setup.exe を使う。
+name: extension-e2e
+on:
+  push:
+    paths:
+      - "atelier/extension_catalog.py"
+      - "atelier/extensions.py"
+      - "atelier/app/title_screen.py"
+      - "atelier/bench/extension_tile.py"
+      - "packaging/get-extension.ps1"
+      - ".github/workflows/extension-e2e.yml"
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "拡張だけの Setup を取るリポジトリ"
+        default: "Maguro-JP/CharacterDesigner"
+permissions:
+  contents: read
+concurrency:
+  group: extension-e2e-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -y -q nsis python3-pil
+      - run: sh packaging/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: setup-ext
+          path: dist/AtelIer-Setup.exe
+          retention-days: 3
+  windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      REPO: ${{ inputs.repo || 'Maguro-JP/CharacterDesigner' }}
+      EXT: C:\ProgramData\AtelIer\extensions\character_designer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging
+      - uses: actions/download-artifact@v4
+        with:
+          name: setup-ext
+      - name: AtelIer を入れる
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath .\AtelIer-Setup.exe -ArgumentList '/S' -Wait -PassThru
+          "exit=$($p.ExitCode) 版=$(Get-Content 'C:\Program Files\AtelIer\VERSION')"
+          if (-not (Test-Path "C:\Program Files\AtelIer\python\pythonw.exe")) { throw "AtelIer が入っていない" }
+          # ほかの拡張の置き場（拡張のアンインストールで消えてはいけない物）
+          New-Item -ItemType File -Force -Path "C:\ProgramData\AtelIer\extensions\sample\keep.txt" | Out-Null
+      - name: 拡張だけの Setup を入れる（インストーラーの部品と同じ get-extension.ps1）
+        shell: powershell
+        run: |
+          $rel = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'AtelIer-e2e' } -Uri "https://api.github.com/repos/$env:REPO/releases/latest"
+          "Release: $($rel.tag_name)"
+          $rel.assets | ForEach-Object { "  $($_.name) $($_.size) バイト" }
+          & .\packaging\get-extension.ps1 -Repo $env:REPO
+          "get-extension.ps1 の終わりの番号: $LASTEXITCODE"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Content "$env:EXT\extension.json"
+          $heavy = Get-ChildItem -Recurse -Force $env:EXT | Where-Object { $_.Name -match '^(python.*\.exe|PySide6|shiboken6|Qt6.*\.dll)$' }
+          if ($heavy) { $heavy | Select-Object FullName; throw "拡張の置き場に Python か PySide6 が入っている" }
+          "拡張の置き場の大きさ: $([math]::Round(((Get-ChildItem -Recurse -File $env:EXT | Measure-Object Length -Sum).Sum) / 1MB, 2)) MB"
+      - name: AtelIer を起動し、タイルを押してデザイナーの画面を開く
+        shell: pwsh
+        working-directory: C:\Program Files\AtelIer
+        run: |
+          & "C:\Program Files\AtelIer\python\python.exe" -E -s -m atelier.bench.extension_tile "$env:RUNNER_TEMP\tile" chara
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 拡張をアンインストールし、拡張のフォルダーだけが消えたかを見る
+        if: always()
+        shell: pwsh
+        run: |
+          $u = "C:\Program Files\CharacterDesigner\Uninstall.exe"
+          if (-not (Test-Path $u)) { throw "拡張のアンインストーラーが無い" }
+          Start-Process -FilePath $u -ArgumentList '/S' -Wait | Out-Null
+          for ($i = 0; $i -lt 60 -and (Test-Path $u); $i++) { Start-Sleep 2 }
+          $state = [ordered]@{
+            "拡張の置き場" = Test-Path $env:EXT
+            "ほかの拡張" = Test-Path "C:\ProgramData\AtelIer\extensions\sample\keep.txt"
+            "AtelIer" = Test-Path "C:\Program Files\AtelIer\python\pythonw.exe"
+            "拡張の控え" = Test-Path "C:\Program Files\CharacterDesigner"
+          }
+          $state | Format-Table -AutoSize | Out-String | Write-Output
+          if ($state["拡張の置き場"]) { throw "拡張の置き場が残った" }
+          if ($state["拡張の控え"]) { throw "拡張の控えが残った" }
+          if (-not $state["ほかの拡張"]) { throw "ほかの拡張の置き場まで消した" }
+          if (-not $state["AtelIer"]) { throw "AtelIer まで消した" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extension-tile
+          path: ${{ runner.temp }}/tile
+          retention-days: 7
