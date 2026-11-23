@@ -4,7 +4,6 @@ from __future__ import annotations
 from PySide6.QtCore import QThread
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog
-from PySide6.QtWidgets import QMessageBox
 from atelier.ai.engine import Studio
 from atelier.ai.engine import check
 from atelier.app.window.image_convert import fit_size
@@ -279,6 +278,7 @@ class AiDrawingMixin:
                 and not self.studio.painter.reference_ready():
             from atelier.ai.engine import REFERENCE_GB
             gb = REFERENCE_GB.get(getattr(self.studio.painter, "family", "sdxl"), 3)
+            from PySide6.QtWidgets import QMessageBox
             if QMessageBox.question(self, "参考画像に寄せる", f"参考画像を読む部品（約 {gb}GB）を初めに取ります。取りますか。") \
                     != QMessageBox.Yes:
                 self.ai_panel.use_ref.setChecked(False)   # 取らないなら、参考画像なしで描く
@@ -332,10 +332,16 @@ class AiDrawingMixin:
         if not found:
             return text
         lines = "\n".join(f"・元「{a}」 → 今「{b}」" for a, b in found)
-        picked = confirm.ask(self, "intent", "元の頼みと食い違います",
-                             "今の頼みは、元の頼み（描くワード・赤ペンの指示）と食い違います。\n" + lines,
-                             [("keep", "元のまま"), ("new", "新しい頼みにする")],
-                             detail="「元のまま」は食い違った所を外して直します。「新しい頼みにする」は今の頼みのとおりに直します。")
+        way = self.settings.get("intent_way")
+        picked = confirm.remembered(self, "intent") or {"今の頼みにする": "new", "元のまま": "keep"}.get(way, "")
+        if picked:   # 聞かずに決めた。状態の帯に 1 行だけ出す（直しは一番上のレイヤーなので、元に戻すで戻せる）
+            self.statusBar().showMessage(("今の頼みのとおりに直します" if picked == "new" else "元の頼みのまま、食い違った所を外して直します")
+                                         + "（元に戻すで戻せます。決め方は「設定」の「描き方」で変えられます）", 8000)
+        else:
+            picked = confirm.ask(self, "intent", "元の頼みと食い違います",
+                                 "今の頼みは、元の頼み（描くワード・赤ペンの指示）と食い違います。\n" + lines,
+                                 [("new", "新しい頼みにする"), ("keep", "元のまま")],
+                                 detail="「元のまま」は食い違った所を外して直します。「新しい頼みにする」は今の頼みのとおりに直します。")
         if picked == "cancel":
             self.statusBar().showMessage("直しをやめました。元の絵のままです", 6000)
             return None
@@ -371,9 +377,10 @@ class AiDrawingMixin:
         except Exception:
             return
         self._two_parts_asked = True   # 断られたら、この起動の間は聞き直さない
-        if QMessageBox.question(self, "構図と仕上げを分けて描く",
-                                f"手足や姿勢が崩れにくい描き方（構図と仕上げを分ける）に使う部品（約 {twostage.PARTS_GB}GB）を取りますか。"
-                                "取らないときは、1 つの模型で描きます。") == QMessageBox.Yes:
+        from atelier.ui import confirm
+        if confirm.ask(self, "two_parts", "構図と仕上げを分けて描く",
+                       f"手足や姿勢が崩れにくい描き方（構図と仕上げを分ける）に使う部品（約 {twostage.PARTS_GB}GB）を取りますか。"
+                       "取らないときは、1 つの模型で描きます。", [("yes", "取る")], cancel="取らない") == "yes":
             self.studio.fetch_two_parts = True   # 取るのは描く裏の処理で行う（画面を止めない）
 
     def save_layer_png(self, path: str | None = None) -> str:

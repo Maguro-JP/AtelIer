@@ -17,7 +17,12 @@ KINDS = {
     "batch": "まとめて描く",
     "intent": "元の頼みと食い違う頼み",
     "forget": "一覧・辞書・プリセットから消す",
+    "two_parts": "構図と仕上げを分ける部品を取る",
 }
+
+# 取り返しのつかない操作。この窓だけは「次から聞かない」を初めは外しておく（毎回確かめる）。
+# ほかの窓は初めの 1 回だけ聞き、答えを覚えて次から聞かない。何度も選ばせると作業が止まって不快だったため
+IRREVERSIBLE = {"overwrite", "delete_images", "forget"}
 
 # 時間のかかる処理の目安。これより大きいときだけ聞く
 BIG_UPSCALE_PX = 4096 * 4096   # 拡大したあとの画素の数
@@ -64,6 +69,7 @@ def ask(w, kind: str, title: str, text: str, buttons: list[tuple[str, str]], can
             box.setDefaultButton(b)
     box.addButton(cancel, QMessageBox.RejectRole)
     again = QCheckBox("次から聞かない（「設定」の「確かめの窓をまた出す」で戻せます）")
+    again.setChecked(kind not in IRREVERSIBLE)
     box.setCheckBox(again)
     w._confirm_box = box   # 試験から押せるように
     box.exec()
