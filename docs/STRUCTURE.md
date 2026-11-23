@@ -31,6 +31,7 @@
 | `packaging/` | Windows の Setup.exe の組み方（CharacterDesigner のまま。AtelIer 用にはまだ直していない） |
 | `tests/` | テスト。見本の絵は `tests/fixtures/` |
 | `scripts/run_tests.py` | テストをファイルごとに別の処理で流す |
+| `scripts/unmerged_fixes.py`、`scripts/validate.sh` | 作業ブランチで直した不具合のうち main に無い物を注意に出す（precheck と Actions の unmerged-fixes が呼ぶ） |
 | `docs/` | 決めたこと（knowledge/decisions.md）、この地図、モデルの一覧（models.md）、画像 |
 
 ## CharacterDesigner との分け方

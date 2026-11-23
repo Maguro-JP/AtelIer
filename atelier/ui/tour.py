@@ -62,6 +62,11 @@ class Tour(QWidget):
         from atelier.ui.motion import fade_in
         fade_in(self)
         self.raise_()
+        from PySide6.QtCore import QTimer
+        self._keep = QTimer(self)
+        self._keep.setInterval(200)
+        self._keep.timeout.connect(self._to_top)
+        self._keep.start()
         self.show_step(0)
 
     def hole(self) -> QRect | None:
@@ -143,6 +148,17 @@ class Tour(QWidget):
             self.setGeometry(self.window_.rect())
             self._place()
         return False
+
+    def _to_top(self):
+        """欄を前に出す（raise_）・窓の上の窓（モードを選ぶ窓）を閉じると、案内が欄の下に回り、札が半分隠れた。
+        欄の前後が変わっても窓には知らせが来ないので、出ている間は短い間隔で一番上かを見て戻す"""
+        try:
+            if self.done:
+                self._keep.stop()
+            elif self.isVisible() and self.window_.children()[-1] is not self:
+                self.raise_()
+        except RuntimeError:
+            pass   # 閉じたあとに届いた分
 
     def mousePressEvent(self, e):
         e.accept()   # 暗い所を押しても後ろの部品は動かさない

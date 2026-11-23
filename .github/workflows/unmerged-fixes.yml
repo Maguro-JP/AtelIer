@@ -1,0 +1,21 @@
+# 作業ブランチ（claude/*）に push されたら、そのブランチの直しのうち main に無い物を注意（warning）に出す。
+# 作業ブランチでだけ直して、main と配った版に入らないまま「直した」と伝えたことがあったので見張る。
+name: unmerged-fixes
+on:
+  push:
+    branches: ["claude/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: main に無い直しを出す
+        run: |
+          git fetch -q origin main
+          python3 scripts/unmerged_fixes.py "origin/${GITHUB_REF_NAME}" | tee -a "$GITHUB_STEP_SUMMARY"
