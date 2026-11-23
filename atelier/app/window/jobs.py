@@ -60,6 +60,10 @@ class Job(QObject):
 
     def _preview(self, img):
         """途中の絵は工程ごとに届く。全部を画面の糸に積むと、速い模型では置く処理が溜まって画面とメモリを圧迫したので、間を空けて渡す"""
+        from atelier.ai.phases import PHASE_TAG
+        if PHASE_TAG in getattr(img, "info", {}):   # 工程の絵は間引かない（間引くと描けた工程が窓に出なかった）
+            self.preview.emit(img)
+            return
         now = time.monotonic()
         if now - self._last_preview < self.PREVIEW_GAP:
             return

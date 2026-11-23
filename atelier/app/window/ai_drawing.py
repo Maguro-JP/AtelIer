@@ -296,6 +296,7 @@ class AiDrawingMixin:
             meta["source"] = self.fix_source()
         self._apply_avoid()
         self.job_studio = self._fix_studio() if mode == 2 else self.studio
+        self._work_layer = None   # 精度優先で描けた工程の絵を置く作業用のレイヤー（回ごとに新しく足す）
         if not hasattr(self, "_phase_ask"):
             self._phase_ask = PhaseAsk(self)
         self.job_studio.phase_confirm = self._phase_ask if self.settings.get("phase_confirm") else None
