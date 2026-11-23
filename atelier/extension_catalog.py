@@ -8,20 +8,33 @@
 """
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass
+
+# AtelIer を使う人は、デザイナーを拡張だけで入れる（拡張の置き場 C:\ProgramData\AtelIer\extensions に入る）。
+# デザイナーの Release には Python ごと入った単体の Setup.exe（80 MiB ほど）もあるので、名前に Extension と Setup の
+# 両方を含む .exe だけを拡張だけの Setup とみなす。単体の Setup を AtelIer から入れると、アプリが 2 つ入ってしまうため。
+# packaging/get-extension.ps1 も同じ形（-like）で選ぶ
+EXTENSION_SETUP_PATTERN = "*Extension*Setup*.exe"
+
+
+def is_extension_setup(asset_name: str) -> bool:
+    """Release の添付の名前が、拡張だけの Setup か（大文字と小文字は区別しない。PowerShell の -like と同じ）"""
+    return fnmatch.fnmatch(asset_name.lower(), EXTENSION_SETUP_PATTERN.lower())
 
 
 @dataclass(frozen=True)
 class Designer:
     key: str        # 一覧の中の呼び名
     name: str       # アプリの名前（インストーラーと窓に出す）
-    repo: str       # GitHub のリポジトリ（owner/name）。インストーラーは、ここの最新の Release から Setup.exe を取る
+    repo: str       # GitHub のリポジトリ（owner/name）。インストーラーは、ここの最新の Release から拡張だけの Setup を取る
     dropin: str     # 拡張の置き場の下のフォルダーの名前（C:\ProgramData\AtelIer\extensions\<dropin>\）
-    installer: bool  # AtelIer の Setup.exe の選べる部品に出すか。Release に Setup.exe がある物だけ True にする
+    installer: bool  # Release に拡張だけの Setup（EXTENSION_SETUP_PATTERN）がある物だけ True にする。
+    #                  True の物だけを、AtelIer の Setup.exe の選べる部品と、タイルの画面の「入れる」に出す
 
 
 DESIGNERS: tuple[Designer, ...] = (
-    Designer("character", "CharacterDesigner", "Maguro-JP/CharacterDesigner", "character_designer", True),
+    Designer("character", "CharacterDesigner", "Maguro-JP/CharacterDesigner", "character_designer", False),
     Designer("fashion", "FashionDesigner", "Maguro-JP/FashionDesigner", "fashion_designer", False),
     Designer("logo", "LogoDesigner", "Maguro-JP/LogoDesigner", "logo_designer", False),
     Designer("emblem", "EmblemDesigner", "Maguro-JP/EmblemDesigner", "emblem_designer", False),
@@ -39,5 +52,5 @@ def by_key(key: str) -> Designer:
 
 
 def for_installer() -> tuple[Designer, ...]:
-    """AtelIer の Setup.exe に選べる部品として出す物。Release の無いリポジトリは出さない（押しても取れないため）"""
+    """AtelIer の Setup.exe に選べる部品として出す物。拡張だけの Setup の無いリポジトリは出さない（押しても取れないため）"""
     return tuple(d for d in DESIGNERS if d.installer)

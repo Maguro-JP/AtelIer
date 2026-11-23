@@ -3,8 +3,9 @@
 並べるのは、押せば必ず中身に入れる物だけにする。
 - AtelIer の描く画面（ペイント）
 - 拡張の置き場から読めたデザイナー（atelier/extensions.py の load_dropins）
-- 一覧（atelier/extension_catalog.py）にあって Release のある、まだ入っていないデザイナーは、小さな「入れる」のタイルにする。
-  押すと Release のページ（インストーラーの場所）を開く。入っていない物を大きなタイルにすると、中身の無い入口になるため。
+- 一覧（atelier/extension_catalog.py）にあって Release に拡張だけの Setup（名前に Extension と Setup を含む .exe）のある、
+  まだ入っていないデザイナーは、小さな「入れる」のタイルにする。押すと、その Setup の取り方を窓の下に出し、Release のページを開く。
+  Python ごと入った単体の Setup しか無いデザイナーは出さない（AtelIer を使う人は拡張だけを入れる）。入っていない物を大きなタイルにすると、中身の無い入口になるため。
 
 絵は extension.json の "image"、名前は "title"、一言は "tagline" から読む。無いときは名前の頭文字で絵を作る。
 実在の物の写しは使わない。描く画面の絵は、ロゴの字と筆の跡をその場で描く（配る版に docs/images は入らないため）。
@@ -17,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QUrl
+from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea,
                                QSizePolicy, QToolButton, QVBoxLayout, QWidget)
@@ -69,9 +70,15 @@ def tiles() -> list[Tile]:
         if d.installer and d.name not in loaded and d.dropin not in loaded:
             out.append(Tile("install:" + d.key, d.name, "入れる", "install",
                             url=f"https://github.com/{d.repo}/releases/latest",
-                            tip=f"{d.name} はまだ入っていません。押すと Release のページ（Setup.exe の置き場）を開きます。"
-                                "入れたあとで AtelIer を開き直すと、ここに大きなタイルで出ます"))
+                            tip=f"{d.name} はまだ入っていません。押すと、拡張だけの Setup の取り方を出し、Release のページを開きます"))
     return out
+
+
+def install_steps(tile: Tile) -> str:
+    """「入れる」を押したときに出す、拡張だけの Setup の取り方"""
+    return (f"{tile.title} の Release のページを開きました。添付の中から、名前に Extension と Setup を含む .exe"
+            f"（拡張だけの Setup）を取って開いてください。Python ごと入った単体の Setup.exe は取りません。"
+            f"入れたあとでアプリを開き直すと、ここに大きなタイルで出ます")
 
 
 def _initials(name: str) -> str:
@@ -126,10 +133,7 @@ def tile_picture(tile: Tile, size: QSize) -> QPixmap:
 
 def _draw_wordmark(p: QPainter, rect: QRectF, px: float) -> None:
     """ロゴの字を、A と I だけ差し色で描く（atelier/ui/logo.py と同じ決まり）"""
-    f = QFont()
-    f.setBold(True)
-    f.setPixelSize(max(8, int(px)))
-    p.setFont(f)
+    p.setFont(logo.wordmark_font(px))
     fm = p.fontMetrics()
     total = sum(fm.horizontalAdvance(c) for c in logo.NAME)
     x = rect.center().x() - total / 2
@@ -154,6 +158,9 @@ class TileButton(QToolButton):
         self.setToolTip(tile.tip)
         self.setCursor(Qt.PointingHandCursor)
         self.setAccessibleName(tile.title)
+        if tile.kind == "paint":
+            # 名前の「AtelIer」も、I が l に見えないよう I に横棒のある書体にする（atelier/ui/logo.py）
+            self.setFont(logo.wordmark_font(15 if big else 12))
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         pad = 14 if big else 8
         self.setFixedSize(pic.width() + pad * 2, pic.height() + (64 if big else 48))
@@ -190,7 +197,7 @@ class TitleScreen(QDialog):
         all_tiles = tiles()
         big = [t for t in all_tiles if t.kind != "install"]
         small = [t for t in all_tiles if t.kind == "install"]
-        area = QScrollArea()
+        area = self.area = QScrollArea()
         area.setWidgetResizable(True)
         area.setFrameShape(QScrollArea.NoFrame)
         area.setStyleSheet(f"QScrollArea, QScrollArea > QWidget > QWidget {{ background:{BLACK}; }}"
@@ -215,6 +222,13 @@ class TitleScreen(QDialog):
                 row.addWidget(self._button(t, False))
             row.addStretch(1)
             col.addLayout(row)
+        # 「入れる」を押したときの答え（取り方）を出す所。押すまでは空で、場所も取らない
+        self.install_hint = QLabel("")
+        self.install_hint.setWordWrap(True)
+        self.install_hint.setAlignment(Qt.AlignCenter)
+        self.install_hint.setStyleSheet(f"color:{WHITE}; font-size:12px; margin-top:6px;")
+        self.install_hint.hide()
+        col.addWidget(self.install_hint)
         col.addStretch(1)
         area.setWidget(inner)
         root.addWidget(area, 1)
@@ -281,7 +295,11 @@ class TitleScreen(QDialog):
 
     def _pick(self, tile: Tile):
         if tile.kind == "install":
-            # 入れる物は窓を閉じずに Release のページを開く（押した答えが返り、ほかのタイルもそのまま選べる）
+            # 入れる物は窓を閉じずに、取り方を出して Release のページを開く（押した答えが返り、ほかのタイルもそのまま選べる）
+            self.install_hint.setText(install_steps(tile))
+            self.install_hint.show()
+            # 出した取り方が窓の下で切れないよう、並べ直したあとでそこまで送る
+            QTimer.singleShot(0, lambda: self.area.ensureWidgetVisible(self.install_hint))
             QDesktopServices.openUrl(QUrl(tile.url))
             return
         self.picked = tile.key

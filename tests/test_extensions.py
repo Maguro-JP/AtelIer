@@ -315,8 +315,8 @@ class TitleScreenTest(Base):
         kinds = [(t.key, t.kind) for t in ts.tiles()]
         self.assertEqual(kinds[0], ("paint", "paint"))
         self.assertNotIn("designer", [k for _, k in kinds])   # 入っていない物は大きなタイルにしない
-        self.assertIn(("install:character", "install"), kinds)   # Release のある物だけ「入れる」
-        self.assertNotIn("install:logo", [k for k, _ in kinds])
+        # 「入れる」は拡張だけの Setup のある物だけ。今はどのデザイナーにも無いので出ない
+        self.assertEqual([k for k, kind in kinds if kind == "install"], [])
         w = self.window()
         self.assertEqual(self.pick(w, "paint"), "paint")
         self.assertEqual(w.layout_store.value(ts.KEY_LAST), "paint")
@@ -359,17 +359,51 @@ class TitleScreenTest(Base):
         w.layout_store.setValue(ts.KEY_SKIP, 0)
         self.assertIn("タイルの画面…", self.file_items(w))   # あとから「ファイル」で出せる
 
-    def test_install_tile_opens_release_page_and_keeps_window(self):
+    def test_install_tile_shows_how_to_get_extension_setup(self):
+        """拡張だけの Setup がある物だけを「入れる」に出し、押すと取り方を出して Release のページを開く"""
+        import dataclasses
+        from atelier import extension_catalog as cat
         from atelier.app import title_screen as ts
         w = self.window()
+        fake = tuple(dataclasses.replace(d, installer=True) if d.key == "logo" else d for d in cat.DESIGNERS)
         opened = []
-        with mock.patch.object(ts.QDesktopServices, "openUrl", lambda url: opened.append(url.toString())):
+        with mock.patch.object(cat, "DESIGNERS", fake), \
+                mock.patch.object(ts.QDesktopServices, "openUrl", lambda url: opened.append(url.toString())):
+            self.assertEqual([t.key for t in ts.tiles() if t.kind == "install"], ["install:logo"])
             dlg = ts.TitleScreen(w)
+            self.assertTrue(dlg.install_hint.isHidden())
             next(b for b in dlg.buttons if b.tile.kind == "install").click()
-        self.assertEqual(opened, ["https://github.com/Maguro-JP/CharacterDesigner/releases/latest"])
+        self.assertEqual(opened, ["https://github.com/Maguro-JP/LogoDesigner/releases/latest"])
+        self.assertIn("Extension と Setup", dlg.install_hint.text())
+        self.assertFalse(dlg.install_hint.isHidden())
         self.assertEqual(dlg.result(), 0)   # 窓は閉じず、ほかのタイルを選べる
         dlg.deleteLater()
 
+    def test_only_extension_setup_counts(self):
+        """Python ごと入った単体の Setup.exe（81 MiB）は、拡張だけの Setup として扱わない"""
+        from atelier import extension_catalog as cat
+        self.assertTrue(cat.is_extension_setup("CharacterDesigner-Extension-Setup.exe"))
+        self.assertTrue(cat.is_extension_setup("characterdesigner_extension_setup_0.2.exe"))
+        self.assertFalse(cat.is_extension_setup("CharacterDesigner-Setup.exe"))
+        self.assertFalse(cat.is_extension_setup("Extension.zip"))
+        self.assertEqual(cat.for_installer(), ())   # 今はどのデザイナーにも拡張だけの Setup が無い
+        ps1 = (ROOT / "packaging" / "get-extension.ps1").read_text(encoding="utf-8")
+        self.assertIn(f"-like '{cat.EXTENSION_SETUP_PATTERN}'", ps1)
+        self.assertNotIn("-like '*Setup*.exe'", ps1)
+
+    def test_logo_uses_serif_for_capital_i(self):
+        """大文字の I が小文字の l に見えないよう、I に横棒のある書体で組む"""
+        from atelier.ui import logo
+        html = logo.wordmark_html("#f00", "#fff")
+        self.assertIn("Georgia", html)
+        self.assertEqual(logo.wordmark_font(20).families()[0], "Georgia")
+        self.assertIn('font-family="serif"', logo.LOGO_SVG.read_text(encoding="utf-8"))   # QtSvg は並べた名前を読めないので serif だけ
+
+    def test_title_tour(self):
+        from atelier.ui import tours
+        w = self.window()
+        self.assertIn("title", tours.catalog(w))
+        self.assertIn("title", tours.NEW)
 
 if __name__ == "__main__":
     unittest.main()
