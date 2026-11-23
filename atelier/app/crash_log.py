@@ -56,11 +56,23 @@ def install():
     threading.excepthook = thread_hook
 
 
-def last_crash(since_size: int) -> str:
-    """since_size より後ろに書かれた記録のうち、落ちた形跡（Fatal Python error / Traceback）があればその部分を返す"""
+def last_crash(since_size, crashed: bool = True) -> str:
+    """前の回にアプリごと落ちた記録があれば、その部分を返す。無ければ空。
+
+    出すのは、前の回が正しく閉じずに終わり（crashed）、前に見た位置（since_size、バイト）より後ろに
+    faulthandler の Fatal Python error / Windows fatal exception があるときだけ。
+    - 捕まえて続けた例外（Traceback）だけの記録では出さない。落ちていないのに起動のたびに出た
+    - 前に見た位置が無い（初めての起動、前の版が積み上げた置き場）ときは出さない。昔の記録を新しい事故として出した
+    - Windows の faulthandler は、中で処理された例外でも書くことがあるので、正しく閉じた回の分は出さない
+    - 位置はバイトで数える。前は文字の位置で切り、日本語の行があると切る所がずれた
+    """
+    if not crashed or since_size is None:
+        return ""
     try:
-        data = path().read_text(encoding="utf-8", errors="replace")
+        data = path().read_bytes()
     except OSError:
         return ""
-    tail = data[since_size:]
-    return tail if ("Fatal Python error" in tail or "Traceback" in tail) else ""
+    if since_size < 0 or since_size > len(data):   # 記録が消されて短くなった。どこから新しいか分からないので出さない
+        return ""
+    tail = data[since_size:].decode("utf-8", errors="replace")
+    return tail if ("Fatal Python error" in tail or "Windows fatal exception" in tail) else ""
