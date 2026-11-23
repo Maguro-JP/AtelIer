@@ -17,7 +17,7 @@ LANGS = ("日本語", "English")
 EN = {
     # メニュー
     "ファイル": "File", "編集": "Edit", "表示": "View", "AI": "AI", "キャラクターデザイン": "Character Design",
-    "ロゴ・スタンプ": "Logos and Stamps", "設定": "Settings", "選択範囲": "Selection", "レイヤー": "Layer", "ウィンドウ": "Window",
+    "ロゴ・スタンプ": "Logos and Stamps", "加工": "Edit Image", "設定": "Settings", "選択範囲": "Selection", "レイヤー": "Layer", "ウィンドウ": "Window",
     "ヘルプ": "Help", "書き出す": "Export", "ディレクトリを開く": "Open Folder", "テーマ": "Theme", "タイムラプス": "Timelapse",
     "欄の位置": "Panel Position", "帯の位置": "Toolbar Position", "機能ごとの案内": "Feature Guides",
     "設定…": "Settings…", "キーの設定…": "Key Bindings…", "使い方ツアー": "Guided Tour", "操作方法": "How to Use",

@@ -361,7 +361,7 @@ class LayoutMixin:
         if "redpen" in self.tool_actions:
             bar.addAction(self.tool_actions["redpen"])
         bar.addAction(S["draw"])
-        bar.addAction(S["stop"])
+        # 止めるは置かない。緊急停止の帯がいつも上にあり、ここにも置くと狭い窓で「緊急停止」が 2 つ並んだ
         self.addToolBar(Qt.TopToolBarArea, bar)
         self.quick_bar = bar
 
