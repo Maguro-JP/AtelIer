@@ -674,6 +674,15 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             why = "この模型は囲みの中だけを直せません"
         if why is None and k >= MENDS:
             why = f"{MENDS} 回手を替えて直しても消えませんでした"
+        if why is not None and NAMES[i] in NO_PREVIEW and (can_refine or can_line):
+            # 描かない工程（目的・サムネイル・アタリ）は聞いて止まらない。前の工程の絵を土台に、種を替え強さを上げて描き直す。
+            # 聞いて止まると、検品を通っていないアタリの絵がキャンバスに出た。回数に上限は置かない（止めるのは利用者だけ）
+            for x in list(plan.steps[plan.pos + 1:]):
+                if x["phase"] == i and x.get("item") == item and x["kind"] in ("mend", "recheck") and x["status"] == "todo":
+                    plan.steps.remove(x)
+            plan.insert([step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "whole", "why": why}), step("recheck", i, item)])
+            grew(old)
+            return
         if why is None:
             new = mends_for(i, item, flaws, res, k)
             at = plan.last_pending(("mend",), i, item)
@@ -684,6 +693,46 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 if x["phase"] == i and x.get("item") == item and x["kind"] in ("mend", "recheck") and x["status"] == "todo":
                     plan.steps.remove(x)
             plan.insert([step("ask", i, item, flaws=list(flaws), why=why)])
+        grew(old)
+
+    def redraw_whole(i, item, s, row):
+        """描かない工程の絵を、この工程に入ったときの絵（前の工程の絵）を土台に描き直す。ゼロからは描かない。
+        k ごとに種を替え、強さを MEND の段で上げる（最後の段からは上げずに種だけ替える）。差が DIFF_MIN 未満なら工程に数えない"""
+        nonlocal fixes
+        k = int(s.get("k", 0))
+        base = (entry.get(i) or {}).get("image") or st["image"]
+        cur = st["image"]
+        strength = MEND[min(k, len(MEND) - 1)]
+        seed_k = st["seed"] + 7919 * (k + 1) + 131 * i
+        why = (s.get("how") or {}).get("why", "")
+        say(f"「{NAMES[i]}」の崩れを囲めないので（{why}）、前の工程の絵を土台に種を替えて描き直しています（強さ {strength}）: "
+            + "、".join(s.get("flaws", [])[:3]))
+        tell(st["prompt"])
+        if can_refine:
+            tried = painter.refine(st["prompt"], seed_k, base, strength=strength, on_step=on_step)   # 途中の絵は出さない（NO_PREVIEW）
+        else:
+            tried = painter.paint(st["prompt"], seed_k, on_step=on_step, base=base, strength=strength, size=(w, h))
+        dd = diff(cur, tried)
+        changed = (dd["mean"] or 0) >= DIFF_MIN
+        s.update({"strength": strength, "diff": dd["mean"], "words": [st["prompt"]], "changed": changed, "seed": seed_k})
+        mrow = {"phase": NAMES[i], "mend": "描き直し", "item": item, "strength": strength, "found": list(s.get("flaws", [])),
+                "diff": dd["mean"], "outside": None, "inside": None, "words": [st["prompt"]], "readable": True, "image": None,
+                "changed": changed, "visit": visits[i], "whole": True, "seed": seed_k}
+        row["mends"].append(mrow)
+        if changed:
+            fixes += 1
+            memo.setdefault(("before", i, item), cur)
+            st["image"] = tried
+            s["image"] = mrow["image"] = save_img(tried, i, f"{NAMES[i]}-描き直し")
+            s["status"] = "done"
+            return
+        # 前と同じ絵は工程に数えず、種と強さを替えて描き直し直す
+        say(f"描き直した絵が前とほとんど変わらなかったので（差 {dd['mean']}）、数えずに種を替え、強さを上げます")
+        s["status"] = "unchanged"
+        nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
+        tries[tkey(i, item)] = nk
+        old = plan.need()
+        plan.insert([step("mend", i, item, flaws=list(s.get("flaws", [])), k=nk, how=dict(s.get("how") or {}))])
         grew(old)
 
     def finish_phase(i, row):
@@ -817,6 +866,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             queue_fix(i, item, got_flaws, res, k)
                     else:
                         tries.pop(tkey(i, item), None)
+                elif kind == "mend" and (s.get("how") or {}).get("mask") == "whole":
+                    redraw_whole(i, item, s, row)
                 elif kind == "mend":
                     cur = st["image"]
                     how = s.get("how") or {}

@@ -36,6 +36,11 @@ class AiResultsMixin:
                 self.put_result(path, "ちびキャラ")
             elif first and self.pin_action.isChecked() and self.mode.currentIndex() == 0:
                 self.say("表示する絵を固定しているので、新しい絵は履歴に入れました（押すと出ます）")
+            elif first and self._phases_undone():
+                # 精度優先で検品を通っていない絵（聞いて止まった・アタリで止まった絵）はキャンバスに出さない。
+                # 工程の絵と止まった所の絵は、隠したレイヤーにだけ置く（目の印で出して見比べる）
+                self._put_phases(also=(path, "検品を通っていない絵"))
+                self._placed = path
             elif first:
                 self.activity.status("キャンバスに置いています")
                 self.place(path)
@@ -194,14 +199,26 @@ class AiResultsMixin:
         from atelier.ai.phases import REDPEN
         return self._resume_phase(ask["key"], (REDPEN, str(path)))
 
-    def _put_phases(self):
-        """工程に分けて描いた回は、工程ごとの絵を描いた絵の下に隠したレイヤーで置き、工程ごとの検品を会話に出す（atelier/ai/phases.py）"""
-        rows = getattr(self.studio, "last_phases", None) if self.job_kind == "draw" else None
+    def _phases_undone(self) -> bool:
+        """精度優先で描き、全部の工程が検品を通らずに返った回（聞いて止まった回）なら True"""
+        studio = getattr(self, "job_studio", None) or self.studio
+        return self.job_kind == "draw" and bool(getattr(studio, "last_phases", None)) and getattr(studio, "last_passed", None) is False
+
+    def _put_phases(self, also: tuple[str, str] | None = None):
+        """工程に分けて描いた回は、工程ごとの絵を描いた絵の下に隠したレイヤーで置き、工程ごとの検品を会話に出す（atelier/ai/phases.py）。
+        also=(絵, 名前) は、キャンバスに出さない絵（検品を通っていない絵）を同じく隠したレイヤーに足す"""
+        studio = getattr(self, "job_studio", None) or self.studio
+        rows = getattr(studio, "last_phases", None) if self.job_kind == "draw" else None
         if not rows:
             return
         from atelier.ui.phase_display import drawn
         rows = drawn(rows)   # 描かない工程（目的）は番号にもレイヤーにも出さない
-        self.canvas.add_phase_layers([(f"工程 {i}: {r['phase']}", r["image"]) for i, r in enumerate(rows, 1) if r.get("image")])
+        pairs = [(f"工程 {i}: {r['phase']}", r["image"]) for i, r in enumerate(rows, 1) if r.get("image")]
+        if also is not None:
+            pairs.append((also[1], also[0]))
+        self.canvas.add_phase_layers(pairs)
+        if also is not None and hasattr(self, "_refresh_layers"):
+            self._refresh_layers()
         for r in rows:
             left = r["after"] if r["fixed"] else r["found"]
             self.say(f"「{r['phase']}」{r['seconds']} 秒: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:3]))
@@ -228,16 +245,17 @@ class AiResultsMixin:
         head = f"止めました（工程 {total} で止めました）"
         try:
             if got.get("image") and self.canvas.layers:
-                self.put_result(got["image"], f"止めた所までの絵（工程 {total}「{got.get('phase', '')}」）")
+                # 止めた所までの絵は検品を通っていないので、キャンバスに出さず、工程の絵と同じく隠したレイヤーにだけ置く
                 from atelier.ui.phase_display import hidden
                 pairs = [(nm, im) for nm, im in zip(got.get("names", []), got.get("images", [])) if not hidden(nm)]
-                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in enumerate(pairs, 1)])
+                self.canvas.add_phase_layers([(f"工程 {k}: {nm}", im) for k, (nm, im) in enumerate(pairs, 1)]
+                                             + [(f"止めた所までの絵（工程 {total}「{got.get('phase', '')}」）", got["image"])])
                 self._refresh_layers()
         except (OSError, ValueError) as e:
             self.say(f"止めた所までの絵をレイヤーに置けませんでした（{e}）")
         self.say(head + f"。要る工程は今 {need}、累計 {total} 工程を描きました")
         self.say("残った崩れ: " + ("、".join(left[:5]) if left else "この工程はまだ検品していません"))
-        return head, (f"残った崩れ {len(left)} 件。" if left else "") + "止めた所までの絵を一番上のレイヤーに置きました"
+        return head, (f"残った崩れ {len(left)} 件。" if left else "") + "キャンバスは元のままです。止めた所までの絵は隠したレイヤーにあります"
 
     def _on_fixed(self, path: str):
         """赤ペン・選択範囲の直しの結果は、一番上の新しいレイヤーにだけ置いて選ぶ。描いた絵の履歴・ライブラリーには載せない
@@ -277,6 +295,8 @@ class AiResultsMixin:
         if not self.batch or self.job_kind != "draw" or self.pin_action.isChecked():
             return
         path = self.batch[0]
+        if self._phases_undone():   # 検品を通っていない絵はキャンバスに出さない（隠したレイヤーにだけ置いてある）
+            return
         if getattr(self, "_placed", None) != path:
             self.place(path)
         for row in range(self.history.count()):
@@ -330,7 +350,7 @@ class AiResultsMixin:
                     (f"崩れ {len(bad)} 件。一番上のレイヤーに置きました。見て決めてください" if bad else
                      "新しいレイヤーに重ねました。見て決めてください") if fixed else
                     (f"1 枚目をキャンバスに出しました。ほかの {n - 1} 枚は履歴を押すと出ます" if n > 1
-                     else f"崩れ {len(bad)} 件。キャンバスに出しました。見て決めてください" if undone
+                     else f"崩れ {len(bad)} 件。検品を通っていないので、キャンバスは元のままです。工程の絵は隠したレイヤーにあります" if undone
                      else "キャンバスに出しました（元に戻すで前の絵に戻せます）"),
                     on_click=lambda: (self.panels["history"][0].show(), self.activity.tabs.setCurrentIndex(0)))
         self._end("未完成" if undone else "できました")
