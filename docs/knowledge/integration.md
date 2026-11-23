@@ -135,7 +135,7 @@ AtelIer と 6 つのデザイナーは、互いの良い所・使える所（部
 
 ### AtelIer の Setup.exe からデザイナーを入れる
 
-コンポーネントのページに「<デザイナー> も入れる（ネットから取る）」が出る（既定は外す）。出すのは一覧で `installer` が True の物
+コンポーネントのページに「<デザイナー> も入れる（ネットから取る）」が出る（既定で選ぶ。外せば入れない）。出すのは一覧で `installer` が True の物
 （Release に Setup.exe がある物）だけで、`packaging/extension_sections.py` が組むたびに節を書き出す。
 選ぶと、そのリポジトリの最新の Release から名前に `Setup` を含む `.exe` を取り、`/S` で静かに入れる
 （`packaging/get-extension.ps1 -Repo <owner/name>`）。AtelIer を入れたあとに動くので、CharacterDesigner の Setup.exe は AtelIer を見つけられる。
@@ -145,3 +145,5 @@ Release に Setup.exe が無いとき・取れないときは知らせて先へ�
 
 インストーラーは引き継がない。AtelIer の初めての起動で CharacterDesigner の置き場（`%ProgramData%\CharacterDesigner`）が
 見つかったときだけ「CharacterDesigner から引き継ぐ」窓を出し、利用者が選んだ組だけを写す（`atelier/app/migrate.py`）。
+
+拡張だけの Setup が Release にある拡張は、AtelIer のインストーラーで既定で入れる（外すこともできる）。静かに入れるとき（/S）も既定どおり入れ、取れないときは理由を出して飛ばし、AtelIer の入れ方は止めない。

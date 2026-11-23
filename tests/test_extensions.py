@@ -56,7 +56,8 @@ class CatalogTest(unittest.TestCase):
             sys.path.remove(str(ROOT / "packaging"))
         nsh = extension_sections.sections()
         for d in cat.DESIGNERS:
-            shown = f'Section /o "{d.name} も入れる' in nsh
+            shown = f'Section "{d.name} も入れる' in nsh   # 既定で選ぶ（/o を付けない）
+            self.assertNotIn(f'Section /o "{d.name}', nsh)
             self.assertEqual(shown, d.installer, d.name)
             if d.installer:
                 self.assertIn(f'-Repo "{d.repo}"', nsh)

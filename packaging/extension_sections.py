@@ -16,8 +16,8 @@ def sections() -> str:
     out = []
     for i, d in enumerate(for_installer()):
         out.append(f"""
-; {d.name}: 既定は外す。{d.repo} の最新の Release の拡張だけの Setup を取って静かに入れる
-Section /o "{d.name} も入れる（ネットから取る）" SecExt{i}
+; {d.name}: 既定で入れる（利用者が外せば入れない。/S でも既定どおり）。{d.repo} の最新の Release の拡張だけの Setup を取って静かに入れる
+Section "{d.name} も入れる（ネットから取る）" SecExt{i}
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
   File "${{PKGDIR}}\\get-extension.ps1"
