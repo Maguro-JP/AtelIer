@@ -62,7 +62,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # 配る版（packaging/build.sh の PYVER）と同じ 3.12 にする。3.11 では None が不死でないため、C の拡張が None を 1 回多く放すと、
+          # 描いている途中や終わりの片付けで「none_dealloc: deallocating None」で処理ごと落ちた（3.12 からは落ちない）
+          python-version: "3.12"
       - uses: actions/cache@v4
         with:
           path: ~/.cache/pip

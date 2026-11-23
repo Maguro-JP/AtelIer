@@ -51,7 +51,20 @@ def run(name: str) -> tuple[bool, str]:
         return False, "配る部品が無くて飛ばした（通ったことにしない）:\n" + "\n".join(missing[:20])
     if done.returncode == 0 and skipped:
         last += "\n" + "\n".join("     飛ばした: " + line.strip() for line in skipped[:10])
-    return done.returncode == 0, last if done.returncode == 0 else "\n".join(lines[-40:])
+    if done.returncode == 0:
+        return True, last
+    return False, failure_text(lines, done.returncode)
+
+
+def failure_text(lines: list[str], code: int) -> str:
+    """落ちたときに見せる行。末尾の 40 行だけでは、処理ごと落ちたとき（Fatal Python error）の種類と、
+    落ちた所（Current thread の段）が切れて見えなかった。種類の行と主の段を先に出し、末尾を添える"""
+    head = [f"終了コード {code}"]
+    for i, line in enumerate(lines):
+        if line.startswith(("Fatal Python error", "Current thread")):
+            head += lines[i:i + 12]
+    tail = lines[-40:]
+    return "\n".join(head + ["  ..."] + tail) if len(head) > 1 else "\n".join(head + tail)
 
 
 def main() -> int:
