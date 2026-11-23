@@ -1,0 +1,183 @@
+{
+ "1-composition.png": {
+  "readable": true,
+  "bad": [
+   "手 1: thumbの手の色 0.79（0.85〜1.01）",
+   "手 1: indexの手の色 0.75（0.85〜1.01）",
+   "手 1: middleの手の色 0.67（0.85〜1.01）",
+   "手 1: ringの手の色 0.5（0.85〜1.01）",
+   "手 2: 手の形が読めない（指がくっついたか、ぼやけている）",
+   "手 3: 手の形が読めない（指がくっついたか、ぼやけている）",
+   "足 1: 指がぼやけている（線の鋭さが絵のはっきりした所の 0.21 倍）"
+  ],
+  "hands": [
+   {
+    "box": [
+     276,
+     41,
+     456,
+     222
+    ],
+    "angle": 62.0,
+    "measure": {
+     "presence": 0.97,
+     "palm": 1.14,
+     "thumb": 1.0,
+     "index": 0.88,
+     "ring": 0.92,
+     "pinky": 0.68,
+     "cover": {
+      "thumb": 0.79,
+      "index": 0.75,
+      "middle": 0.67,
+      "ring": 0.5,
+      "pinky": 0.79
+     },
+     "fingers": {
+      "count": null,
+      "rows": [],
+      "reason": "曲げた指がある"
+     }
+    },
+    "bad": [
+     "thumbの手の色 0.79（0.85〜1.01）",
+     "indexの手の色 0.75（0.85〜1.01）",
+     "middleの手の色 0.67（0.85〜1.01）",
+     "ringの手の色 0.5（0.85〜1.01）"
+    ],
+    "seen": true
+   },
+   {
+    "box": [
+     421,
+     567,
+     574,
+     720
+    ],
+    "angle": -110.0,
+    "measure": {
+     "presence": 1.0,
+     "palm": 0.43,
+     "thumb": 0.76,
+     "index": 0.83,
+     "ring": 0.92,
+     "pinky": 0.73,
+     "cover": {
+      "thumb": 1.0,
+      "index": 0.83,
+      "middle": 1.0,
+      "ring": 1.0,
+      "pinky": 1.0
+     },
+     "fingers": {
+      "count": 4,
+      "rows": [
+       4,
+       4,
+       5,
+       4,
+       4
+      ],
+      "reason": "",
+      "width": 51.6,
+      "apart": 1.12,
+      "ghost": 0
+     }
+    },
+    "bad": [
+     "手の形が読めない（指がくっついたか、ぼやけている）"
+    ],
+    "seen": true,
+    "unreadable": true
+   },
+   {
+    "box": [
+     343,
+     215,
+     515,
+     386
+    ],
+    "angle": 44.0,
+    "measure": {
+     "presence": 0.08,
+     "palm": 1.4,
+     "thumb": 1.38,
+     "index": 1.0,
+     "ring": 0.97,
+     "pinky": 0.87,
+     "cover": {
+      "thumb": 1.0,
+      "index": 0.96,
+      "middle": 1.0,
+      "ring": 1.0,
+      "pinky": 1.0
+     },
+     "fingers": {
+      "count": null,
+      "rows": [
+       0,
+       0,
+       0,
+       0,
+       1
+      ],
+      "reason": "指が 0 本にしか見えない（重なって隠れている）"
+     }
+    },
+    "bad": [
+     "手の形が読めない（指がくっついたか、ぼやけている）"
+    ],
+    "seen": true,
+    "unreadable": true
+   }
+  ],
+  "feet": [
+   {
+    "side": "left",
+    "box": [
+     438,
+     1207,
+     554,
+     1401
+    ],
+    "count": null,
+    "evidence": {
+     "F": 79.7,
+     "toe_line": 121.5,
+     "why": "指先の線が見つからない"
+    },
+    "bad": [
+     "指がぼやけている（線の鋭さが絵のはっきりした所の 0.21 倍）"
+    ],
+    "sharp": 0.21
+   }
+  ],
+  "faces": [
+   {
+    "box": [
+     244,
+     0,
+     611,
+     360
+    ],
+    "bad": [],
+    "seen": true
+   }
+  ],
+  "face": {
+   "box": [
+    244,
+    0,
+    611,
+    360
+   ],
+   "readable": true,
+   "bad": [],
+   "tags": {
+    "brown eyes": 0.927,
+    "shading eyes": 0.738
+   },
+   "eye_dark": 0.2631
+  }
+ }
+}
