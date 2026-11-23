@@ -48,6 +48,16 @@ def figure(size=(96, 128)) -> Image.Image:
     return im
 
 
+def sketch(size=(96, 128)) -> Image.Image:
+    """白い地に暗い線だけで描いた絵（ラフを清書するは、線の絵にだけ掛ける）"""
+    im = Image.new("RGB", size, (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.ellipse((20, 10, 76, 120), outline=(30, 30, 30), width=3)
+    d.ellipse((22, 12, 74, 117), outline=(60, 60, 60), width=1)   # 重ねた線（清書で 1 本にまとめる所）
+    d.line((30, 40, 66, 90), fill=(20, 20, 20), width=2)
+    return im
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         from PySide6.QtCore import QSettings
@@ -287,6 +297,9 @@ class ModelFreeTest(Base):
                     noisy += rng.normal(0, 5.0, noisy.shape).astype(np.float32)
                     source = Path(self.tmp.name) / "denoise-noisy-fill.png"
                     Image.fromarray(np.clip(noisy, 0, 255).astype("uint8")).save(source)
+                if sid == "fin:ink":   # 清書は線の絵に掛ける（塗った絵には掛けない）
+                    source = Path(self.tmp.name) / "ink-sketch.png"
+                    sketch().save(source)
                 self.w.edit_image(str(source))
                 before, n = self.base(), len(self.w.canvas.layers)
                 self.press(sid)
@@ -568,6 +581,9 @@ class FetchPartsTest(Base):
             calls.append(args)
             state["have"] = True
         with mock.patch.object(finishers, "_has", side_effect=has), mock.patch.object(setup, "run_pip", side_effect=pip):
+            sk = Path(self.tmp.name) / "ink-sketch.png"
+            sketch().save(sk)
+            self.w.edit_image(str(sk))   # 清書は線の絵に掛ける
             acts = self.actions()
             self.assertTrue(acts["fin:ink"].isEnabled(), acts["fin:ink"].toolTip())
             n = len(self.w.canvas.layers)

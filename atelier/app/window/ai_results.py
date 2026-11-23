@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPixmap
 from atelier.app.window.image_convert import qimage_from_pil
 from atelier.app.window.image_convert import qimage_to_pil
@@ -267,7 +268,13 @@ class AiResultsMixin:
         self._keep_stopped(got, studio)
         self.say(head + f"。要る工程は今 {need}、累計 {total} 工程を描きました")
         self.say("残った崩れ: " + ("、".join(left[:5]) if left else "この工程はまだ検品していません"))
-        return head, (f"残った崩れ {len(left)} 件。" if left else "") + "キャンバスは元のままです。止めた所までの絵は隠したレイヤーにあります"
+        return head, (f"残った崩れ {len(left)} 件。" if left else "") + self._work_note()
+
+    def _work_note(self) -> str:
+        """止めた・通らなかった回に、キャンバスに何が残っているかを 1 文で言う"""
+        if getattr(self, "_work_layer", None) is not None and self._work_layer in self.canvas.layers:
+            return f"描けた工程までの絵は一番上のレイヤー「{self._work_layer.name}」にあります（元に戻すで消せます）"
+        return "キャンバスは元のままです。止めた所までの絵は隠したレイヤーにあります"
 
     def _keep_stopped(self, got: dict, studio):
         """止めたときは、その回の絵（止めた所までの絵）を 1 枚だけライブラリーに入れる。工程の絵は作業の置き場に残したまま。
@@ -378,14 +385,19 @@ class AiResultsMixin:
             how = ("。「" + ask["phase"] + "」で止めました。直し方: " + "、".join(ask.get("choices") or [])) if ask.get("phase") else ""
             self.say("未完成です。残った崩れ: " + "、".join(bad[:5]) + how)
             if ask.get("key"):
-                self.offer_phase_ways(ask)
+                way = self.settings.get("phase_way")
+                if way == "毎回聞く":
+                    self.offer_phase_ways(ask)
+                else:   # 聞かずに既定の進め方で続ける（止めるのは利用者だけ）。決めたことは状態の帯に 1 行だけ出す
+                    self.statusBar().showMessage(f"崩れが残ったので「{way}」で続けます（決め方は「設定」の「描き方」で変えられます）", 8000)
+                    QTimer.singleShot(0, lambda a=ask, n=way: self.pick_phase_way(a, n))
         else:
             self.say(result if fixed else f"{n} 枚描きました。履歴から選べます" if n > 1 else "描きました")
         self.notify(result if fixed or undone else "描けました", "error" if bad else "ok",
                     (f"崩れ {len(bad)} 件。一番上のレイヤーに置きました。見て決めてください" if bad else
                      "新しいレイヤーに重ねました。見て決めてください") if fixed else
                     (f"1 枚目をキャンバスに出しました。ほかの {n - 1} 枚は履歴を押すと出ます" if n > 1
-                     else f"崩れ {len(bad)} 件。検品を通っていないので、キャンバスは元のままです。工程の絵は隠したレイヤーにあります" if undone
+                     else f"崩れ {len(bad)} 件。検品を通っていません。" + self._work_note() if undone
                      else "キャンバスに出しました（元に戻すで前の絵に戻せます）"),
                     on_click=lambda: (self.panels["history"][0].show(), self.activity.tabs.setCurrentIndex(0)))
         self._end("未完成" if undone else "できました")

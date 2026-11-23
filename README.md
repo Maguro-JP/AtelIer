@@ -100,6 +100,7 @@ python -m atelier
 python3 scripts/run_tests.py                 # テストを、ファイルごとに別の処理で流します
 python3 scripts/run_tests.py test_brushtools # 1 ファイルだけ流します
 python3 -m pyflakes atelier                  # 静的な検査
+python3 scripts/unmerged_fixes.py            # 作業ブランチの直しで main に無い物を出します
 ```
 
 モデルの部品（torch、diffusers）が無い環境では、`tests/needs_models.txt` に書いたファイルを飛ばします。
