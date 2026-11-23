@@ -337,3 +337,4 @@
 - 「前に落ちたときの記録があります」は、前の回が正しく閉じず（running の印）、前に見た位置より後ろに faulthandler の致命の記録があるときだけ出す。位置の無い置き場では出さない（積み上がった古い記録と、Windows の faulthandler が処理済みの例外でも書く分で、落ちていないのに出た）
 - CharacterDesigner からのライブラリーの引き継ぎは、一覧（index.json）を写さずに行を AtelIer の一覧へ足し、絵も AtelIer の置き場へ写して道を直す（置き場の中の絵は同じ所、保存先の絵は library/works）。起動のときも CharacterDesigner の置き場を指す道を直す。どこにも無い絵だけを「ファイルが無い」で残す（一覧だけを写すと、CharacterDesigner を外したときに AtelIer の写しがあっても「無い」になり、AtelIer に一覧があると 1 枚も引き継げなかった）
 | 2026-11-23 | CharacterDesigner を AtelIer のインストーラーの選べる部品とタイルの画面の「入れる」に戻す（extension_catalog の installer を True）。CharacterDesigner の Release に拡張だけの Setup（CharacterDesigner-Extension-Setup.exe）を置いたため。入れる・タイルを押す・アンインストールの流れは extension-e2e の Windows の段で通す |
+- 精度優先は、どの工程でも絵の全体を描き直さず、利用者に聞いて止まらない。囲めない崩れは、人数なら余分な人の枠、読めない工程なら読めなかった部位の枠で囲む（四角。絵の半分 GROW_MOST を超える囲みは使わない）。それでも直らない崩れは絵を前のまま残し、残った崩れとして次の工程へ進み、最後に知らせる。全体を描き直す形（上限なし）は、同じ絵を描き直し続けるループになり、「絵全体を描き直さない」決まりにも反した（2026-11-23）

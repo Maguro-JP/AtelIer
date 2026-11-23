@@ -460,7 +460,7 @@ def main():
         passed = any("全部の工程が検品を通りました" in m for m in ran)
         after = [l.name for l in w.canvas.layers if l.visible]
         detail = {"seconds": round(time.time() - t0, 1), "steps": max(begun) if begun else 0,
-                  "redraws": sum(1 for m in st if "前の工程の絵を土台に" in m), "fixes": sum(1 for m in st if "囲みの中だけを直しています" in m),
+                  "carried": sum(1 for m in st if "残った崩れとして次の工程へ進みます" in m), "fixes": sum(1 for m in st if "囲みの中だけを直しています" in m),
                   "finished": done, "passed": passed, "said": ran[-6:], "layers": layer_names(w)[-5:], "shown_midway": seen_visible,
                   "shot": snap(w, "precise.png")}
         if not begun:
@@ -470,8 +470,10 @@ def main():
             raise RuntimeError(f"工程が順に進んでいない（同じ工程の繰り返し・戻り）: {detail}")
         if seen_visible:
             raise RuntimeError(f"描いている途中・検品を通っていない絵がキャンバスの見えるレイヤーに出た: {detail}")
-        if any(m.startswith("未完成です") or "崩れが残ったので止めました" in m for m in ran):
+        if any("直し方を選んでください" in m or "崩れが残ったので止めました" in m for m in st):
             raise RuntimeError(f"精度優先が聞いて止まった: {detail}")
+        if any("前の工程の絵を土台に" in m for m in st):
+            raise RuntimeError(f"精度優先が絵の全体を描き直した: {detail}")
         if any("描けました" in m for m in ran) and not passed:
             raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
         if not passed and after != before:
