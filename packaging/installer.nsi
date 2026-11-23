@@ -126,17 +126,17 @@ Section "AtelIer" SecMain
   WriteRegDWORD HKLM "${UNINST}" "NoRepair" 1
 SectionEnd
 
-; 選べる項目。既定は外す。ネットから CharacterDesigner の最新の Release の Setup.exe を取って静かに入れる。
+; 選べる項目。既定は外す。ネットから CharacterDesigner の最新の Release の拡張だけの Setup を取って静かに入れる（単体の Setup.exe は入れない）。
 ; inetc プラグインは NSIS の標準に無く build.sh の環境に入れる手間が増えるので、Windows に必ずある PowerShell で取る
 Section /o "CharacterDesigner も入れる（ネットから取る）" SecCD
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
   File "${__FILEDIR__}\get-characterdesigner.ps1"
-  DetailPrint "CharacterDesigner の最新の Setup.exe を取っています"
+  DetailPrint "CharacterDesigner の拡張だけの Setup を取っています"
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\get-characterdesigner.ps1"'
   Pop $0
   ${If} $0 == "2"
-    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner の Release に Setup.exe がまだありません。AtelIer だけを入れて先へ進みます。" /SD IDOK
+    MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner の Release に拡張だけの Setup がまだありません。CharacterDesigner を飛ばして、AtelIer だけを入れて先へ進みます。" /SD IDOK
   ${ElseIf} $0 != "0"
     MessageBox MB_OK|MB_ICONINFORMATION "CharacterDesigner を取れませんでした（ネットにつながっているかを確かめてください）。AtelIer だけを入れて先へ進みます。" /SD IDOK
   ${EndIf}
