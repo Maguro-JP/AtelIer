@@ -96,6 +96,8 @@ class ActivityPanel(QWidget):
         head.addWidget(self.state, 1)
         head.addWidget(self.resume_tool)
         head.addWidget(self.stop_tool)
+        # 動いていない間は隠す。上の帯にも緊急停止があり、待っている間は 2 つ並んで見えた（動いている間だけ進みの横に出す）
+        self.stop_tool.hide()
         top.addLayout(head)
         top.addLayout(self.steps)
         top.addWidget(self.bar)
@@ -217,6 +219,7 @@ class ActivityPanel(QWidget):
         return "残り約 " + fmt(left)
 
     def begin(self, text: str, mode: str):
+        self.stop_tool.show()
         self.sheet = (1, 1)
         self.phase, self.phase_last, self.words_log = None, None, []
         self.detail.setToolTip("")
@@ -251,7 +254,7 @@ class ActivityPanel(QWidget):
         p = re.match(r"工程 (\d+)/(\d+)「([^」]+)」", msg)
         if p:   # 工程に分けて描く（atelier/ai/phases.py）。どの工程かを覚え、帯は全体の進みで出す
             self.phase = (int(p.group(1)), int(p.group(2)), p.group(3))
-            c = re.search(r"（累計 (\d+) 工程）", msg)
+            c = re.search(r"累計 (\d+) 工程", msg)   # 知らせは「（直し n 回、累計 m 工程）」。前は「（累計」で探して一度も出なかった
             self.phase_total = int(c.group(1)) if c else None
         a = re.search(r"要る工程 (\d+)→(\d+)", msg)
         if a and self.phase:   # 直しで工程が足されたら、見出しの要る工程の数をすぐ増やす
@@ -375,6 +378,7 @@ class ActivityPanel(QWidget):
 
     def end(self, result: str, path: str | None = None, record: bool = True):
         """1 回分を終える。record なら履歴の先頭に足す（できた絵を add で足したときは足さない）。状態を待ちに戻す"""
+        self.stop_tool.hide()
         took = fmt(time.time() - self.started) if self.started else ""
         stamp = time.strftime("%H:%M")
         item = None

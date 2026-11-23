@@ -33,6 +33,9 @@ from pathlib import Path
 # 工程の名前、決める物、見る物、判定の数字
 HIDDEN = ("目的",)   # 描かない工程。利用者に見せる番号と名前から外す（atelier/ui/phase_display.py と同じ）
 NO_PREVIEW = ("目的", "サムネイル", "アタリ")   # キャンバスに途中の絵を出さない工程（アタリを表示しない）
+SHOW_FROM = "顔・手・足の下描き"   # この工程から先（線画・塗り・仕上げ）の絵は、描けたら窓の作業用のレイヤーに筆で描き込んで見せる。
+                                  # 体の形はアタリの絵に骨組みを見るだけで、出すとアタリが見えるので出さない
+PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
 
 PHASES = [
     ("目的", "何を一番見せるか（主役）", "頼み", "頼みの言葉の数、主役の言葉"),
@@ -589,9 +592,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         total += 1
         path = keep / f"{total:03d}-{i + 1:02d}-{name_tail}.png"   # 累計の順の名前。絵が変わった工程だけ保存する
         img.save(path)
-        if on_preview is not None and NAMES[i] not in NO_PREVIEW:   # アタリまでの絵はキャンバスに出さない
+        if on_preview is not None and i >= NAMES.index(SHOW_FROM):   # アタリまでの絵（と体の形の確かめ）はキャンバスに出さない
             try:
-                on_preview(img)
+                shown = img.copy()
+                j, nn = plan.number()
+                shown.info[PHASE_TAG] = {"phase": NAMES[i], "no": j, "need": nn, "total": total}
+                on_preview(shown)
             except Exception:   # noqa: BLE001  見せるだけ。描く流れは止めない
                 pass
         return str(path)
