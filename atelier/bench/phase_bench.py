@@ -89,9 +89,25 @@ def run(out: Path):
             src = Path(studio.last_phases[-1]["image"] or "").parent / "phases.json"
             if src.exists():
                 shutil.copy(src, each / "phases.json")
+        if way == "phases":   # 何工程かかったか、描かない工程を何回描き直したか、全部の工程が検品を通ったか
+            import re
+            begun = [int(m.group(1)) for m in (re.match(r"工程 (\d+)/\d+「", str(x)) for x in said) if m]
+            row["summary"] = {"passed": bool(getattr(studio, "last_passed", False)), "steps": max(begun) if begun else 0,
+                              "total": sum(1 for r in (studio.last_phases or []) if r.get("image")),
+                              "redraws": sum(1 for x in said if "前の工程の絵を土台に" in str(x)),
+                              "fixes": sum(1 for x in said if "囲みの中だけを直しています" in str(x)),
+                              "asked": bool(getattr(studio, "last_asked", None)), "minutes": round(secs / 60, 1)}
+            print("SUMMARY " + json.dumps(row["summary"], ensure_ascii=False), flush=True)
         result["runs"].append(row)
         print(json.dumps({k: v for k, v in row.items() if k != "said"}, ensure_ascii=False), flush=True)
         (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    # BENCH_REQUIRE_COMPLETE=1 のときは、精度優先が最後の工程まで検品を通らなければ落とす（atelier-e2e の precise-real の段）
+    if os.environ.get("BENCH_REQUIRE_COMPLETE") == "1":
+        rows = [r for r in result["runs"] if r["way"] == "phases"]
+        bad = [r.get("summary") for r in rows if not (r.get("summary") or {}).get("passed")]
+        if not rows or bad:
+            print("精度優先が最後の工程まで検品を通らなかった: " + json.dumps(bad, ensure_ascii=False), flush=True)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
