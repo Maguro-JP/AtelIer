@@ -427,9 +427,14 @@ def main():
         if any("描けました" in str(m) for m in ran) and not any("全部の工程が検品を通りました" in str(m) for m in ran):
             raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
         if not any("全部の工程が検品を通りました" in str(m) for m in ran):
-            if not any(str(m).startswith("止めました（工程") for m in ran):
-                raise RuntimeError(f"「止めました（工程 k で止めました）」が出ない: {detail}")
-            if not any(n.startswith("止めた所までの絵") for n in layers):
+            # 直せない崩れが残ると、精度優先は「未完成です。…で止めました。直し方: …」と利用者に聞いて止まる（engine の ask）。
+            # これは正しい止まり方なので、時間で止めた知らせの代わりに認め、未完成の絵がキャンバスに出たことを見る
+            asked = any(str(m).startswith("未完成です。") and "で止めました" in str(m) for m in ran)
+            if asked and not any(str(m).startswith("未完成です（") for m in ran):
+                raise RuntimeError(f"聞く所で止まったのに、未完成の絵をキャンバスに出した知らせが無い: {detail}")
+            if not asked and not any(str(m).startswith("止めました（工程") for m in ran):
+                raise RuntimeError(f"「止めました（工程 k で止めました）」も、聞く所で止まった知らせも出ない: {detail}")
+            if not asked and not any(n.startswith("止めた所までの絵") for n in layers):
                 raise RuntimeError(f"止めた所までの絵がレイヤーに無い: {detail}")
         return detail
 
