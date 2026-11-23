@@ -83,3 +83,72 @@ class NoJsonTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CharacterDesignerLibraryTest(unittest.TestCase):
+    """CharacterDesigner から引き継いだライブラリーが「ファイルが無い」にならないことの試験。
+    前は一覧（index.json）だけを写し、道は CharacterDesigner の置き場を指したままだった。CharacterDesigner を
+    「部品も消す」で外すと、AtelIer に写してあった資料まで「ファイルが無い」になった"""
+
+    def setUp(self):
+        from PIL import Image
+        self.tmp = TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.cd, self.home = root / "ProgramData" / "CharacterDesigner", root / "ProgramData" / "AtelIer"
+        self.pics = root / "Pictures" / "CharacterDesigner"
+        self.env = mock.patch.dict(os.environ, {"CD_HOME": str(self.cd), "ATELIER_HOME": str(self.home)})
+        self.env.start()
+        for p in (self.pics / "a.png", self.cd / "library" / "docs" / "1a-ref.png", self.cd / "cd" / "library" / "docs" / "2b-old.png"):
+            p.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (8, 8), "red").save(p)
+        self.rows = [
+            {"id": "w1", "kind": "work", "path": str(self.pics / "a.png"), "added": "2026-11-01", "seen": True},
+            {"id": "d1", "kind": "doc", "path": str(self.cd / "library" / "docs" / "1a-ref.png"), "added": "2026-11-02"},
+            {"id": "d2", "kind": "doc", "path": str(self.cd / "cd" / "library" / "docs" / "2b-old.png"), "added": "2026-10-01"},
+            {"id": "gone", "kind": "work", "path": str(self.pics / "deleted.png"), "added": "2026-10-02", "seen": True}]
+        (self.cd / "library" / "index.json").write_text(json.dumps(self.rows), encoding="utf-8")
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def _missing(self):
+        from atelier.files.library import Library
+        return sorted(i["id"] for i in Library(self.home / "library").missing())
+
+    def test_import_copies_pictures_and_fixes_paths(self):
+        from atelier.app import migrate
+        migrate.integrate_files(self.cd, self.home, self.home / "gguf", ("library",))
+        import shutil
+        shutil.rmtree(self.cd)
+        (self.pics / "a.png").unlink()
+        self.assertEqual(self._missing(), ["gone"])
+        from atelier.files.library import Library
+        paths = {i["id"]: i["path"] for i in Library(self.home / "library").items}
+        self.assertEqual(Path(paths["d2"]), self.home / "library" / "docs" / "2b-old.png")
+        self.assertTrue(Path(paths["w1"]).is_relative_to(self.home))
+
+    def test_import_adds_to_an_existing_index(self):
+        from atelier.app import migrate
+        from atelier.files.library import Library
+        mine = Library(self.home / "library")
+        mine.items = [{"id": "own", "kind": "work", "path": str(self.home / "own.png"), "added": "2026-11-20", "seen": True,
+                       "rating": 0, "tags": []}]
+        mine.save()
+        migrate.integrate_files(self.cd, self.home, self.home / "gguf", ("library",))
+        self.assertEqual(sorted(i["id"] for i in Library(self.home / "library").items), ["d1", "d2", "gone", "own", "w1"])
+
+    def test_startup_repairs_index_copied_by_old_version(self):
+        """前の版の引き継ぎ（一覧と docs をそのまま写した形）のあとで CharacterDesigner を外した利用者"""
+        import shutil
+        from atelier.app import migrate
+        from atelier.files.library import Library
+        shutil.copytree(self.cd / "library", self.home / "library")
+        lib = Library(self.home / "library")
+        os.remove(self.cd / "library" / "docs" / "1a-ref.png")   # 外したあと: AtelIer の写しだけが残る
+        self.assertEqual(sorted(i["id"] for i in lib.missing()), ["d1", "gone"])
+        self.assertEqual(migrate.repair_library(lib, self.home), 2)   # d1 は写しを指し、d2 は写して直す
+        self.assertEqual(self._missing(), ["gone"])
+        self.assertTrue((self.home / "library" / "docs" / "2b-old.png").is_file())
+        self.assertTrue((self.cd / "cd" / "library" / "docs" / "2b-old.png").is_file())   # 元は消さない
+        self.assertEqual(len(Library(self.home / "library").items), 4)   # 無い絵も一覧から黙って消さない
