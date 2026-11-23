@@ -389,3 +389,4 @@
 | F23 | 落ちていないのに起動のたびに出る「前に落ちたときの記録があります」の窓を止める。本当に落ちた次の起動だけ出し、一度見せた記録・前の版が積み上げた古い記録・正しく閉じた回の記録は出さない（2026-11-23） | 直した | atelier/app/crash_log.py、atelier/app/main_window.py、tests/test_crashlog.py |
 | F24 | CharacterDesigner から引き継いだライブラリーが「ファイルが無い」と出るのを直す。絵のファイルも AtelIer の置き場へ写して道を直し、引き継ぎ済みの人の一覧も起動のときに直す。本当に無い物だけを「無い」と出し、選び直す・外すを残す。引き継ぐ物を項目ごとに確かめ、壊れている物を直す（2026-11-23） | 直した | atelier/app/migrate.py、atelier/app/main_window.py、tests/test_nojson.py |
 | F25 | CharacterDesigner を、AtelIer の拡張として入れられるようにする（拡張だけの Setup、タイルの画面、インストーラーの部品）（2026-11-23） | 直した | atelier/extension_catalog.py、atelier/bench/extension_tile.py、.github/workflows/extension-e2e.yml、tests/test_extensions.py |
+| F26 | デバッグモードのときだけ、状態の帯の右端に CPU・メモリ・GPU・VRAM の使用率と描いている間の工程を 1 行で出し、押すと細かい表を出す（2026-11-23） | 作った | atelier/app/system_usage.py、atelier/ui/usage_meter.py、atelier/app/window/settings_and_debug.py、tests/test_backui.py |

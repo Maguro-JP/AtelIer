@@ -299,5 +299,86 @@ class MouseSidePanelsTest(Base):
             self.assertEqual(got, ["undo", "redo"], type(t).__name__)
 
 
+class UsageMeterTest(Base):
+    """デバッグモードの帯の右端の使用率。切っているときは取らない。GPU の無い機械では理由を出す"""
+    def tearDown(self):
+        from atelier.app import debug_log as debuglog
+        debuglog.configure(False)
+        super().tearDown()
+
+    def test_meter_only_in_debug_mode(self):
+        from atelier.app import system_usage
+        w = self.window(size=(800, 600))
+        self.addCleanup(lambda: w.settings.set("debug", 0))
+        calls = []
+        real = system_usage.sample
+        with mock.patch.object(system_usage, "sample", lambda st="": calls.append(st) or real(st)):
+            w.settings.set("debug", 0)
+            w.apply_debug_mode()
+            for _ in range(20):
+                self.app.processEvents()
+                time.sleep(0.01)
+            self.assertEqual(calls, [])   # 切っているときは取らない
+            self.assertIsNone(getattr(w, "usage_meter", None))
+            w.settings.set("debug", 1)
+            w.apply_debug_mode()
+            m = w.usage_meter
+            self.assertTrue(run_until(self.app, w, lambda: m.samples >= 1, 10))
+            self.assertTrue(m.isVisible())
+            self.assertIn("CPU", m.text())
+            self.assertIn("|", m.text())
+            self.assertLess(m.last["took"], 1.0)
+            self.assertEqual(w._usage_stage(), "")   # 描いていないときは工程を出さない
+            w.thread = object()
+            w.progress_popup.text.setText("工程 2/6 線画")
+            self.assertEqual(w._usage_stage(), "工程 2/6 線画")
+            w.thread = None
+            w.settings.set("debug", 0)
+            w.apply_debug_mode()
+            n = len(calls)
+            self.assertFalse(m.isVisible() or m.running())
+            end = time.time() + 2.0
+            while time.time() < end:
+                self.app.processEvents()
+                time.sleep(0.02)
+            self.assertEqual(len(calls), n)   # 切ったあとは取らない
+
+    def test_no_gpu_says_why(self):
+        from atelier.app import system_usage
+        s = system_usage.sample()
+        if s["gpu"] is None:
+            self.assertIn("GPU 取得できません", system_usage.line(s))
+            self.assertIn("GPU 取得できません", system_usage.tip(s))
+        rows = dict(system_usage.table(s))
+        self.assertIn("取得にかかった時間", rows)
+
+    def test_fake_gpu_values(self):
+        from atelier.app import system_usage
+        s = {"cpu": 34.0, "cpu_mine": 12.0, "mem_used": 6.1, "mem_total": 16.0, "mem_pct": 38.0, "mem_mine": 1.5,
+             "procs": [{"pid": 1, "name": "python", "cpu": 12.0, "mem": 1.5}], "why": {}, "stage": "工程 2/6 線画",
+             "gpu": {"name": "RTX", "util": 72.0, "used": 5.2, "total": 8.0, "mine": 4.0, "source": "nvidia-ml-py"},
+             "torch": {"allocated": 3.9, "reserved": 4.2, "free": 2.8, "total": 8.0}, "took": 0.004}
+        self.assertEqual(system_usage.line(s), "工程 2/6 線画 | CPU 34% | メモリ 6.1/16 GB | GPU 72% | VRAM 5.2/8 GB")
+        rows = dict(system_usage.table(s))
+        self.assertEqual(rows["模型が使っている VRAM"], "3.9 GB（確保 4.2 GB）")
+        self.assertEqual(rows["VRAM（AtelIer）"], "4.0 GB")
+        self.assertNotIn("取得できません", system_usage.tip(s))
+
+    def test_fake_nvml(self):
+        from types import SimpleNamespace
+        from atelier.app import system_usage
+        fake = SimpleNamespace(
+            nvmlInit=lambda: None, nvmlDeviceGetHandleByIndex=lambda i: "h",
+            nvmlDeviceGetUtilizationRates=lambda h: SimpleNamespace(gpu=55),
+            nvmlDeviceGetMemoryInfo=lambda h: SimpleNamespace(used=2 * system_usage.GB, total=8 * system_usage.GB),
+            nvmlDeviceGetName=lambda h: b"Fake GPU",
+            nvmlDeviceGetComputeRunningProcesses=lambda h: [SimpleNamespace(pid=os.getpid(), usedGpuMemory=system_usage.GB)])
+        nv = system_usage._Nvml()
+        nv.mod, nv.ready = fake, True
+        with mock.patch.object(system_usage, "_nvml", nv):
+            g = system_usage._gpu_nvml({os.getpid()})
+        self.assertEqual((g["util"], g["used"], g["total"], g["mine"], g["name"]), (55.0, 2.0, 8.0, 1.0, "Fake GPU"))
+
+
 if __name__ == "__main__":
     unittest.main()

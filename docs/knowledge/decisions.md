@@ -337,3 +337,4 @@
 - 「前に落ちたときの記録があります」は、前の回が正しく閉じず（running の印）、前に見た位置より後ろに faulthandler の致命の記録があるときだけ出す。位置の無い置き場では出さない（積み上がった古い記録と、Windows の faulthandler が処理済みの例外でも書く分で、落ちていないのに出た）
 - CharacterDesigner からのライブラリーの引き継ぎは、一覧（index.json）を写さずに行を AtelIer の一覧へ足し、絵も AtelIer の置き場へ写して道を直す（置き場の中の絵は同じ所、保存先の絵は library/works）。起動のときも CharacterDesigner の置き場を指す道を直す。どこにも無い絵だけを「ファイルが無い」で残す（一覧だけを写すと、CharacterDesigner を外したときに AtelIer の写しがあっても「無い」になり、AtelIer に一覧があると 1 枚も引き継げなかった）
 | 2026-11-23 | CharacterDesigner を AtelIer のインストーラーの選べる部品とタイルの画面の「入れる」に戻す（extension_catalog の installer を True）。CharacterDesigner の Release に拡張だけの Setup（CharacterDesigner-Extension-Setup.exe）を置いたため。入れる・タイルを押す・アンインストールの流れは extension-e2e の Windows の段で通す |
+| 2026-11-23 | デバッグモードの使用率の表示は、状態の帯の右端の 1 行と、押して開く表にする。値は 1.5 秒ごとに裏の糸で取り（psutil、nvidia-ml-py、読み込み済みのときだけ torch）、前の 1 回が終わるまで次を出さない。デバッグモードが切れている間は時計を止めて値を取らない。torch を自分で読み込まない（読み込むだけで重く、描く処理を遅くするため）。psutil と nvidia-ml-py は BSD で、配る版に足した |

@@ -140,8 +140,28 @@ class SettingsAndDebugMixin:
         apply_debug(self.settings)
         if debuglog.on():
             self._debug_dock().show()
-        elif getattr(self, "_dbg_dock", None) is not None:
-            self._dbg_dock.hide()
+            self._usage_meter().start()
+        else:
+            if getattr(self, "_dbg_dock", None) is not None:
+                self._dbg_dock.hide()
+            if getattr(self, "usage_meter", None) is not None:
+                self.usage_meter.stop()   # 切ったら値も取らない
+
+    def _usage_meter(self):
+        """状態の帯の右端の、CPU・メモリ・GPU・VRAM の 1 行（atelier/ui/usage_meter.py）"""
+        if getattr(self, "usage_meter", None) is None:
+            from atelier.ui.usage_meter import UsageMeter
+            self.usage_meter = UsageMeter(self._usage_stage, self)
+            self.statusBar().addPermanentWidget(self.usage_meter)
+        return self.usage_meter
+
+    def _usage_stage(self) -> str:
+        """描いている間だけ、進みの窓に出している今の工程を返す"""
+        if getattr(self, "thread", None) is None:
+            return ""
+        pop = getattr(self, "progress_popup", None)
+        label = getattr(pop, "text", None)
+        return label.text().split("\n")[0][:40] if label is not None else ""
 
     def _debug_dock(self):
         from PySide6.QtCore import QObject, Signal

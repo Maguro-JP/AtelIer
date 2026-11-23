@@ -41,8 +41,9 @@ rm -f "$SRC/python/python$PYTAG._pth"
 echo "== 部品（Windows 用の wheel）"
 W="--platform win_amd64 --python-version $PYVER --implementation cp --only-binary=:all: -q --disable-pip-version-check"
 SP="$SRC/python/Lib/site-packages"
+# psutil と nvidia-ml-py はデバッグモードの使用率の表示に使う（BSD。入っていなくても落ちない）
 # PySide6 は 6.9.3 に固定する（6.12.0 は線を数百本引くと落ちた）
-python3 -m pip install $W --target "$SP" pip "PySide6-Essentials==6.9.3" numpy Pillow huggingface_hub
+python3 -m pip install $W --target "$SP" pip "PySide6-Essentials==6.9.3" numpy Pillow huggingface_hub psutil nvidia-ml-py
 
 echo "== 同梱物の欠けを見る"
 missing=""

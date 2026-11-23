@@ -13,7 +13,7 @@
 | 場所 | 役割 |
 |---|---|
 | `atelier/app/` | 窓と起動。設定、キーの割り当て、モード、更新、落ちたときの記録 |
-| `atelier/app/window/` | 窓（`main_window.py` の `Window`）を役目ごとに分けた mixin と部品。ファイルの開閉と保存（`files.py`）、AI の描画（`ai_drawing.py`）と結果（`ai_results.py`）、チャット（`chat.py`）、描く言葉（`prompts.py`）、赤ペン（`redpen.py`）、キャンバスの右クリック（`canvas_menu.py`）、レイヤーと選択（`layers_and_selection.py`）、画像の加工（`image_editing.py`）、模型（`models.py`）、履歴（`history.py`）、モードとロゴ（`modes_and_logos.py`）、設定とデバッグ（`settings_and_debug.py`）、結果の置き方と進み（`results_and_progress.py`）、欄と帯の配置（`layout.py`）、ツアー（`tour.py`）。補助は `jobs.py`、`widgets.py`、`image_convert.py`、`process_check.py`、`constants.py`。`main_window.py` には起動の準備、`Window.__init__`、`main` が残り、前の名前を再輸出する |
+| `atelier/app/window/` | 窓（`main_window.py` の `Window`）を役目ごとに分けた mixin と部品。ファイルの開閉と保存（`files.py`）、AI の描画（`ai_drawing.py`）と結果（`ai_results.py`）、チャット（`chat.py`）、描く言葉（`prompts.py`）、赤ペン（`redpen.py`）、キャンバスの右クリック（`canvas_menu.py`）、レイヤーと選択（`layers_and_selection.py`）、画像の加工（`image_editing.py`）、模型（`models.py`）、履歴（`history.py`）、モードとロゴ（`modes_and_logos.py`）、設定とデバッグ（`settings_and_debug.py`。使用率の 1 行は `atelier/ui/usage_meter.py`、値は `atelier/app/system_usage.py`）、結果の置き方と進み（`results_and_progress.py`）、欄と帯の配置（`layout.py`）、ツアー（`tour.py`）。補助は `jobs.py`、`widgets.py`、`image_convert.py`、`process_check.py`、`constants.py`。`main_window.py` には起動の準備、`Window.__init__`、`main` が残り、前の名前を再輸出する |
 | `atelier/paint/` | 作画の中核。キャンバス、ブラシ、描く補助、赤ペンの印、タイムラプス |
 | `atelier/panels/` | 欄。カラー、ブラシの見本、レイヤー、AI、チャット、ライブラリー、進みと履歴 |
 | `atelier/ui/` | 見た目と操作の土台。テーマ、アイコン、ロゴ、言語、欄の配置、メニューの編集、知らせ、ツアー、ヘルプ |
