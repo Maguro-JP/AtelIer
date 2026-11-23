@@ -917,6 +917,10 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         from atelier.panels.library_panel import LibraryPanel
         self.library = Library(None if studio is None else Path(self.studio.out) / ".library")
         from atelier.files.paths import HOME
+        if studio is None:
+            # 前の版で引き継いだ一覧が CharacterDesigner の置き場を指していたら、絵を AtelIer の置き場へ写して道を直す
+            from atelier.app import migrate
+            migrate.repair_library(self.library, HOME)
         from atelier.files.trash import Trash
         self.trash = Trash(HOME / "trash" if studio is None else Path(self.studio.out) / ".trash")
         # 0.5.19 までの版が書いた赤ペンの直しだけの絵を、履歴・ライブラリーから外してごみ箱へ移す（開いたあと裏で 1 度だけ）
