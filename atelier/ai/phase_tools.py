@@ -25,8 +25,8 @@ BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこ�
 BLEED_MOST = 0.005         # 色のにじみ: はみ出した色の画素が絵全体のこの割合を超えたらにじんでいる（私の推測）
 # 暗い画素の左右の割合は髪・服の色にも左右されるので、極端な場合（3 割未満）だけ見る（私の推測）
 OUTER_DARK = 0.65     # 線の強弱: 外の輪郭の線をこの倍率まで暗くする（手前・外側を太く濃く）
-SHADE2 = 0.82         # 影の 2 段目: 影の中の一番暗い所をこの倍率で暗くする
-SHADE2_PART = 0.12    # 影の 2 段目にする割合（人物の画素のうち暗い方から）
+SHADE2 = 0.70         # 影の 2 段目: 影の中の一番暗い所をこの倍率で暗くする。0.82 では変わりが平均 0.20 で DIFF_MIN（0.5）を下回り、影の工程が絵を変えなかったので強くした
+SHADE2_PART = 0.25    # 影の 2 段目にする割合（人物の画素のうち暗い方から）。0.12 では変わる画素が少なく、影の工程が絵を変えなかったので広げた
 CATCHLIGHT = 200      # 目の中にこれより明るい画素が無ければ、目の光が無い
 SHRINK = 8            # 縮めて見る倍率
 SHRINK_CONTRAST = 12  # 縮めた絵で人物と紙の明るさの差がこれより小さければ、主役が目立たない
@@ -573,10 +573,34 @@ def restore_border(image, ref, band: int):
     return Image.composite(ref.convert("RGB").resize((w, h)), image.convert("RGB"), m)
 
 
+def _fix_dark_level(out, ref):
+    """霞み（暗い所が浮いた）を直す。暗い所の明るさ（5%点）を、検品の上限（前の絵 + HAZE_MOST）ぎりぎりまで暗くする。
+    前の絵の暗さまで完全に戻すと、中間の色まで暗くなりすぎた。描き重ねの内容（新しく描いた物）は残し、浮いた暗い所だけ暗くする。
+    明るい所は変えない"""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(out.convert("RGB"), dtype=np.float32)
+    r = np.asarray(ref.convert("RGB"), dtype=np.float32)
+    w = np.array([0.299, 0.587, 0.114], np.float32)
+    ya, yr = a @ w, r @ w
+    da, dr = float(np.percentile(ya, 5)), float(np.percentile(yr, 5))
+    target = dr + HAZE_MOST - 1.0   # 検品を通るぎりぎりの暗さ（完全に戻さず、直す分を最小にする）
+    if da <= target or da <= 0:
+        return out
+    ratio = target / da
+    # 暗い所だけ暗くする（5%点で 1、5%点の 2 倍で 0）。明るい所・中間の色は変えない
+    t = np.clip((2 * da - ya) / da, 0, 1)
+    scale = 1.0 - t * (1.0 - ratio)
+    lum_new = ya * scale
+    factor = np.where(ya > 1, lum_new / np.maximum(ya, 1), 1.0)
+    return Image.fromarray(np.clip(a * factor[..., None], 0, 255).astype("uint8"))
+
+
 def guard(image, ref, mask=None) -> tuple:
     """描き重ねたあとの守り。描き重ねた絵に霞み・枠・色褪せが無ければ、そのまま使う（合わせない）。
     あれば色合わせ → 枠が出ていれば縁を戻す → それでも残れば前の絵を使う。崩れの無い絵にも色合わせを掛けていた間は、
     合わせで色が褪せ、描き重ねを捨てていた（phase-bench、種 7）。
+    霞みだけが残ったときは、暗い所を暗くして直し、描き重ねの内容を残す。直らなければ前の絵を使う。
     mask（L）を渡したときは、その中だけを合わせ、外は前の絵のまま（囲みの外は 1 画素も変えない）。返すのは (絵, 記録)"""
     from PIL import Image
     ref = ref.convert("RGB").resize(image.size)
@@ -592,6 +616,14 @@ def guard(image, ref, mask=None) -> tuple:
         out = Image.composite(out, ref, mask.convert("L").resize(image.size))
     t_out = tone(out)
     left = tone_flaws(t_out, t_ref)
+    dehazed = False
+    if left and any("霞ん" in f for f in left):
+        fixed = _fix_dark_level(out, ref)
+        t_fixed = tone(fixed)
+        left_fixed = tone_flaws(t_fixed, t_ref)
+        if len(left_fixed) < len(left):
+            out, t_out, left = fixed, t_fixed, left_fixed
+            dehazed = True
     rec = {"ref": t_ref, "raw": t_raw, "out": t_out, "raw_flaws": raw_flaws, "matched": bool(raw_flaws), "left": left,
-           "kept_ref": bool(left)}
+           "kept_ref": bool(left), "dehazed": dehazed}
     return (ref if left else out), rec

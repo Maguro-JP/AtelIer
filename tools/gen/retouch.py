@@ -87,9 +87,18 @@ def noise(a: np.ndarray) -> float:
     from scipy.ndimage import uniform_filter
     L = _lum(a) * 255
     g = _grad(L / 255)
-    flat_ = g < np.quantile(g, 0.5)
-    resid = L - uniform_filter(L, 5)
-    return float(resid[flat_].std()) if flat_.any() else 0.0
+    # 平らな所は勾配の小さい方から半分を順位で取る。g < 中央値 では、中央値が 0（白い紙が半分以上）のときに
+    # 空になり、揺れが 0 になって denoise が掛からなかった。真っ白な紙は揺れが 0 で薄めるので、紙（明るさ 250 以上）は
+    # 外して色の平らな所で見る
+    order = np.argsort(g.ravel())
+    n = max(1, g.size // 2)
+    resid = (L - uniform_filter(L, 5)).ravel()
+    lum = L.ravel()[order[:n]]
+    vals = resid[order[:n]]
+    keep = lum < 250
+    if keep.sum() >= 10:
+        vals = vals[keep]
+    return float(vals.std()) if vals.size else 0.0
 
 
 def fringe(a: np.ndarray) -> float:

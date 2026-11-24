@@ -1427,3 +1427,136 @@ class UndoneNotOnCanvasTest(unittest.TestCase):
     def test_passed_is_placed(self):
         w, _before = self.run_one(True)
         self.assertTrue(any(l.visible and l.name.startswith("AI の絵") for l in w.canvas.layers))
+
+
+def painted_person(size=(256, 384)):
+    """色を塗った人物の絵（本物の絵に近い大きさ）。色の面に細かいざらつき（±10）を付ける"""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (250, 250, 248))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.35, h * 0.45, w * 0.65, h * 0.95], fill=(180, 60, 60))   # 赤い服
+    d.ellipse([w * 0.40, h * 0.08, w * 0.60, h * 0.32], fill=(235, 205, 180))  # 顔
+    d.pieslice([w * 0.38, h * 0.05, w * 0.62, h * 0.35], 180, 360, fill=(60, 40, 30))  # 髪
+    for x in (w * 0.45, w * 0.55):
+        d.ellipse([x - 3, h * 0.18 - 3, x + 3, h * 0.18 + 3], fill=(30, 30, 30))  # 目
+    a = np.asarray(im).astype(float)
+    rng = np.random.default_rng(5)
+    lum = a.mean(-1)
+    mask = lum < 200   # 色の面だけにざらつき（紙はそのまま）
+    a = np.where(mask[..., None], np.clip(a + rng.normal(0, 10, a.shape), 0, 255), a)
+    return Image.fromarray(a.astype("uint8"))
+
+
+def dusty_line(size=(256, 384)):
+    """白い紙に黒い線で描いた線画に、ほこり（小さな黒い点）を散らした物"""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (250, 250, 248))
+    d = ImageDraw.Draw(im)
+    d.ellipse([w * 0.38, h * 0.05, w * 0.62, h * 0.25], outline=(0, 0, 0), width=2)
+    d.rectangle([w * 0.35, h * 0.25, w * 0.65, h * 0.95], outline=(0, 0, 0), width=2)
+    d.line([w * 0.45, h * 0.15, w * 0.55, h * 0.15], fill=(0, 0, 0), width=2)
+    a = np.asarray(im).copy()
+    rng = np.random.default_rng(7)
+    for _ in range(60):
+        x, y = int(rng.integers(0, w)), int(rng.integers(0, h))
+        r = int(rng.integers(1, 3))
+        a[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1] = (40, 40, 40)
+    return Image.fromarray(a)
+
+
+def uneven_line(size=(256, 384)):
+    """白い紙に黒い線で描いた線画に、紙のむら（ゆるやかな明るさの変化と細かいざらつき）を付けた物"""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (250, 250, 248))
+    d = ImageDraw.Draw(im)
+    d.ellipse([w * 0.38, h * 0.05, w * 0.62, h * 0.25], outline=(0, 0, 0), width=2)
+    d.rectangle([w * 0.35, h * 0.25, w * 0.65, h * 0.95], outline=(0, 0, 0), width=2)
+    d.line([w * 0.45, h * 0.15, w * 0.55, h * 0.15], fill=(0, 0, 0), width=2)
+    a = np.asarray(im).astype(float)
+    yy, xx = np.mgrid[0:h, 0:w]
+    uneven = 8 * np.sin(xx / 40.0) + 6 * np.cos(yy / 55.0)
+    rng = np.random.default_rng(3)
+    noise = rng.normal(0, 4, (h, w))
+    lum = a.mean(-1)
+    mask = lum > 200
+    for c in range(3):
+        a[..., c] = np.where(mask, np.clip(a[..., c] + uneven + noise, 0, 255), a[..., c])
+    return Image.fromarray(a.astype("uint8"))
+
+
+class ProcessingChangesTest(unittest.TestCase):
+    """加工を掛けたら絵が変わる。変わらない加工（完全に同じ絵が出る）は、ここで落ちる。
+    2026-11-25 に直した物: denoise（ざらつきの数字が 0 になり掛からなかった）、detail（直しが足した細部を消した）、
+    retouch_full（denoise が掛からず見えない変わりだけ）、shade_second（影が薄すぎた）、guard（霞んだ描き重ねを捨てて
+    元の絵を返した）、clean の線画（ほこりが消えず、均した分が混ぜ戻された）"""
+
+    def test_denoise_changes_noisy_picture(self):
+        from atelier.ai import finishers
+        im = painted_person()
+        out = finishers.run("denoise", im)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_detail_changes_picture(self):
+        from atelier.ai import finishers
+        im = painted_person()
+        out = finishers.run("detail", im)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_retouch_full_changes_noisy_picture(self):
+        from atelier.ai import finishers
+        im = painted_person()
+        out = finishers.run("retouch_full", im)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_clean_changes_noisy_picture(self):
+        from atelier.ai import finishers
+        im = painted_person()
+        out = finishers.run("clean", im)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_face_changes_picture(self):
+        from atelier.ai import finishers
+        im = painted_person()
+        out = finishers.run("face", im)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_retouch_changes_picture(self):
+        from atelier.ai import finishers
+        im = painted_person()
+        out = finishers.run("retouch", im)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_clean_removes_dust_from_sketch(self):
+        from atelier.ai import finishers
+        sk = dusty_line()
+        out = finishers.run("clean", sk)
+        self.assertGreater(mean_diff(sk, out), phases.DIFF_MIN)
+
+    def test_clean_evens_uneven_paper_sketch(self):
+        from atelier.ai import finishers
+        sk = uneven_line()
+        out = finishers.run("clean", sk)
+        self.assertGreater(mean_diff(sk, out), phases.DIFF_MIN)
+
+    def test_shade_second_changes_picture(self):
+        im = painted_person()
+        lit = pt.light(im)
+        out, hit = pt.shade_second(im, lit)
+        self.assertGreater(hit, 0)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+
+    def test_guard_keeps_hazy_refine(self):
+        """霞んだ描き重ねを捨てて元の絵を返すと、描き重ねが無かったことになる。霞みを直して描き重ねを残す"""
+        from PIL import Image, ImageFilter
+        ref = painted_person()
+        hazy = Image.blend(ref, ref.filter(ImageFilter.GaussianBlur(3)), 0.5)
+        out, rec = pt.guard(hazy, ref)
+        self.assertFalse(rec["kept_ref"])
+        self.assertFalse(rec["left"])
+        self.assertGreater(mean_diff(ref, out), phases.DIFF_MIN)

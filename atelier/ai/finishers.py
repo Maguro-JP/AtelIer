@@ -36,8 +36,40 @@ class Finisher:
     group: str = "clean"  # 処理の種類（atelier/ai/shortcuts.py の GROUPS）。右クリックでまとまりごとに並べる
 
 
+def _remove_dust(image):
+    """白い紙の上の小さな黒い点（ほこり・ゴミ）を紙の色に戻す。中央値では 1〜2 画素の点しか消えず、線の復元と縁の復元が
+    大きな点（ほこり）を元に戻してしまうので、ここで直接消す。目の瞳など色の面の中の小さな暗い所は、紙に囲まれて
+    いないので残す"""
+    import numpy as np
+    from PIL import Image
+    from scipy.ndimage import binary_dilation, label
+    a = np.asarray(image.convert("RGB")).astype(float)
+    L = a.mean(-1)
+    paper = L > 235
+    if not paper.any():
+        return image
+    dark = L < 120
+    lab, n = label(dark, structure=np.ones((3, 3)))
+    if n == 0:
+        return image
+    sizes = np.bincount(lab.ravel())
+    sizes[0] = 0
+    paper_color = np.median(a[paper], axis=0)
+    out = a.copy()
+    for i in range(1, n + 1):
+        if sizes[i] > 30:
+            continue
+        comp = lab == i
+        around = binary_dilation(comp, iterations=1) & ~comp
+        if around.sum() == 0:
+            continue
+        if paper[around].mean() > 0.8:   # 紙に囲まれた小さな黒い点だけ消す
+            out[comp] = paper_color
+    return Image.fromarray(np.clip(out, 0, 255).astype("uint8"))
+
+
 def _clean_apply(image):
-    """線を保ったまま塗りのむらを均す（中央値で細かいざらつきを消し、輪郭は元の絵から戻す）。重みは要らない"""
+    """線を保ったまま塗りのむらを均す（中央値で細かいざらつきを消し、輪郭は元の絵から戻す）。重みは要らない。白い紙の上のほこりも消す"""
     from PIL import ImageChops, ImageFilter
     smooth = image.filter(ImageFilter.MedianFilter(3))
     edges = image.convert("L").filter(ImageFilter.FIND_EDGES).point(lambda v: 255 if v > 40 else 0)
@@ -66,7 +98,8 @@ def _clean_apply(image):
         small = ~big
         d[small] = np.clip(d[small], -CLEAN_CAP, CLEAN_CAP)
         b = a + d
-        return Image.fromarray(np.clip(repair(a, b), 0, 255).astype("uint8"))
+        done = Image.fromarray(np.clip(repair(a, b), 0, 255).astype("uint8"))
+        return _remove_dust(done)
     except ImportError:   # 部品が無いときは元の均し方のまま
         return out
 
@@ -877,6 +910,17 @@ def breakage(a, b):
     w = np.float32([0.299, 0.587, 0.114])
     ya, yb = a[:H, :W] @ w, b[:H, :W] @ w
     la = ya < 90
+    # 主線の消えは、線（つながった暗い所）の消えだけを見る。白い紙の上の小さな黒い点（ほこり）は線ではないので、消えても
+    # 主線の消えに数えない。数えると、ほこりを消す「綺麗にする」が主線を消したことになり、守りが加工そのものを採らない
+    # （ほこりの線画で 8 区画が壊れたとされ、元の絵に戻された）。ほこりの大きさは _remove_dust と同じ 30 画素まで
+    try:
+        from scipy.ndimage import label
+        lab, _n = label(la, structure=np.ones((3, 3)))
+        sizes = np.bincount(lab.ravel())
+        sizes[0] = 0
+        la = la & (sizes[lab] > 30)
+    except ImportError:
+        pass
     # 消えた線は、明るさ 90 を越えただけでなく QC_LIFT より明るくなった画素だけを数える。暗い平らな塗り（明るさ 88〜90）が
     # 塗りのむらを均す 6 の揺れで 90 を越えただけで、線が消えたと数え、外套の暗い地の 14 区画を元に戻していた
     lost = (la & (yb >= 90) & (yb - ya > QC_LIFT)).reshape(shp).sum((1, 3))
@@ -1210,10 +1254,16 @@ def soften(src, out, mask=None, face=_NO_FACE, mixback=True):
     q = dict(face=face is not None, **scores(s, o), mix=1.0, **limited)
     tried = o
     # ディテール追加は細かい明暗を立てるのが仕事で、SSIM は必ず下がる。SSIM で混ぜ戻すと足した分が半分以下になり
-    # （見本で変わりの平均 2.0 → 0.79）、効いていないように見えた。主線の重なりだけで見る
+    # （見本で変わりの平均 2.0 → 0.79）、効いていないように見えた。主線の重なりだけで見る。塗りのむらを均すのも同じ
+    # （均すと SSIM は必ず下がる）。主線が崩れていたら弱く混ぜ、弱くても崩れたままなら元の絵にする
     if not mixback:
         if q["line"] >= VERIFY_LINE:
             return o, q
+        for k in VERIFY_STEPS:
+            tried = Image.blend(s, o, k)
+            q.update(scores(s, tried), mix=k)
+            if q["line"] >= VERIFY_LINE:
+                return tried, q
         q["failed"] = True
         return s, q
     for k in VERIFY_STEPS:
@@ -1289,7 +1339,9 @@ def run(name: str, image, mask=None, say=None, face=_NO_FACE):
     _MEMO.clear()   # 大きな絵の配列を持ち続けない
     out = guard(name, src, out, mask)
     if f.group == "clean" and out.size == src.size and not LAST_QC.get("rejected"):   # ディテール追加には掛けない（上の DETAIL の説明）
-        out, v = soften(src, out, mask, face)
+        # 均すのが仕事なので、SSIM では混ぜ戻さない。塗りのむらを均すと SSIM は必ず下がり、混ぜ戻すと均した分が
+        # 4 分の 1 になって効いていないように見えた（紙むらの線画で変わり 1.63 → 0.39）。主線の重なりだけで見る
+        out, v = soften(src, out, mask, face, mixback=False)
         LAST_QC["verify"] = v
         if v.get("failed"):
             LAST_QC["rejected"] = True
@@ -1301,9 +1353,10 @@ def run(name: str, image, mask=None, say=None, face=_NO_FACE):
         LAST_QC.setdefault("name", name)
         LAST_QC.setdefault("label", f.label)
         LAST_QC["features"] = fr
-    if f.group == "detail" and out.size == src.size and not LAST_QC.get("rejected"):
-        # 守りの工程（soften の混ぜ戻し、区画の戻し）の継ぎ目にも粒と出っ張りが出来た（ディテール追加で崩れ +30）。
-        # 最後に、元の絵に無かった崩れの画素だけを元の画素に戻す（元の画素に戻すだけなので、囲みの外は変わらない）
+    if f.group == "detail" and out.size == src.size and not LAST_QC.get("rejected") and LAST_QC.get("broken"):
+        # 守りの工程（区画の戻し）の継ぎ目に粒と出っ張りが出来たときだけ、元の絵に無かった崩れの画素を元の画素に戻す。
+        # 戻した区画が無い（broken == 0）ときは継ぎ目も無いので、直しを掛けない。掛けると細部の描き足し自体が
+        # 「新しい崩れ」に数えられて消え、ディテール追加が目に見えなくなった（変わり 1.12 → 0.22）
         import numpy as np
         from PIL import Image
         out = Image.fromarray(repair(np.asarray(src), np.asarray(out.convert("RGB"))))
