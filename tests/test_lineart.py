@@ -1,4 +1,4 @@
-"""線画の清書（tools/gen/lineart.py clean）の試験。"""
+"""線画（tools/gen/lineart.py clean）の試験。"""
 import sys
 import tempfile
 import unittest

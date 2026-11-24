@@ -433,7 +433,7 @@ def main():
         def watch():
             for l in w.canvas.layers:
                 if l.visible and (l.name.startswith(("工程 ", "止めた所までの絵", "検品を通っていない絵")) or "アタリ" in l.name
-                                  or "サムネイル" in l.name or "体の形" in l.name):
+                                  or "サムネイル" in l.name):
                     if l.name not in seen_visible:
                         seen_visible.append(l.name)
             return w.thread is None
@@ -466,10 +466,10 @@ def main():
         if any("描けました" in m for m in ran) and not passed:
             raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
         work = [n for n in after if n.startswith(w.WORK_LAYER)]
-        drew = [m for m in st if _re.match(r"工程 \d+/\d+「(顔・手・足の下描き|服・髪・持ち物|線画の清書|下塗り|光源|影 2 段|光・艶・目のハイライト|仕上げ)", m)]
+        drew = [m for m in st if _re.match(r"工程 \d+/\d+「(アタリ|線画|下塗り|光源|影 2 段|光・艶・目のハイライト|仕上げ)", m)]
         detail["work_layer"] = work
-        if any(_re.match(r"工程 \d+/\d+「(服・髪・持ち物|線画の清書|下塗り)", m) for m in drew) and not work and not passed:
-            # 下描きが済んで次の工程に入ったのに、描けた絵が見えるレイヤーに無い（前は全部通るまで何も見えなかった）
+        if any(_re.match(r"工程 \d+/\d+「(線画|下塗り)", m) for m in drew) and not work and not passed:
+            # 線画に入ったのに、描けた絵が見えるレイヤーに無い（前は全部通るまで何も見えなかった）
             raise RuntimeError(f"線画から先の工程の絵が、見えるレイヤーに出なかった: {detail}")
         after = [n for n in after if not n.startswith(w.WORK_LAYER)]
         if not passed and after != before:

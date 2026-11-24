@@ -1,7 +1,7 @@
 """1 回で描く形と工程に分けて描く形（atelier/ai/phases.py）を、本物の模型・同じ頼み・同じ種で比べる。Actions の phase-bench で動かす。
 
 どちらの絵も、最後に同じ検品（手・足・顔、体、頼んだ物）に通して崩れの数を数え、かかった秒を残す。
-工程に分けた回は、12 の工程ごとの絵（phases/s<種>/01-サムネイル.png 〜 12-仕上げ.png）と、工程ごとの見る物・判定の数字・
+工程に分けた回は、9 の工程ごとの絵（phases/s<種>/01-サムネイル.png 〜 09-仕上げ.png）と、工程ごとの見る物・判定の数字・
 秒・常駐のメモリ（MB）・戻った回数を bench.json と phases.json に残す（Actions の artifact で見る）。
 
   python -m atelier.bench.phase_bench 出力の置き場

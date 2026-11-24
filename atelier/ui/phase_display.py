@@ -17,7 +17,7 @@ _PHASE = re.compile(r"工程 (\d+)/(\d+)「([^」]+)」")
 
 
 def hidden(name: str) -> bool:
-    """name は工程の名前か、計画の工程の名前（「体の形／確かめる 骨組みの比」）"""
+    """name は工程の名前か、計画の工程の名前（「アタリ／確かめる 骨組みの比」）"""
     return name.split("／")[0] in HIDDEN
 
 

@@ -1,5 +1,5 @@
 """工程に分けて描く（atelier/ai/phases.py）を偽の模型と偽の検品で通す。
-工程は人の描き方の 12。崩れは前の工程へ戻らず、今の絵の崩れた所の囲みの中だけを直す（外は 1 画素も変えない）。
+工程は人の描き方の 9。崩れは前の工程へ戻らず、今の絵の崩れた所の囲みの中だけを直す（外は 1 画素も変えない）。
 囲めない崩れ（人数は余分な人の枠、読めない工程は読めなかった部位の枠で囲む）も、手を替えて直しても消えない崩れも、
 利用者に聞いて止まらず、絵の全体も描き直さない。絵を前のまま残し、残った崩れとして次の工程へ進み、最後に知らせる。
 累計は絵が変わった回だけを数える。
@@ -58,9 +58,14 @@ class Painter(FakePainter):
         # 頼み・種によらず同じ絵を返すと、同じ工程の繰り返しを見分けられない。種ごとに人物の色を変える
         im = figure(kw.get("size") or (64, 96))
         from PIL import ImageChops
-        im = ImageChops.add(im, im.point(lambda _v: seed % 23))
+        # 描き重ね（base あり）は土台の絵を元に描くので、白紙からの描きとは違う絵になる。本物の模型と同じく、base の有無で絵を変える
+        shift = (seed + 11) % 23 if ("base" in kw and kw["base"] is not None) else seed % 23
+        im = ImageChops.add(im, im.point(lambda _v: shift))
         if kw.get("on_preview"):
-            kw["on_preview"](im)
+            # 途中の絵は拡散の途中の絵で、最後の絵とは違う。本物の模型と同じく、途中の絵を最後の絵と別の物にする
+            pv_im = figure(kw.get("size") or (64, 96))
+            pv_im = ImageChops.add(pv_im, pv_im.point(lambda _v: (seed + 5) % 23))
+            kw["on_preview"](pv_im)
         return im
 
     def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
@@ -82,9 +87,9 @@ def checks(always_bad: bool):
         @staticmethod
         def request(image, prompt):
             seen["request"] += 1
-            # サムネイルとアタリでは依頼物を検査せず、服・髪・持ち物の工程で初めて欠落を検出する。
-            # request はサムネイル 1 回・アタリ 1 回の後、服・髪・持ち物で検品する。
-            bad = not always_bad and seen["request"] == 3
+            # サムネイルでは依頼物を検査せず、アタリの確かめ（2 回目）で初めて欠落を検出する。
+            # request はサムネイル 1 回の後、アタリで検品する（アタリの確かめは request を 1 回だけ呼ぶ）。
+            bad = not always_bad and seen["request"] == 2
             return {"readable": True, "missing": ["red scarf"] if bad else [], "extra": [], "people": [], "body": []}
 
         @staticmethod
@@ -162,8 +167,8 @@ class PhasesTest(unittest.TestCase):
             files = sorted(p.name for p in (Path(d) / "k").iterdir())
         return got, painter, seen, said, files
 
-    def test_twelve_phases_in_order(self):
-        self.assertEqual(phases.NAMES, ["目的", "サムネイル", "アタリ", "体の形", "顔・手・足の下描き", "服・髪・持ち物", "線画の清書",
+    def test_nine_phases_in_order(self):
+        self.assertEqual(phases.NAMES, ["目的", "サムネイル", "アタリ", "線画",
                                         "下塗り", "光源", "影 2 段", "光・艶・目のハイライト", "仕上げ"])
         for name, decides, looks, numbers in phases.PHASES:
             self.assertTrue(decides and looks and numbers, name)   # 工程ごとに見る物と判定の数字を決めてある
@@ -217,8 +222,10 @@ class PhasesTest(unittest.TestCase):
             painter = P()
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks())
         self.assertTrue(got["complete"])
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine"), 1, painter.log)
-        fixes = [m["strength"] for r in got["history"] if r["phase"] == "顔・手・足の下描き" for m in r.get("mends", [])]
+        # 下描き（アタリの中）は refine で描き重ねる。下塗りも refine を使うので、強さで分ける（下描き REFINE、下塗り BASE_COLOR）
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 1, painter.log)
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 1, painter.log)
+        fixes = [m["strength"] for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", [])]
         self.assertGreaterEqual(len(fixes), 1, got["history"])
         self.assertEqual(fixes, sorted(fixes))   # 直しを重ねるたびに強くする
 
@@ -231,12 +238,13 @@ class PhasesTest(unittest.TestCase):
             self.assertIn("mem_mb", r)
 
     def test_no_words_added(self):
-        """渡す言葉は頼みの訳だけ。手・足・顔の直しにも five fingers などを足さない"""
+        """渡す言葉は頼みの訳だけ。手・足・顔の直しにも five fingers などを足さない。線の工程の線画の言葉（SKETCH_WORDS）は、色や内容ではなく線の描き方なので許す"""
         got, painter, *_ = self.run_phases(always_bad=True)
+        sketch = {t.strip() for t in phases.SKETCH_WORDS.split(",") if t.strip()}
         for r in got["history"]:
             for w in r["words"]:
                 rest = w.replace("(red scarf:1.3)", "red scarf")
-                self.assertEqual({t.strip() for t in rest.split(",") if t.strip()} - {"1girl", "red scarf"}, set(), w)
+                self.assertEqual({t.strip() for t in rest.split(",") if t.strip()} - {"1girl", "red scarf"} - sketch, set(), w)
 
     def test_stop_between_phases(self):
         painter = Painter()
@@ -253,7 +261,7 @@ class PhasesTest(unittest.TestCase):
                 phases.draw(painter, "1girl", 1, (64, 96), Path(d) / "k", checks=C)
             got = json.loads((Path(d) / "k" / "progress.json").read_text(encoding="utf-8"))
             self.assertEqual(got["state"], "stopped")
-            self.assertEqual(got["phase"], "顔・手・足の下描き")   # 手を見る最初の工程で止まった
+            self.assertEqual(got["phase"], "アタリ")   # 手を見る最初の工程で止まった
             self.assertTrue(got["image"] and Path(got["image"]).exists())   # 止めた所までの絵が残る
 
     def test_draft_blocks_when_landmark_inspection_is_unreadable(self):
@@ -304,28 +312,28 @@ class PhasesTest(unittest.TestCase):
         self.assertFalse(any(s["kind"] == "ask" for s in got["plan"]))
         self.assertEqual(got["history"][-1]["phase"], "仕上げ")   # 止まらずに最後の工程まで進んだ
         self.assertTrue(any("指が 6 本" in f for f in got["left"]))   # 残った崩れとして返る
-        draft = next(r for r in got["history"] if r["phase"] == "顔・手・足の下描き")
+        draft = next(r for r in got["history"] if r["phase"] == "アタリ")
         self.assertEqual({m["mend"] for m in draft["mends"]}, set(range(1, phases.MENDS + 1)))   # 強さの段を MENDS 回替えた
         self.assertTrue(all(m["outside"] == 0 for r in got["history"] for m in r["mends"]))
         self.assertTrue(any("残った崩れとして次の工程へ進みます" in m for m in said))
 
 
     def test_confirm_redo_and_words(self):
-        asked, answers = [], {2: ["redo", "go"], 5: [("words", "blue ribbon"), "go"]}
+        asked, answers = [], {2: ["redo", "go"], 8: [("words", "blue ribbon"), "go"]}
 
         def confirm(i, name, image, row):
             asked.append(i)
             todo = answers.get(i)
             return todo.pop(0) if todo else "go"
         got, painter, seen, said, files = self.run_phases(always_bad=False, confirm=confirm)
-        self.assertEqual(asked.count(2), 2)   # 描き直した工程はもう一度確かめる
-        self.assertEqual(asked.count(5), 2)
-        self.assertEqual(got["phases"][2]["visit"], 1)
+        self.assertEqual(asked.count(2), 3)   # 描き直した工程はもう一度確かめる。最後の工程で言葉を足してアタリへ戻った分も数える
+        self.assertEqual(asked.count(8), 2)
+        self.assertEqual(got["phases"][2]["visit"], 2)
         self.assertTrue(any("blue ribbon" in w for r in got["history"] for w in r["words"]))
         self.assertTrue(any("言葉を足しました" in s for s in said))
 
     def test_words_added_at_final_phase_return_to_drawing_stage(self):
-        asked = {11: [("words", "blue ribbon"), "go"]}
+        asked = {8: [("words", "blue ribbon"), "go"]}
 
         def confirm(i, name, image, row):
             queue = asked.get(i)
@@ -333,9 +341,9 @@ class PhasesTest(unittest.TestCase):
 
         got, painter, seen, said, files = self.run_phases(always_bad=False, confirm=confirm)
         self.assertTrue(got["complete"])
-        wear = [r for r in got["history"] if r["phase"] == "服・髪・持ち物"]
-        self.assertTrue(any(any("blue ribbon" in word for word in r["words"]) for r in wear), wear)
-        self.assertTrue(any("描き直しを頼まれたので「服・髪・持ち物」から順に進めます" in msg for msg in said))
+        atari = [r for r in got["history"] if r["phase"] == "アタリ"]
+        self.assertTrue(any(any("blue ribbon" in word for word in r["words"]) for r in atari), atari)
+        self.assertTrue(any("描き直しを頼まれたので「アタリ」から順に進めます" in msg for msg in said))
 
     def test_studio_way_phases(self):
         from atelier.ai import phase_tools as pt
@@ -377,6 +385,48 @@ class PhasesTest(unittest.TestCase):
             s.draw("赤いマフラーの子", 7, lambda m: None)
             words = [w for r in s.last_phases for w in r["words"]]
             self.assertFalse(any("マフラー" in w for w in words), words)   # 日本語のまま模型に渡さない
+
+
+class NonPersonTest(unittest.TestCase):
+    """人物以外（風景・物）の頼みでは、手・顔・体を見る模型を使わず、構図・色・光・背景だけを見る"""
+
+    def test_landscape_skips_character_checks(self):
+        seen = {"hands": 0, "body": 0, "pose": 0, "points": 0, "request": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                seen["request"] += 1
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                seen["body"] += 1
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                seen["points"] += 1
+                w, h = image.size
+                return {"readable": True, "points": {}}
+
+            @staticmethod
+            def pose(image):
+                seen["pose"] += 1
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                return dict(CLEAN_HAND)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(Painter(), "mountain, lake", 1, (64, 64), Path(d), checks=C)
+        self.assertTrue(got["complete"], got.get("left"))
+        self.assertEqual(seen["hands"], 0, seen)   # 手・顔・体を見る模型は呼ばない
+        self.assertEqual(seen["body"], 0, seen)
+        self.assertEqual(seen["pose"], 0, seen)
+        self.assertEqual(seen["points"], 0, seen)
+        self.assertGreater(seen["request"], 0, seen)   # 頼んだ物があるかの確かめは使う
 
 
 class ToolsTest(unittest.TestCase):
@@ -546,7 +596,7 @@ class StopFlagTest(unittest.TestCase):
         C = hand_only_checks(bad_times=10 ** 6)   # 止めなければ通らない検品でも、旗で止まる
 
         def confirm(i, *_):
-            if i >= 3:   # 確かめ（confirm）は工程の最後に来る。手の崩れが消えない下描きの前で旗を立てる
+            if i >= 3:   # 確かめ（confirm）は工程の最後に来る。線画で旗を立てる
                 painter.stop = True
             return "go"
         with TemporaryDirectory() as d:
@@ -784,7 +834,7 @@ class PreviewTest(unittest.TestCase):
     """精度優先でも、描いている途中の絵と工程ごとの絵を窓に渡す（描いている所を画面に見せる）"""
 
     def test_each_phase_image_is_shown(self):
-        shown, now, hidden = [], [""], []
+        shown, now, phases_shown = [], [""], []
         from atelier.ai import phase_tools as pt
 
         def say(m):
@@ -793,20 +843,21 @@ class PreviewTest(unittest.TestCase):
 
         def show(im):
             shown.append(im)
-            if any(n in now[0] for n in phases.NO_PREVIEW):
-                hidden.append(now[0])
+            phases_shown.append(now[0])
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), say=say, checks=checks(False)[0], on_preview=show)
         self.assertTrue(shown)
-        self.assertEqual(hidden, [])   # 目的・サムネイル・アタリの間は、途中の絵も最後の絵もキャンバスに出さない
+        # ラフ（サムネイル）から筆で見せる。最初の絵はサムネイルのときで、アタリも見せる
+        self.assertTrue(phases_shown[0].startswith("サムネイル"), phases_shown)
+        self.assertTrue(any(p.startswith("アタリ") for p in phases_shown), phases_shown)
         same = [k for k in range(1, len(shown)) if list(shown[k].getdata()) == list(shown[k - 1].getdata())]
         self.assertEqual(same, [])   # 同じ絵を続けて出さない
-        # 出すのは、アタリのあとの描いている途中の絵と、絵が変わった工程だけ
+        # 出すのは、描いている途中の絵と、絵が変わった工程だけ
         self.assertLessEqual(len(shown), 2 * got["total"])
 
 
 class PhaseWorkShownTest(unittest.TestCase):
-    """線画から先の工程の絵は、描けたら印（PHASE_TAG）を付けて窓に渡す。アタリまで（と体の形）は渡さない。
+    """サムネイル（ラフ）から先の工程の絵は、描けたら印（PHASE_TAG）を付けて窓に渡す。筆はラフからとる。
     「工程 i/N」は 1 から順に、飛ばずに進む"""
 
     def test_drawn_phases_tagged_and_numbers_in_order(self):
@@ -816,11 +867,15 @@ class PhaseWorkShownTest(unittest.TestCase):
             if phases.PHASE_TAG in im.info:
                 tagged.append(im.info[phases.PHASE_TAG])
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
-            phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), say=said.append, checks=checks(False)[0], on_preview=show)
+            got = phases.draw(Painter(), "red hair, 1girl", 1, (64, 64), Path(d), say=said.append, checks=checks(False)[0], on_preview=show)
         first = phases.NAMES.index(phases.SHOW_FROM)
-        self.assertTrue(tagged)   # 線画から先の絵が窓に届かないと落ちる
+        self.assertTrue(tagged)   # サムネイルから先の絵が窓に届かないと落ちる
+        self.assertEqual(tagged[0]["phase"], "サムネイル", tagged)   # 筆はラフからとる
         self.assertTrue(all(phases.NAMES.index(t["phase"]) >= first for t in tagged), tagged)
-        self.assertTrue(any(t["phase"] == "線画の清書" for t in tagged), tagged)
+        # 絵が変わった工程が印を付けて届く。線画は微調整だけの工程で、変化が小さく別画像にならないことがある（weight_lines は黒い線にはほぼ効かない）
+        self.assertTrue(any(t["phase"] == "アタリ" for t in tagged), tagged)
+        self.assertTrue(any(t["phase"] == "下塗り" for t in tagged), tagged)
+        self.assertIn("線画", [r["phase"] for r in got["history"]])   # 線画の工程は回っている
         from atelier.ui.phase_display import relabel
         said = [x for x in said if relabel(x) is not None]   # 進み具合の欄が見せる知らせ（描かない工程「目的」は出さない）
         nos = [int(m.group(1)) for m in (re.match(r"工程 (\d+)/(\d+)「", x) for x in said) if m]
@@ -844,7 +899,7 @@ class WorkLayerTest(unittest.TestCase):
         w.canvas.new_canvas(64, 64) if hasattr(w.canvas, "new_canvas") else None
         before = [(l.name, l.visible) for l in w.canvas.layers]
         w.thread = object()   # 描いている間だけ受け取る
-        for k, (c, name) in enumerate((((10, 10, 10), "顔・手・足の下描き"), ((200, 50, 50), "下塗り")), 1):
+        for k, (c, name) in enumerate((((10, 10, 10), "アタリ"), ((200, 50, 50), "下塗り")), 1):
             im = Image.new("RGB", (64, 64), c)
             im.info[phases.PHASE_TAG] = {"phase": name, "no": k + 6, "need": 30, "total": k}
             w.show_preview(im)
