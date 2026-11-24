@@ -1970,7 +1970,8 @@ class Studio:
             raise ValueError("子どもを性的に描く頼みは描きません")
         say("絵の模型を読んでいます（初めの 1 回だけ時間がかかります）")
         extra = dict(reference=reference, ref_scale=ref_scale) if reference is not None else {}
-        # 描けるまで描き直す。手を直しても検品を通らなければ、種を変えて描き直す（REDRAW_TRIES 回まで）。
+        # 描いた絵を検品して、崩れが見つかったらその絵をその場で直す（REDRAW_TRIES 回まで）。
+        # 前は種を変えて最初から描き直していたが、構図が変わって検品を通らないことが多かった。
         # 通らなかったときは、崩れの一番少ない絵を渡す（どの回の崩れも .json の redraws に残す）
         best, redraws = None, []
         # 頼んでいない物が描かれたら、次の回はそれを描かない物に足す（描き終えたら元に戻す）
@@ -1982,45 +1983,65 @@ class Studio:
             if unasked:
                 self.painter.avoid = ", ".join([a for a in [avoid0] + negative + unasked if a])
             s_k = seed + 1000 * k
-            if k:
-                say(f"検品を通らなかったので、種を変えて描き直しています（{k + 1}/{self.REDRAW_TRIES} 回目）")
-            if missing_all:   # 前の回で描かれなかった頼みを、描く言葉の前に出す
-                prompt = emphasize(prompt, missing_all)
-            plan.enter("描く")
-            plan.sent("描く", prompt, getattr(self.painter, "avoid", "") or "")
-            image = self.painter.paint(prompt, s_k, on_step=lambda i, n: say(f"描いています（{i}/{n}）"),
-                                       base=base, strength=strength, size=size, on_preview=on_preview, **extra)
-            plan.done("描く", f"種 {s_k}")
+            if k == 0:
+                # 描くのは 1 回だけ。2 回目からは描き直すのではなく、検品した絵をその場で直す（下の検品のあと）
+                plan.enter("描く")
+                plan.sent("描く", prompt, getattr(self.painter, "avoid", "") or "")
+                image = self.painter.paint(prompt, s_k, on_step=lambda i, n: say(f"描いています（{i}/{n}）"),
+                                           base=base, strength=strength, size=size, on_preview=on_preview, **extra)
+                plan.done("描く", f"種 {s_k}")
             plan.enter("検品")
             # サボり（色だけ・ぼかしだけ・ノイズだけの絵）は知らせて記録するだけ。描き直しの理由には入れない
             lazy = director.slack(image)
             if lazy["bad"]:
                 say("担当編集者: " + "、".join(lazy["bad"]) + "（記録だけ。直すときは赤ペンか描き直しで）")
             plan.done("検品", "、".join(lazy["bad"]) or "サボりは見つかりませんでした")
-            # 描いたあとに検品して直す流れは繋げない（繋げると直りきらずに回り続け、描けなくなった）。
-            # 検品と直しは、ユーザーが「検品する」と赤ペンの直しで別々に呼ぶ
-            left, self.hand_rounds = [], []
+            # 検品で崩れが見つかったら、絵を捨てて最初から描き直すのではなく、検品した絵をその場で直す。
+            # 全体の描き直しを繋げるのはしない（繋げると直りきらずに回り続け、描けなくなった）。
+            # 直すのは手・足・顔の崩れた所だけで（_fix_hands）、回数に上限があり、崩れが増えた回は使わない。
+            # 赤ペンの直しは今まで通り、利用者が別に呼ぶ
             from atelier.qc import request_check as requestcheck
-            asked = requestcheck.check(image, asked_prompt)
-            if asked["readable"]:
-                say(requestcheck.summary(asked))
-                left += [f"描かれていない: {m}" for m in asked["missing"]]
-                missing_all += [m for m in asked["missing"] if m not in missing_all]
-                left += [f"頼んでいない: {e}" for e in asked.get("extra", [])]
-                unasked += [e for e in asked.get("extra", []) if e not in unasked]
-                # 頼んでいない 2 人目と、基準の体から外れた体は、種を変えて描き直す理由にし、次の回は描かない物に足す
-                left += [f"人数が違う: {p}" for p in asked.get("people", [])]
-                left += list(asked.get("body", []))
-                unasked += [w for w in ("multiple girls", "2girls", "multiple views") if asked.get("people") and w not in unasked]
-                unasked += [b.split("（")[1].rsplit(" ", 1)[0] for b in asked.get("body", []) if "（" in b
-                            and b.split("（")[1].rsplit(" ", 1)[0] not in unasked]
-            # 余分な腕・脚・頭・体、顔の外の目、頼んでいない目の色。手・足・顔の枠の外の崩れなので、種を変えて描き直し、
-            # 次の回は見つけた崩れの言葉を描かない物に足す（atelier/qc/sanity.py）
             from atelier.qc import sanity
-            odd = sanity.check(image, asked_prompt, tags=asked.get("read") if asked["readable"] else None)
-            say(sanity.summary(odd))
-            left += odd["bad"]
-            unasked += [w for w in odd["avoid"] if w not in unasked]
+
+            def check_image(img):
+                """頼んだ物と崩れを検品して、残った崩れを返す。(asked, odd, left)"""
+                asked = requestcheck.check(img, asked_prompt)
+                left = []
+                if asked["readable"]:
+                    say(requestcheck.summary(asked))
+                    left += [f"描かれていない: {m}" for m in asked["missing"]]
+                    missing_all.extend(m for m in asked["missing"] if m not in missing_all)
+                    left += [f"頼んでいない: {e}" for e in asked.get("extra", [])]
+                    unasked.extend(e for e in asked.get("extra", []) if e not in unasked)
+                    # 頼んでいない 2 人目と、基準の体から外れた体は、描かない物に足す
+                    left += [f"人数が違う: {p}" for p in asked.get("people", [])]
+                    left += list(asked.get("body", []))
+                    unasked.extend(w for w in ("multiple girls", "2girls", "multiple views")
+                                   if asked.get("people") and w not in unasked)
+                    unasked.extend(b.split("（")[1].rsplit(" ", 1)[0] for b in asked.get("body", []) if "（" in b
+                                   and b.split("（")[1].rsplit(" ", 1)[0] not in unasked)
+                # 余分な腕・脚・頭・体、顔の外の目、頼んでいない目の色。手・足・顔の枠の外の崩れ（atelier/qc/sanity.py）
+                odd = sanity.check(img, asked_prompt, tags=asked.get("read") if asked["readable"] else None)
+                say(sanity.summary(odd))
+                left += odd["bad"]
+                unasked.extend(w for w in odd["avoid"] if w not in unasked)
+                return asked, odd, left
+
+            left, self.hand_rounds = [], []
+            asked, odd, left = check_image(image)
+            if left and asked["readable"] and odd["readable"] and not getattr(self.painter, "stop", False):
+                # 検品が読めた絵だけ直す。読めなかった絵は崩れが無いのではなく見ていないだけなので、直す理由にしない
+                if unasked and hasattr(self.painter, "avoid"):
+                    self.painter.avoid = ", ".join([a for a in [avoid0] + negative + unasked if a])
+                plan.redo(left, "検品した絵の崩れた所を直す")
+                try:
+                    image = self._fix_hands(image, asked_prompt, s_k, say)
+                except Exception as e:   # 直しで落ちても、描いた絵は渡す
+                    say(f"絵の直しで落ちました（{e}）。直す前の絵を使います")
+                if self.hand_rounds:
+                    # 直した絵をもう一度検品して、残った崩れを数え直す。直しが残した手・足・顔の崩れも入れる
+                    asked, odd, left = check_image(image)
+                    left += [b for b in self.hand_rounds[-1].get("bad", []) if b not in left]
             redraws.append({"seed": s_k, "bad": left})
             if best is None or len(left) < len(best[1]):
                 best = (image, left, s_k)
@@ -2031,8 +2052,10 @@ class Studio:
         if guidance0 is not None:
             self.painter.guidance = guidance0
         image, left, seed = best
-        # 検品できなかった絵（部品が無い、止めてある）は、崩れが無いのではなく見ていないだけなので、通ったことにしない
-        checked = bool(self.hand_rounds) and asked["readable"] and odd["readable"]
+        # 検品できなかった絵（部品が無い、止めてある）は、崩れが無いのではなく見ていないだけなので、通ったことにしない。
+        # hand_rounds は直しの記録であって、検品が走った条件ではない。前は hand_rounds を条件にしていたので、
+        # 直しが呼ばれない描く流れでは checked が常に偽になり、通った絵も「検品できなかった」になっていた
+        checked = asked["readable"] and odd["readable"]
         if left:   # 通らなかった絵を、出来た絵として渡さない。残った崩れを先に見せる
             say(f"検品を通る絵が {len(redraws)} 回描いても出ませんでした（途中）。残った崩れ: " + "、".join(left[:5]))
         elif not checked:

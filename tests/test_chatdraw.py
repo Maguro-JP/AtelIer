@@ -2296,6 +2296,79 @@ class RequestCheckTest(unittest.TestCase):
         self.assertEqual([r["bad"] for r in meta["redraws"]], [["描かれていない: hand up"]])   # 描くのは 1 回。描き直しを繋げない
 
 
+class RedrawFixTest(unittest.TestCase):
+    """検品で崩れが見つかったら、検品した絵をその場で直す（最初から描き直さない）"""
+
+    def test_redraw_fixes_checked_image_in_place(self):
+        import tempfile
+        from unittest import mock
+        from atelier.qc import request_check as requestcheck
+        from atelier.qc import sanity
+        painter = FakePainter()
+        s = Studio(FakeWords(), painter, Path(tempfile.mkdtemp()))
+        said = []
+        painted = []
+        orig_paint = painter.paint
+
+        def paint_and_record(prompt, seed, on_step=None, **kw):
+            img = orig_paint(prompt, seed, on_step=on_step, **kw)
+            painted.append(img)
+            return img
+
+        painter.paint = paint_and_record
+        # 1 回目の検品で崩れがあり、直したあとの検品で通る
+        asked = iter([
+            {"readable": True, "missing": ["hand up"], "extra": [], "people": [], "body": [], "read": {}},
+            {"readable": True, "missing": [], "extra": [], "people": [], "body": [], "read": {}},
+        ])
+        fix_calls = []
+
+        def fake_fix(self, image, prompt, seed, say):
+            fix_calls.append((image, prompt, seed))
+            self.hand_rounds = [{"round": 0, "bad": []}]
+            return image
+
+        with mock.patch.object(requestcheck, "check", side_effect=lambda im, t: next(asked)), \
+                mock.patch.object(requestcheck, "summary", return_value="検品: 頼んだ物はすべて描かれていました"), \
+                mock.patch.object(sanity, "check", return_value={"readable": True, "bad": [], "avoid": [], "why": []}), \
+                mock.patch.object(sanity, "summary", return_value="検品: 崩れはありませんでした"), \
+                mock.patch.object(Studio, "_fix_hands", fake_fix):
+            prompt, path = s.draw("1girl, hand up", 7, said.append)
+        # 描くのは 1 回だけ。種を変えて描き直さない
+        self.assertEqual(len(painted), 1)
+        self.assertEqual(painter.calls, [(prompt, 7)])
+        # 検品した絵をその場で直す（描いた絵と同じ物を直す）
+        self.assertEqual(len(fix_calls), 1)
+        self.assertIs(fix_calls[0][0], painted[0])
+        # 直したあと通る
+        meta = finishers.sidecar(path)
+        self.assertTrue(meta["passed"])
+        self.assertEqual([r["bad"] for r in meta["redraws"]], [[]])
+        stages = {st["name"]: st for st in meta["director"]["stages"]}
+        self.assertEqual(stages["描き直す"]["tries"], 1)
+        self.assertNotIn("種を変えて描き直しています", "\n".join(said))
+
+    def test_passed_when_check_finds_no_flaws(self):
+        import tempfile
+        from unittest import mock
+        from atelier.qc import request_check as requestcheck
+        from atelier.qc import sanity
+        painter = FakePainter()
+        s = Studio(FakeWords(), painter, Path(tempfile.mkdtemp()))
+        said = []
+        clean_asked = {"readable": True, "missing": [], "extra": [], "people": [], "body": [], "read": {}}
+        clean_odd = {"readable": True, "bad": [], "avoid": [], "why": []}
+        with mock.patch.object(requestcheck, "check", return_value=clean_asked), \
+                mock.patch.object(requestcheck, "summary", return_value="検品: 頼んだ物はすべて描かれていました"), \
+                mock.patch.object(sanity, "check", return_value=clean_odd), \
+                mock.patch.object(sanity, "summary", return_value="検品: 崩れはありませんでした"):
+            prompt, path = s.draw("1girl, hand up", 7, said.append)
+        meta = finishers.sidecar(path)
+        self.assertTrue(meta["passed"])
+        self.assertNotIn("検品できなかった", "\n".join(said))
+        self.assertEqual(len(painter.calls), 1)
+
+
 class ConveyTest(unittest.TestCase):
     """日本語の頼みが、模型に渡る言葉に漏れなく直るか（言葉の模型が無い利用者の経路）"""
 
