@@ -1,6 +1,6 @@
 """人の描き方の工程に分けて描く（精度優先）。工程の調べは docs/knowledge/drawing-phases.md。
 
-人は 1 回で描き上げない。目的を決め、小さなサムネイルを何枚か比べて構図を選び、丸と棒のアタリで重心と等身を決め、
+人は 1 回で描き上げない。目的を決め、構図を 1 枚直接描いて決め、丸と棒のアタリで重心と等身を決め、
 体の形・顔と手と足・服と髪と持ち物を順に描き、線を清書し、部位ごとに下塗りし、光源を決めて影を 2 段に置き、
 光と艶を足し、最後に縮めて見る・反転して見るで崩れを探す。工程ごとに見る物が決まっていて、崩れを見つけたら、
 その崩れが決まった工程まで戻って直す。次の工程は、前の工程で決めた物を土台にして壊さずに足す。
@@ -39,7 +39,7 @@ PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。�
 
 PHASES = [
     ("目的", "何を一番見せるか（主役）", "頼み", "頼みの言葉の数、主役の言葉"),
-    ("サムネイル", "構図（小さなラフを何枚か比べて選ぶ）", "白と黒の塊、画面の重さ", "人数、描かれていない物、重さの片寄り（weight_x）"),
+    ("サムネイル", "構図（1 枚を直接描いて決める）", "白と黒の塊、画面の重さ", "人数、描かれていない物、重さの片寄り（weight_x）"),
     ("アタリ", "頭の大きさ、等身、重心", "立てるか、等身", "重心のずれ（balance）、等身（heads）、人数"),
     ("体の形", "骨格、関節の向き、左右の長さ", "腕と脚の長さ", "骨の長さの比、余分な腕・脚・頭"),
     ("顔・手・足の下描き", "顔の中心、目の高さ、指", "左右の目、指の数", "目の傾き（eye_tilt）、手・指・足・顔の崩れの数"),
@@ -52,7 +52,6 @@ PHASES = [
     ("仕上げ", "全体の崩れ", "縮めて見る、反転して見る", "手・足・顔・体の崩れの数、縮めた明るさの差、顔の反転の差（asym）"),
 ]
 NAMES = [p[0] for p in PHASES]
-THUMBS = 2            # サムネイルの枚数
 THUMB_SCALE = 1.0     # サムネイルの大きさ（描く大きさの割合）。同じ種・同じ大きさならアタリが同じ構図になるので縮めない
 THUMB_STEPS = 1.0     # サムネイルの描く工程の数の割合。選んだサムネイルをそのままアタリにする（半分の工程で描いてから同じ種でアタリを
                       # 描き直すと、同じ構図を 2 度描いて 214 秒かかり、描き直した絵は別の色になった。0.25 ではぼやけた絵になった）
@@ -308,34 +307,28 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
 
     # 描く工程。どれも {"image", "words", "note", "numbers"} を返し、測ることも直すこともしない
     def d_thumbs(v):
+        # AI モードと同じ始まり。1 枚を直接描いて構図を決める（前は 2 枚描いて比べ、崩れの少ない方を選んでいた）。
+        # 選ぶ手間を省く代わり、構図は確かめる工程が測り、悪ければ構図から描き直す
         tw, th = (w, h) if THUMB_SCALE >= 1 else (max(256, int(w * THUMB_SCALE) // 8 * 8), max(256, int(h * THUMB_SCALE) // 8 * 8))
         s0 = steps(THUMB_STEPS)
-        best, rows, words = None, [], []
+        s = st["seed"] + v * 1000
+        words = []
         try:
-            for k in range(THUMBS):
-                stop()
-                s = st["seed"] + v * 1000 + k
-                say(f"サムネイル {k + 1}/{THUMBS} を描いています（{tw}x{th}）")
-                tell(st["prompt"])
-                words.append(st["prompt"])
-                img = painter.paint(st["prompt"], s, on_step=on_step, size=(tw, th))   # サムネイルは途中の絵もキャンバスに出さない（NO_PREVIEW）
-                if THUMB_SCALE >= 1 and THUMB_STEPS >= 1:
-                    memo["thumbs"][(st["prompt"], s)] = img
-                req = checks.request(img, st["prompt"])   # 構図を選ぶための比べ。選んだ 1 枚の崩れは確かめる工程が項目ごとに出す
-                wt = pt.thumb_weight(img)
-                flaws = _people(req) + _missing(req) + (["画面の重さが片寄っている"] if wt["weight_x"] > pt.WEIGHT_MOST else [])
-                rows.append({"seed": s, **wt, "flaws": len(flaws)})
-                score = (len(flaws), wt["weight_x"])
-                if best is None or score < best[0]:
-                    best = (score, img, s, flaws, req)
-                rows[-1]["score"] = list(score)
-                del img
-                gc.collect()
+            stop()
+            say(f"サムネイルを描いています（{tw}x{th}）")
+            tell(st["prompt"])
+            words.append(st["prompt"])
+            img = painter.paint(st["prompt"], s, on_step=on_step, size=(tw, th))   # サムネイルは途中の絵もキャンバスに出さない（NO_PREVIEW）
+            if THUMB_SCALE >= 1 and THUMB_STEPS >= 1:
+                memo["thumbs"][(st["prompt"], s)] = img
+            req = checks.request(img, st["prompt"])   # 構図を測る。崩れは確かめる工程が項目ごとに出す
+            wt = pt.thumb_weight(img)
+            flaws = _people(req) + _missing(req) + (["画面の重さが片寄っている"] if wt["weight_x"] > pt.WEIGHT_MOST else [])
+            rows = [{"seed": s, **wt, "flaws": len(flaws), "score": [len(flaws), wt["weight_x"]]}]
         finally:
             unsteps(s0)
-        _score, img, s, flaws, req = best
         st["thumb"], st["seed_pick"] = img, s
-        say(f"サムネイル {THUMBS} 枚のうち、種 {s} の構図を選びました（崩れ {len(flaws)}）")
+        say(f"サムネイルを直接描きました（種 {s}、崩れ {len(flaws)}）")
         out = img.resize((w, h))
         memo["measured"][1] = (out, st["prompt"], {"flaws": flaws, "numbers": {"thumbs": rows, "picked": s},
                                                    "readable": bool(req.get("readable"))})

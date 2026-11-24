@@ -2218,14 +2218,27 @@ class Studio:
     def _draw_phases(self, text, seed, style, size, say, on_preview, meta):
         """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程の中は計画（atelier/ai/phase_plan.py）の表に、
         描く・確かめる（項目ごと）・直す（崩れごと）・確かめ直す（直した項目だけ）・聞くの工程として並ぶ。
-        渡す言葉は頼みの訳と作風だけで、背景や構図の言葉は足さない。phase_confirm（アプリが入れる）があれば工程ごとに確かめる"""
+        渡す言葉は AI モードと同じ作り方（頼みの訳に、学んだ並べ替えと意図の構図を足す）。phase_confirm（アプリが入れる）があれば工程ごとに確かめる"""
         import time
         from atelier.ai import phases
         from atelier.models.catalog import family as fam, image_model
         say("工程に分けて描きます（" + " → ".join(phases.NAMES) + "）")
         say("頼みを描く言葉に直しています")
         as_tags = fam(image_model(getattr(self.painter, "model", "")).family).tags
-        prompt = self.words.to_prompt(text, tags=as_tags)
+        prompt = self._with_character(self.words.to_prompt(text, tags=as_tags))
+        # AI モードと同じ言葉の作り方。片方だけ変えると始まりがずれる（_draw と同じ順番）
+        from atelier.words import learning as wordlearn
+        explored, guidance0 = True, getattr(self.painter, "guidance", None)
+        try:
+            prompt, _moved, explored = wordlearn.adjust(prompt, getattr(self.painter, "model", ""))
+            if guidance0 is not None and not explored:
+                self.painter.guidance = wordlearn.guidance(getattr(self.painter, "model", ""), guidance0)
+        except Exception as e:   # noqa: BLE001  学んだ記録が読めなくても描く
+            say(f"学んだ記録を読めませんでした（{e}）。学びを使わずに描きます")
+        from atelier.ai import composition
+        prompt, note = composition.add(text, prompt, tags=as_tags)
+        if note:
+            say(note)
         lost = list(getattr(self.words, "untranslated", []) or [])
         if lost:
             say("模型に伝わらない言葉があります: " + "、".join(lost) + "（英語で書くか、言葉の模型を入れると伝わります）")
@@ -2252,6 +2265,8 @@ class Studio:
         finally:
             if hasattr(self.painter, "avoid"):
                 self.painter.avoid = avoid0
+            if guidance0 is not None:
+                self.painter.guidance = guidance0
         self.last_phases = got["phases"]
         self.last_plan = got.get("plan")   # 工程の並び（済んだ工程・残り・聞いて止まった工程）。窓と記録が同じ表を読む
         left, checked = got["left"], got["checked"]

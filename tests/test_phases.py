@@ -83,8 +83,8 @@ def checks(always_bad: bool):
         def request(image, prompt):
             seen["request"] += 1
             # サムネイルとアタリでは依頼物を検査せず、服・髪・持ち物の工程で初めて欠落を検出する。
-            # request はサムネイル 2 回・アタリ 1 回の後、服・髪・持ち物で検品する。
-            bad = not always_bad and seen["request"] == 4
+            # request はサムネイル 1 回・アタリ 1 回の後、服・髪・持ち物で検品する。
+            bad = not always_bad and seen["request"] == 3
             return {"readable": True, "missing": ["red scarf"] if bad else [], "extra": [], "people": [], "body": []}
 
         @staticmethod
@@ -199,11 +199,11 @@ class PhasesTest(unittest.TestCase):
         self.assertTrue(any(s.startswith("工程 1/") for s in said))
         self.assertTrue(any(f"累計 {got['total']} 工程）" in s for s in said))
 
-    def test_thumbnails_small_and_picked(self):
+    def test_thumbnail_direct_and_reused(self):
         got, painter, *_ = self.run_phases(always_bad=False)
         paints = [x for x in painter.log if x[0] == "paint" and not x[3]]   # 下描きの線に沿う描き（base あり）は除く
-        # サムネイルは工程の数を減らさずに何枚か描き、選んだ 1 枚をそのままアタリにする（同じ構図を 2 度描かない）
-        self.assertEqual(len(paints), phases.THUMBS, painter.log)
+        # サムネイルは工程の数を減らさずに 1 枚を直接描き、そのままアタリにする（同じ構図を 2 度描かない）
+        self.assertEqual(len(paints), 1, painter.log)
         self.assertTrue(all(x[2] == 20 for x in paints))
         self.assertIn("picked", got["phases"][1]["numbers"])
 
@@ -728,7 +728,8 @@ class MissingBackRouteTest(unittest.TestCase):
             @staticmethod
             def request(image, prompt):
                 seen.append(1)
-                return {"readable": True, "missing": [], "extra": [], "people": ["extra person"] if len(seen) <= 2 else [], "body": []}
+                # 余分な人はサムネイルの測り（1 回目の request）だけが見つける。アタリの確かめではもう見つからない
+                return {"readable": True, "missing": [], "extra": [], "people": ["extra person"] if len(seen) <= 1 else [], "body": []}
 
             @staticmethod
             def body(image, prompt, tags=None):
@@ -909,7 +910,7 @@ class NoWholeRedrawTest(unittest.TestCase):
         self.assertFalse(any(m.get("whole") for r in got["history"] for m in r["mends"]))
         for m in getattr(painter, "masks", []):   # 模型に渡した囲みは、どれも絵の半分以下（全体の描き直しにしない）
             self.assertLessEqual(float((np.asarray(m.convert("L")) > 0).mean()), phases.GROW_MOST)
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), phases.THUMBS)   # ゼロから描いたのはサムネイルだけ
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 1)   # ゼロから描いたのはサムネイルだけ
 
     def test_people_unenclosable_is_carried_not_redrawn(self):
         import numpy as np
