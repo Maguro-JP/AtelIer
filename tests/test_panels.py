@@ -484,3 +484,60 @@ class StressFixTest(unittest.TestCase):
             self.assertIs(order[-1], w.tour)   # 案内は一番上
             w.tour.finish()
             done(w)
+
+
+class DebugDockStartupTest(unittest.TestCase):
+    """デバッグモードの「記録」の欄が、起動のときに下にくっついて出る（別ウィンドウで出ない）
+
+    最大化で閉じたときの並びだと、並びを戻したあとに作った欄が欄の並びに入らず、
+    置き場所のないまま別ウィンドウで出た。欄は並びを戻すより先に作る。
+    """
+
+    def test_record_dock_stays_docked_after_maximized_restart(self):
+        from tests.test_presetui import window
+        with TemporaryDirectory() as d:
+            w1 = fresh(d)
+            settings, store = w1.settings, w1.layout_store
+            prev_debug = settings.get("debug")
+            prev_geo = store.value("geometry9")
+            prev_state = store.value("state9")
+            w1_done = w2 = None
+            try:
+                settings.set("debug", 1)
+                w1.apply_debug_mode()
+                spin(3)
+                self.assertIsNotNone(getattr(w1, "_dbg_dock", None), "デバッグモードなのに「記録」の欄が無い")
+                w1.showMaximized()
+                spin(5)
+                # 前の回を最大化で閉じたときの並びを残す（closeEvent と同じ書き方）
+                store.setValue("geometry9", w1.saveGeometry())
+                store.setValue("state9", w1.saveState())
+                store.sync()
+                done(w1)
+                w1_done = True
+                spin(3)
+                w2 = window(d)
+                w2.show()
+                spin(5)
+                dock = getattr(w2, "_dbg_dock", None)
+                self.assertIsNotNone(dock, "起動のあと「記録」の欄が無い")
+                self.assertFalse(dock.isFloating(), "「記録」の欄が別ウィンドウで出た")
+                self.assertEqual(w2.dockWidgetArea(dock), Qt.BottomDockWidgetArea,
+                                 "「記録」の欄が下の欄の並びに入っていない")
+            finally:
+                if w2 is not None:
+                    done(w2)
+                    spin(2)
+                if not w1_done:
+                    done(w1)
+                settings.set("debug", prev_debug)
+                if prev_geo is None:
+                    store.remove("geometry9")
+                else:
+                    store.setValue("geometry9", prev_geo)
+                if prev_state is None:
+                    store.remove("state9")
+                else:
+                    store.setValue("state9", prev_state)
+                store.sync()
+

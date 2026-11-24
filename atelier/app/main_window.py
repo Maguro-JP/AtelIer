@@ -1052,6 +1052,10 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         from atelier.ui.tab_dock import TabDocks
         self.ai_tabs = TabDocks(self, self.ai_panel, self.layout_store)
         self.ai_tabs.restore()
+        # 「記録」の欄も、並びを戻すより先に作る。あとで作ると、並びに残っている「記録」の場所が
+        # 戻らず、最大化で閉じたときの並びでは欄の並びに入らないまま別ウィンドウで出た
+        if self.settings.get("debug"):
+            self._debug_dock()
         state = self.layout_store.value("state9")   # 欄の並びを変えたら名前を変え、古い並びを読まない
         if state is not None:
             self.restoreGeometry(self.layout_store.value("geometry9"))
