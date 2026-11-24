@@ -201,17 +201,102 @@ def _extra(req: dict) -> list[str]:
 PERSON_WORDS = ("1girl", "1boy", "girl", "boy", "woman", "man", "person", "people", "character", "portrait",
                 "child", "baby", "lady", "figure", "女の子", "男の子", "女性", "男性", "キャラクター", "人物", "少女", "少年")
 # 頼みの言葉に人物を表す言葉（英語の訳・日本語とも）
+ANIMAL_WORDS = ("dog", "cat", "bird", "horse", "animal", "fox", "wolf", "bear", "rabbit", "deer", "lion", "tiger",
+                "elephant", "monkey", "mouse", "fish", "owl", "snake", "frog", "pig", "cow", "sheep", "goat",
+                "chicken", "duck", "penguin", "dolphin", "whale", "shark", "octopus", "spider", "butterfly", "bee",
+                "犬", "猫", "鳥", "馬", "動物", "狐", "狼", "熊", "兎", "鹿", "ライオン", "虎", "象", "猿",
+                "魚", "フクロウ", "蛇", "蛙", "豚", "牛", "羊", "山羊", "鶏", "鴨", "ペンギン", "イルカ", "鯨", "鮫", "蜘蛛", "蝶", "蜂")
+# 頼みの言葉に動物を表す言葉
+CREATURE_WORDS = ("dragon", "creature", "monster", "demon", "angel", "elf", "fairy", "alien", "orc", "goblin",
+                  "troll", "vampire", "zombie", "ghost", "spirit", "centaur", "mermaid", "harpy", "arachne",
+                  "竜", "ドラゴン", "モンスター", "悪魔", "天使", "エルフ", "妖精", "宇宙人", "オーク", "ゴブリン",
+                  "吸血鬼", "ゾンビ", "幽霊", "人魚", "ハーピー", "アラクネ", "生き物", "妖怪", "ケンタウロス")
+# 頼みの言葉に架空の生き物を表す言葉（顔・目・足がある）
+HUMANOID_WORDS = ("humanoid", "android", "人型", "アンドロイド", "cyborg", "サイボーグ")
+# 頼みの言葉に人型を表す言葉（人型ロボットは顔・目・手足がある）
+NON_HUMANOID_WORDS = ("box", "箱", "car", "車", "machine", "機械", "tank", "戦車", "vehicle", "乗り物",
+                      "airplane", "飛行機", "ship", "船", "truck", "トラック", "train", "電車", "building", "建物", "house", "家")
+# 頼みの言葉に人型でない物を表す言葉（箱型の機械・車など。顔・目・足は無い）
+ROBOT_WORDS = ("robot", "ロボット", "mecha", "メカ")
+# 頼みの言葉にロボットを表す言葉（人型か箱型か分からなければ、人型とみなす）
+LOCATION_WORDS = ("beach", "mountain", "lake", "river", "forest", "sky", "night", "sunset", "sunrise", "city",
+                  "street", "room", "indoors", "outdoors", "garden", "park", "snow", "desert", "ocean", "sea",
+                  "clouds", "stars", "moon", "rain", "winter", "summer", "school", "cafe", "kitchen", "bedroom",
+                  "station", "airport", "bridge", "tower", "castle", "village", "town", "countryside", "field",
+                  "meadow", "cliff", "cave", "island", "waterfall", "volcano", "space", "underwater",
+                  "海辺", "山", "湖", "川", "森", "空", "夜", "夕日", "朝日", "街", "道", "部屋", "室内", "屋外",
+                  "庭", "公園", "雪", "砂漠", "海", "雲", "星", "月", "雨", "冬", "夏", "学校", "カフェ", "台所",
+                  "寝室", "駅", "空港", "橋", "塔", "城", "村", "町", "田舎", "野原", "崖", "洞窟", "島", "滝", "火山", "宇宙", "水中")
+# 頼みの言葉に場所・背景を表す言葉（タガーが読む場所のタグ）
+ROTATE_MOST = 5.0   # 画角の直し: 地平線の傾きがこれ（度）を超えたら、回して直さない（大きく回すと絵が歪むので、残った崩れにする。私の推測）
+
+
+def _has_word(low, words) -> bool:
+    """頼みの言葉（小文字）に、単語が入っているか。英字の続きでは数えない（'humanoid' の中の 'man' は数えない）。
+    複数形の s は数える（'dogs' の 'dog' は数える）。数字の前は数える（'1girl' の 'girl' は数える）。
+    日本語は英字ではないので、そのまま数える"""
+    import re
+    return any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?:s)?(?![a-z])", low) for w in words)
+
+
+def subject_kind(prompt, req=None) -> str:
+    """描く物の種類。「person」（人）、「face」（顔・目・足がある人以外：動物・人型ロボット・架空の生き物）、
+    「object」（物・風景・人型でないロボット）。顔・目・足があるかどうかで分ける。
+    頼みの言葉に人物の言葉があれば人、動物・生き物・人型の言葉があれば顔のある物、人型でない物の言葉があれば物。
+    ロボットは人型か箱型か分からなければ人型とみなす（箱型は「箱」などの言葉で物になる）。
+    タガーが読めて、人物・動物・生き物を見つけなければ物。決め手が無ければ曖昧なので人として扱う（検品を全部回す側に倒す）"""
+    low = str(prompt).lower()
+    if _has_word(low, PERSON_WORDS):
+        return "person"
+    if _has_word(low, ANIMAL_WORDS + CREATURE_WORDS + HUMANOID_WORDS):
+        return "face"
+    if _has_word(low, NON_HUMANOID_WORDS):
+        return "object"
+    if _has_word(low, ROBOT_WORDS):
+        return "face"
+    if req is not None and req.get("readable"):
+        if req.get("people"):
+            return "person"
+        read = req.get("read", {}) or {}
+        tags = " ".join(k.lower() for k, v in read.items() if v >= 0.3)
+        if _has_word(tags, PERSON_WORDS):
+            return "person"
+        if _has_word(tags, ANIMAL_WORDS + CREATURE_WORDS + HUMANOID_WORDS + ROBOT_WORDS):
+            return "face"
+        return "object"
+    return "person"
 
 
 def is_person_subject(prompt, req=None) -> bool:
-    """描く物が人物かどうかを、頼みの言葉とタガーの結果で決める。人物以外（風景・物）は、手・顔・体を見る模型を使わない。
-    頼みの言葉に人物の言葉があれば人物。タガーが読めて人物を見つけなければ人物以外。決め手が無ければ曖昧なので人物として扱う"""
-    low = str(prompt).lower()
-    if any(w in low for w in PERSON_WORDS):
-        return True
-    if req is not None and req.get("readable"):
-        return bool(req.get("people"))
-    return True
+    """後方互換: 描く物が人物かどうか。subject_kind が "person" のときだけ真"""
+    return subject_kind(prompt, req) == "person"
+
+
+def _background_flaws(prompt, req) -> list[str]:
+    """背景の検品: 頼んだ場所・背景と、タガーが読んだ背景が合っているか。
+    頼んだ場所が読めず、代わりに別の場所が高く読めたら、背景が違う。頼んだ場所が読めないだけなら、頼んだ物の検品が見る"""
+    if not req.get("readable"):
+        return []
+    read = req.get("read", {}) or {}
+    asked = [t.strip().lower() for t in str(prompt).split(",") if t.strip()]
+    wanted = [t for t in asked if any(w in t for w in LOCATION_WORDS)]
+    if not wanted:
+        return []
+    out = []
+    for loc in wanted:
+        if read.get(loc, 0.0) >= 0.2:
+            continue   # 頼んだ場所が読めている
+        others = [t for t, v in read.items()
+                  if v >= 0.5 and any(w in t.lower() for w in LOCATION_WORDS) and t.lower() != loc]
+        if others:
+            out.append(f"背景が違う: {loc} を頼んだのに {others[0]} が描かれている")
+    return out
+
+
+def _face_bad(res: dict) -> list[str]:
+    """手・顔・足の検品（hand_check）の崩れのうち、顔・目・足の物だけを返す。人の手の指の崩れは、動物・人型ロボット・
+    架空の生き物には要らないので外す。手の崩れは「手」で始まり、足は「足」、顔は「顔」、脚の本数は「脚」で始まる"""
+    return [f for f in res.get("bad", []) if not str(f).startswith("手")]
 
 
 def _inside(tried, img, mask):
@@ -294,9 +379,17 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         """工程 i で直すときに模型に渡す言葉。線の工程（アタリ・線画まで）は線の言葉、色の工程（下塗りから）は頼みの訳だけ"""
         return sketch_prompt() if i <= 3 else st["prompt"]
 
+    def _kind():
+        """描く物の種類。m_atari が頼みの言葉とタガーの結果で決めて st に置く。決まっていなければ人として扱う"""
+        return st.get("kind", "person")
+
     def _is_person():
-        """人物かどうか。m_atari が頼みの言葉とタガーの結果で決めて st に置く。決まっていなければ人物として扱う（曖昧なら人物側に倒す）"""
-        return st.get("is_person", True)
+        """人かどうか"""
+        return _kind() == "person"
+
+    def _has_face():
+        """顔・目・足があるかどうか（人・動物・人型ロボット・架空の生き物）。物・風景・人型でないロボットは偽"""
+        return _kind() in ("person", "face")
 
     def keep_tone(img, ref, where, mask=None):
         """描き重ねた絵を、前の工程の絵の色と明るさに合わせる（霞み・枠・色褪せを次の工程へ持ち越さない）"""
@@ -425,7 +518,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         return {"image": tried, "words": words, "numbers": {"by_parts": by_parts}}
 
     def d_lines(v):
-        say("線の強弱を付けています（外の輪郭を濃く、内側の線はそのまま）")
+        say("線の強弱を付けています（外の輪郭を太く濃く、内側の線はそのまま）")
         out, hit = pt.weight_lines(st["image"])
         return {"image": out, "numbers": {"pixels": hit}}
 
@@ -480,52 +573,94 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         # アタリの確かめは、旧「アタリ」「体の形」「顔・手・足の下描き」「服・髪・持ち物」を 1 つにした物。
         # 頼んだ物があるかの確かめ（request）は 1 回だけ呼び、結果を使い回す
         req = checks.request(img, st["prompt"])
-        st["is_person"] = is_person_subject(st["prompt"], req)
+        st["kind"] = subject_kind(st["prompt"], req)
         flaws = _people(req) + _missing(req) + _extra(req)
         numbers = {"missing": len(_missing(req)), "extra": len(_extra(req))}
         if st["prompt"] != prompt and not can_fix:
             flaws.append("追加指示を反映できません（この模型は描き直し不可）")
-        if not _is_person():
-            # 人物以外は、頼んだ物と画面の重さ（構図）だけを確かめる。手・顔・体を見る模型は使わない
+        # どの種類でも見る物：地平線の傾き（画角）、背景、体から離れた物（位置ずれ）
+        regions = []
+        tilt_h = None
+        hz = pt.horizon(img)
+        if hz.get("readable") and abs(hz["tilt"]) > pt.HORIZON_TILT_MOST:
+            flaws.append(f"地平線が傾いている（{hz['tilt']} 度）")
+            tilt_h = hz["tilt"]
+            numbers["horizon_tilt"] = hz["tilt"]
+        flaws += _background_flaws(st["prompt"], req)
+        det = pt.detached(img)
+        if det.get("readable") and det["count"]:
+            flaws.append(f"体から離れている物がある（{det['count']} 個）")
+            regions += [(b, "part") for b in det["boxes"]]
+            numbers["detached"] = det["count"]
+        if _kind() == "object":
+            # 物・風景・人型でないロボットは、頼んだ物と画面の重さ（構図）だけを確かめる。顔・目・足を見る模型は使わない
             wt = pt.thumb_weight(img)
             numbers["weight_x"] = wt["weight_x"]
             if wt["weight_x"] > pt.WEIGHT_MOST:
                 flaws.append("画面の重さが片寄っている")
-            return {"flaws": flaws, "numbers": numbers, "missing": list(req.get("missing", [])) if req.get("readable") else [],
-                    "readable": bool(req.get("readable"))}
-        # 人物のときだけ、手・顔・体を見る模型を使う
+            return {"flaws": flaws, "regions": regions, "numbers": numbers,
+                    "missing": list(req.get("missing", [])) if req.get("readable") else [],
+                    "tilt": tilt_h, "readable": bool(req.get("readable"))}
+        # 顔・目・足がある物（人・動物・人型ロボット・架空の生き物）は、重心と顔・目・足を見る
         pc = checks.points(img)
         pts = dict(pc.get("points") or {}) if pc.get("readable") else {}
         bal = pt.balance(img)
-        hd = pt.heads(pts, bal.get("height", 0)) if bal.get("readable") else None
         if bal.get("readable") and bal["balance"] > pt.BALANCE_MOST:
             flaws.append(f"重心が足の上に無い（{bal['balance']}）")
-        if hd is not None and not (pt.HEADS[0] <= hd <= pt.HEADS[1]):
-            flaws.append(f"等身が外れている（{hd}）")
-        pz, bd = checks.pose(img), checks.body(img, st["prompt"])
-        flaws += (list(pz.get("bad", [])) if pz.get("readable") else []) + (list(bd.get("bad", [])) if bd.get("readable") else [])
         res = checks.hands(img, st["prompt"])
+        faces = res.get("faces") or []
+        if faces and faces[0].get("box"):
+            st["face_box"] = faces[0]["box"]
         tilt = pt.eye_tilt(pts)
-        flaws += list(res.get("bad", []))
-        regions = list(handcheck.bad_regions(res))
+        if _is_person():
+            # 人のときだけ、等身・骨組みの比・体の検品と、手の指・服の検品を使う
+            hd = pt.heads(pts, bal.get("height", 0)) if bal.get("readable") else None
+            if hd is not None and not (pt.HEADS[0] <= hd <= pt.HEADS[1]):
+                flaws.append(f"等身が外れている（{hd}）")
+            pz, bd = checks.pose(img), checks.body(img, st["prompt"])
+            flaws += (list(pz.get("bad", [])) if pz.get("readable") else []) + (list(bd.get("bad", [])) if bd.get("readable") else [])
+            flaws += list(res.get("bad", []))
+            regions += list(handcheck.bad_regions(res))
+            numbers.update({"heads": hd, "points": len(pts)})
+            show = pz.get("map")
+            note = "" if pz.get("readable") else pz.get("reason", "骨組みを読めませんでした")
+            readable = bool(req.get("readable")) and bool(bal.get("readable")) and bool(pz.get("readable")) and bool(bd.get("readable")) and bool(res.get("readable")) and bool(pc.get("readable"))
+        else:
+            # 動物・人型ロボット・架空の生き物は、顔・目・足だけを見る。人の手の指・服・等身・骨組みの比は使わない
+            # 顔・足の模型が読めたかどうかで、読めたことにする（手の模型は人専用で、動物には手が無いので読めなくて当たり前）
+            face_ok = bool(res.get("readable")) or bool(faces) or bool(res.get("feet")) or bool((res.get("face") or {}).get("readable"))
+            flaws += _face_bad(res)
+            regions += [(b, k) for b, k in handcheck.bad_regions(res) if k in ("foot", "face")]
+            numbers.update({"points": len(pts)})
+            show = None
+            note = ""
+            readable = bool(req.get("readable")) and bool(bal.get("readable")) and face_ok
         if tilt is not None and tilt > pt.EYE_TILT:
             flaws.append(f"左右の目の高さがずれている（{tilt}）")
             if pt.face_box(pts):
                 regions.append((pt.face_box(pts), "face"))
         st["points"], st["height"] = pts, bal.get("height", 0)
-        numbers.update({"balance": bal.get("balance"), "heads": hd, "points": len(pts),
-                        "eye_tilt": tilt, "bad": len(res.get("bad", []))})
-        return {"flaws": flaws, "regions": regions, "numbers": numbers, "show": pz.get("map"),
+        numbers.update({"balance": bal.get("balance"), "eye_tilt": tilt, "bad": len(res.get("bad", []))})
+        return {"flaws": flaws, "regions": regions, "numbers": numbers, "show": show,
                 "missing": list(req.get("missing", [])) if req.get("readable") else [],
-                "note": "" if pz.get("readable") else pz.get("reason", "骨組みを読めませんでした"),
-                "readable": bool(req.get("readable")) and bool(bal.get("readable"))
-                and bool(pz.get("readable")) and bool(bd.get("readable"))
-                and bool(res.get("readable")) and bool(pc.get("readable"))}
+                "note": note, "tilt": tilt_h, "readable": readable}
 
     def m_lines(img):
         m = pt.lines(img)
-        return {"flaws": [f"外の輪郭が途切れている（{m['gap']}）"] if m.get("readable") and m["gap"] > pt.LINE_GAP_MOST else [],
-                "numbers": m, "readable": bool(m.get("readable"))}
+        flaws = []
+        regions = []
+        if m.get("readable"):
+            if m["gap"] > pt.LINE_GAP_MOST:
+                flaws.append(f"外の輪郭が途切れている（{m['gap']}）")
+            if m.get("max_gap", 0) > pt.LINE_MAX_GAP_MOST:
+                flaws.append(f"線が途中でずれている（途切れが {m['max_gap']}）")
+            if m.get("weight") is not None and m["weight"] < pt.LINE_WEIGHT_LEAST:
+                flaws.append("線の強弱が無い（外の輪郭が細く薄い）")
+        d = pt.dust(img)
+        if d.get("readable") and d["count"]:
+            flaws.append(f"ゴミがある（{d['count']} 個）")
+            regions += [(b, "dust") for b in d["boxes"]]
+        return {"flaws": flaws, "regions": regions, "numbers": m, "readable": bool(m.get("readable"))}
 
     def m_base(img):
         import numpy as np
@@ -537,7 +672,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         counts = np.bincount(a.ravel(), minlength=32) / max(a.size, 1)
         colors = int((counts >= 0.02).sum())
         p = pt.parts(img)
-        return {"flaws": [f"色が散っている（{colors} 色）"] if colors > COLORS_MOST else [], "readable": True,
+        flaws = [f"色が散っている（{colors} 色）"] if colors > COLORS_MOST else []
+        regions = []
+        b = pt.bleed(img)
+        if b.get("readable") and b["share"] > pt.BLEED_MOST:
+            flaws.append(f"色が紙にはみ出している（にじみ {b['share']}）")
+            regions += [(box, "bleed") for box in b["boxes"]]
+        return {"flaws": flaws, "regions": regions, "readable": True,
                 "numbers": {"colors": colors, "parts": None if p is None else int(len(set(np.unique(p).tolist()) - {0}))}}
 
     def m_light(img):
@@ -550,43 +691,77 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
 
     def m_shadow(img):
         sh = pt.shadows(img, st.get("light") or {})
-        # 暗い画素の左右比率は線画・髪・服の色にも左右されるため合否に使わない。影側が光側より明るいかだけを見る
-        return {"flaws": [f"影が光より明るい（{sh['shade_minus_lit']}）"] if sh.get("readable") and sh["shade_minus_lit"] > 0 else [],
-                "numbers": sh, "readable": bool(sh.get("readable"))}
+        # 暗い画素の左右比率は線画・髪・服の色にも左右されるため、影側が光側より明るいかだけを主に見る
+        # （shade_share は濃い細部を影と混同して誤検出するので、矛盾の検品には使わない）
+        flaws = [f"影が光より明るい（{sh['shade_minus_lit']}）"] if sh.get("readable") and sh["shade_minus_lit"] > 0 else []
+        return {"flaws": flaws, "numbers": sh, "readable": bool(sh.get("readable"))}
 
     def m_shine(img):
-        if not _is_person():
-            # 人物以外は目の光の確かめを飛ばす（目は無い）
+        if not _has_face():
+            # 顔・目・足の無い物・風景は目の光の確かめを飛ばす（目は無い）
             return {"flaws": [], "numbers": {"eye_max": []}, "readable": True}
         pts = points(img)   # 目の光は今の絵から読んだ座標だけで確かめる（古い目の位置で通さない）
         cl = pt.catchlights(img, pts)
-        return {"flaws": [f"目の光が無い（{x}）" for x in cl.get("eye_max", []) if x < pt.CATCHLIGHT],
-                "eyes": [(b, "eye") for b in cl.get("boxes", [])], "numbers": {"eye_max": cl.get("eye_max")},
-                "readable": bool(cl.get("readable"))}
+        if cl.get("readable"):
+            return {"flaws": [f"目の光が無い（{x}）" for x in cl.get("eye_max", []) if x < pt.CATCHLIGHT],
+                    "eyes": [(b, "eye") for b in cl.get("boxes", [])], "numbers": {"eye_max": cl.get("eye_max")},
+                    "readable": True}
+        if _is_person():
+            # 人の目は体の点で読めなければ、目の光は検品できない
+            return {"flaws": [], "numbers": {"eye_max": []}, "readable": False}
+        # 動物・人型ロボット・架空の生き物は、人の体の点では目を読めない。アタリで読んだ顔の枠の上の半分（目の所）で、
+        # 一番明るい画素を見る。顔の枠も無ければ、目の光の確かめは飛ばす（顔の検品が目を読んでいる）
+        fb = st.get("face_box")
+        if not fb:
+            return {"flaws": [], "numbers": {"eye_max": []}, "readable": True}
+        lum = pt.luminance(img)
+        x0, y0, x1, y1 = (int(v) for v in fb)
+        eye_y1 = (y0 + y1) // 2   # 顔の上の半分が目の所
+        part = lum[max(0, y0):max(0, eye_y1), max(0, x0):max(0, x1)]
+        best = int(part.max()) if part.size else 0
+        eye_box = (x0, y0, x1, eye_y1)
+        return {"flaws": [f"目の光が無い（{best}）"] if best < pt.CATCHLIGHT else [],
+                "eyes": [(eye_box, "eye")], "numbers": {"eye_max": [best]}, "readable": True}
 
     def m_finish(img):
         sv = pt.shrink_view(img)
         flaws = []
         numbers = {"shrink": sv.get("contrast"), "asym": None}
-        if not _is_person():
-            # 人物以外は、手・足・顔・体の崩れの確かめを飛ばす。縮めて見るだけ
+        d = pt.dust(img)   # 仕上げでも、ゴミが残っていないか見る
+        regions = []
+        if d.get("readable") and d["count"]:
+            flaws.append(f"ゴミがある（{d['count']} 個）")
+            regions += [(b, "dust") for b in d["boxes"]]
+        if not _has_face():
+            # 顔・目・足の無い物・風景は、手・足・顔・体の崩れの確かめを飛ばす。縮めて見るだけ
             if sv.get("readable") and sv["contrast"] < pt.SHRINK_CONTRAST:
                 flaws.append(f"縮めると主役が目立たない（{sv['contrast']}）")
-            return {"flaws": flaws, "regions": [], "numbers": numbers, "readable": bool(sv.get("readable"))}
+            return {"flaws": flaws, "regions": regions, "numbers": numbers, "readable": bool(sv.get("readable"))}
         res = checks.hands(img, st["prompt"])
-        body = checks.body(img, st["prompt"])
+        body = checks.body(img, st["prompt"]) if _is_person() else {"readable": True, "bad": []}
         pts = points(img)
-        face = pt.face_box(pts)
+        face = pt.face_box(pts) or st.get("face_box")
         fv = pt.flip_view(img, face) if face else {"readable": False}
-        flaws = list(res.get("bad", [])) + (list(body.get("bad", [])) if body.get("readable") else [])
+        if _is_person():
+            flaws += list(res.get("bad", [])) + (list(body.get("bad", [])) if body.get("readable") else [])
+            regions += list(handcheck.bad_regions(res))
+        else:
+            # 動物・人型ロボット・架空の生き物は、顔・目・足だけを見る。人の手の指・体は使わない
+            flaws += _face_bad(res)
+            regions += [(b, k) for b, k in handcheck.bad_regions(res) if k in ("foot", "face")]
         if sv.get("readable") and sv["contrast"] < pt.SHRINK_CONTRAST:
             flaws.append(f"縮めると主役が目立たない（{sv['contrast']}）")
         if fv.get("readable") and fv["asym"] > pt.FLIP_MOST:
             flaws.append(f"反転すると顔が片側に歪んで見える（{fv['asym']}）")
         numbers["asym"] = fv.get("asym")
-        return {"flaws": flaws, "regions": list(handcheck.bad_regions(res)), "numbers": numbers,
-                "readable": bool(res.get("readable")) and bool(body.get("readable")) and bool(pts)
-                and bool(sv.get("readable")) and bool(fv.get("readable"))}
+        if _is_person():
+            return {"flaws": flaws, "regions": regions, "numbers": numbers,
+                    "readable": bool(res.get("readable")) and bool(body.get("readable")) and bool(pts)
+                    and bool(sv.get("readable")) and bool(fv.get("readable"))}
+        # 動物・人型ロボット・架空の生き物は、顔・足の模型が読めたかどうかで、読めたことにする。人の体の点は要らない
+        face_ok = bool(res.get("readable")) or bool(res.get("faces")) or bool(res.get("feet")) or bool((res.get("face") or {}).get("readable"))
+        return {"flaws": flaws, "regions": regions, "numbers": numbers,
+                "readable": bool(sv.get("readable")) and face_ok}
 
     measurer = [m_purpose, m_thumbs, m_atari, m_lines, m_base, m_light, m_shadow, m_shine, m_finish]
     assert len(measurer) == n
@@ -695,6 +870,17 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             mask = _mask(img.size, [(tuple(b), t) for b, t in how["regions"]])
         elif kind == "eyes" and how.get("regions"):
             mask = _mask(img.size, [(tuple(b), t) for b, t in how["regions"]])
+        elif kind == "boxes" and how.get("regions"):
+            # 枠をそのまま四角で囲む（離れた物の枠。_mask の円は長い辺で広がりすぎる）
+            mask = _box_mask(img.size, [tuple(b) for b, _t in how["regions"]])
+        elif kind == "background":
+            # 背景（人物の外）。人物の範囲の反対。広すぎれば、後の割合の確かめで囲めないことになる
+            import numpy as np
+            m = pt.silhouette(img)
+            mask = Image.fromarray(((~m) * 255).astype("uint8"))
+        elif kind == "shadow_side":
+            # 影の側（光源と反対の側）の人物の範囲
+            mask = pt.shadow_side_mask(img, st.get("light") or {})
         elif kind == "wear":
             fb = pt.face_box(st.get("points") or {})
             mask, _ = pt.wear_mask(img, [fb] if fb else [])
@@ -714,7 +900,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 mask = extra_people_mask(img)   # 余分な人の枠だけ（本人は囲まない）
             elif items.UNREADABLE in words or "検品できません" in words:
                 mask = unreadable_mask(img, how)   # 読めなかった部位の枠（手なら手、体なら体）
-            elif any(k in words for k in ("腕", "脚", "頭", "骨", "重心", "等身", "体", "輪郭", "色", "影", "光", "主役",
+            elif any(k in words for k in ("腕", "脚", "頭", "骨", "重心", "等身", "体", "輪郭", "線", "色", "影", "光", "主役",
                                           "手", "指", "足")):
                 seg = pt.parts(img)   # 部位分けがあれば人の所だけ。無ければ紙でない所
                 m = (seg > 0) if seg is not None else pt.silhouette(img)
@@ -777,16 +963,39 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
 
     def mends_for(i, item, flaws, res, k):
         """崩れを直す工程を作る。手・足・顔は検品の枠ごと（枠と崩れの数が合わなければ枠をまとめて 1 つ）、頼んだ物は服・髪・持ち物の所、
-        目の光は目の囲みで 1 つ、ほかは崩れ 1 つにつき 1 つ"""
+        目の光は目の囲みで 1 つ、ゴミ・にじみは紙の色で消し、位置ずれは離れた物の枠、画角は回し、背景は背景の所、線の強弱は太らせ、
+        影は影の側、ほかは崩れ 1 つにつき 1 つ。直す工程には、必ず対応する検品がある（検品の無い直しは入れない）"""
         if item in items.REGION_ITEMS and res.get("regions"):
-            regs = [[list(b), t] for b, t in res["regions"]]
-            if len(regs) == len(flaws) and len(flaws) > 1:
-                return [step("mend", i, item, flaws=[f], k=k, how={"mask": "regions", "regions": [r]}) for f, r in zip(flaws, regs)]
-            return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs})]
+            regs = [[list(b), t] for b, t in res["regions"] if t in ("hand", "foot", "face")]
+            if regs:
+                if len(regs) == len(flaws) and len(flaws) > 1:
+                    return [step("mend", i, item, flaws=[f], k=k, how={"mask": "regions", "regions": [r]}) for f, r in zip(flaws, regs)]
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs})]
         if item == "頼んだ物" and i == 2:
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "wear", "missing": list(res.get("missing", []))})]
         if item == "目の光" and res.get("eyes"):
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "eyes", "regions": [[list(b), t] for b, t in res["eyes"]]})]
+        if item in ("ゴミ", "色のにじみ"):
+            # ゴミ・にじみは、検品の枠の中を紙の色で消す（模型で描き直さない）
+            kind = "dust" if item == "ゴミ" else "bleed"
+            regs = [[list(b), t] for b, t in res.get("regions", []) if t == kind]
+            if regs:
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs, "op": "erase"})]
+        if item == "位置ずれ":
+            regs = [[list(b), t] for b, t in res.get("regions", []) if t == "part"]
+            if regs:
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "boxes", "regions": regs})]
+        if item == "画角":
+            tilt = res.get("tilt")
+            if tilt is not None and abs(tilt) <= ROTATE_MOST:
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "rotate", "angle": tilt})]
+            return []   # 大きく傾いている。回して直さない（残った崩れとして次へ進む）
+        if item == "背景":
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "background"})]
+        if item == "線の強弱":
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "thicken"})]
+        if item == "影":
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "shadow_side"})]
         regs = [[list(b), tt] for b, tt in (res.get("regions") or [])]
         return [step("mend", i, item, flaws=[f], k=k, how={"mask": "shape", "flaws": [f], **({"regions": regs} if regs else {})})
                 for f in flaws]
@@ -955,56 +1164,120 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 elif kind == "mend":
                     cur = st["image"]
                     how = s.get("how") or {}
-                    mask = mend_mask(cur, how) if cur is not None else None
-                    if mask is None:
-                        s["status"] = "skipped"
-                        queue_fix(i, item, s.get("flaws", []), {}, s.get("k", 0), why="囲めない崩れです")
+                    op = how.get("op")
+                    k = int(s.get("k", 0))
+                    if op in ("rotate", "thicken", "erase"):
+                        # 模型で描き直さない直し（純粋な操作）。直す工程には、必ず対応する検品がある
+                        tried = None
+                        dd = None
+                        changed = False
+                        mend_name = {"rotate": "回す", "thicken": "太らせる", "erase": "消す"}[op]
+                        if cur is None:
+                            s["status"] = "skipped"
+                            queue_fix(i, item, s.get("flaws", []), {}, k, why="絵がありません")
+                        elif op == "rotate":
+                            angle = float(how.get("angle") or 0)
+                            # 地平線が右下がり（傾きが正）のとき、反時計回り（正の角度）に回すと水平になる
+                            say(f"地平線の傾きを直すため、絵を {angle} 度回しています: " + "、".join(s.get("flaws", [])[:3]))
+                            tried = cur.rotate(angle, resample=Image.BICUBIC, fillcolor=pt.paper_color(cur))
+                            dd = diff(cur, tried)
+                            dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
+                            changed = (dd["mean"] or 0) >= DIFF_MIN
+                        elif op == "thicken":
+                            say(f"線を太らせ直しています: " + "、".join(s.get("flaws", [])[:3]))
+                            r = pt.outline_radius(cur) * (k + 1)   # 直し直すたびに太くする
+                            tried, _hit = pt.weight_lines(cur, r=r)
+                            dd = diff(cur, tried)
+                            dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
+                            changed = (dd["mean"] or 0) >= DIFF_MIN
+                        else:  # erase
+                            mask = mend_mask(cur, how)
+                            if mask is None:
+                                s["status"] = "skipped"
+                                queue_fix(i, item, s.get("flaws", []), {}, k, why="囲めない崩れです")
+                            else:
+                                import numpy as np
+                                paper = pt.paper_color(cur)
+                                arr = np.asarray(cur.convert("RGB")).copy()
+                                arr[np.asarray(mask.convert("L")) > 0] = paper
+                                tried = Image.fromarray(arr.astype("uint8"))
+                                dd = diff(cur, tried, mask)
+                                # 小さなゴミは全体の差が小さいので、囲みの中の差で変わったかを見る
+                                changed = (dd["inside"] or 0) >= 10
+                        if tried is not None and dd is not None:
+                            s.update({"strength": 1.0, "diff": dd["mean"], "outside": dd.get("outside"), "inside": dd.get("inside"),
+                                      "words": [], "changed": changed})
+                            mrow = {"phase": NAMES[i], "mend": mend_name, "item": item,
+                                    "strength": 1.0, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd.get("outside"),
+                                    "inside": dd.get("inside"), "words": [], "readable": True, "image": None, "changed": changed,
+                                    "visit": visits[i]}
+                            row["mends"].append(mrow)
+                            if changed:
+                                fixes += 1
+                                memo.setdefault(("before", i, item), cur)
+                                st["image"] = tried
+                                s["image"] = mrow["image"] = save_img(tried, i, f"{NAMES[i]}-直し")
+                                s["status"] = "done"
+                            else:
+                                say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに直し直します")
+                                s["status"] = "unchanged"
+                                nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
+                                tries[tkey(i, item)] = nk
+                                old = plan.need()
+                                if nk < MENDS:
+                                    plan.insert([step("mend", i, item, flaws=list(s.get("flaws", [])), k=nk, how=how)])
+                                grew(old)
                     else:
-                        k = int(s.get("k", 0))
-                        if how.get("mask") == "pen":
-                            strength, m = MEND[0], mask
+                        mask = mend_mask(cur, how) if cur is not None else None
+                        if mask is None:
+                            s["status"] = "skipped"
+                            queue_fix(i, item, s.get("flaws", []), {}, s.get("k", 0), why="囲めない崩れです")
                         else:
-                            strength = (FIXES[min(k, len(FIXES) - 1)] if how.get("mask") == "regions"
-                                        else (REPAINT if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "wear"
-                                        else (SHINE if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "eyes"
-                                        else MEND[min(k, len(MEND) - 1)])
-                            m = _grow(mask, GROW * k)
-                            r = GROW * k
-                            while r > 0 and _share(m) > max(_share(mask), GROW_MOST):   # 広げすぎて絵全体の描き直しにならないようにする
-                                r //= 2
-                                m = _grow(mask, r)
-                        words = emphasize(phase_prompt(i), how["missing"]) if how.get("mask") == "wear" and how.get("missing") else phase_prompt(i)
-                        say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
-                        tell(words)
-                        raw = painter.redraw(words, st["seed"] + 509 * (k + 1) + 31 * i + 7 * len(row["mends"]), cur, m, strength=strength)
-                        if how.get("mask") == "wear":
-                            raw = keep_tone(raw, cur, "服・髪・持ち物", m)
-                        tried = _inside(raw, cur, m)
-                        dd = diff(cur, tried, m)
-                        s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
-                                  "words": [words], "changed": (dd["mean"] or 0) >= DIFF_MIN})
-                        mrow = {"phase": NAMES[i], "mend": "赤ペン" if how.get("mask") == "pen" else k + 1, "item": item,
-                                "strength": strength, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd["outside"],
-                                "inside": dd["inside"], "words": [words], "readable": True, "image": None, "changed": s["changed"],
-                                "visit": visits[i], **({"pen": True} if how.get("mask") == "pen" else {})}
-                        row["mends"].append(mrow)
-                        if s["changed"]:
-                            fixes += 1
-                            memo.setdefault(("before", i, item), cur)
-                            st["image"] = tried
-                            s["image"] = mrow["image"] = save_img(tried, i, f"{NAMES[i]}-{'赤ペンの' if how.get('mask') == 'pen' else ''}直し")
-                            s["status"] = "done"
-                        else:
-                            # 絵がほとんど変わらなかった直しは工程として数えず、囲みを広げ、強さを上げて直し直す（同じ入力を繰り返さない）
-                            say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに囲みを広げ、強さを上げます")
-                            s["status"] = "unchanged"
-                            nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
-                            tries[tkey(i, item)] = nk
-                            old = plan.need()
-                            if nk < MENDS and how.get("mask") != "pen":
-                                plan.insert([step("mend", i, item, flaws=list(s.get("flaws", [])), k=nk, how=how)])
-                            # 手を替え尽くしたら差し込まない。待っている確かめ直しが同じ崩れを見つけ、聞く工程を差し込む
-                            grew(old)
+                            k = int(s.get("k", 0))
+                            if how.get("mask") == "pen":
+                                strength, m = MEND[0], mask
+                            else:
+                                strength = (FIXES[min(k, len(FIXES) - 1)] if how.get("mask") == "regions"
+                                            else (REPAINT if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "wear"
+                                            else (SHINE if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "eyes"
+                                            else MEND[min(k, len(MEND) - 1)])
+                                m = _grow(mask, GROW * k)
+                                r = GROW * k
+                                while r > 0 and _share(m) > max(_share(mask), GROW_MOST):   # 広げすぎて絵全体の描き直しにならないようにする
+                                    r //= 2
+                                    m = _grow(mask, r)
+                            words = emphasize(phase_prompt(i), how["missing"]) if how.get("mask") == "wear" and how.get("missing") else phase_prompt(i)
+                            say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
+                            tell(words)
+                            raw = painter.redraw(words, st["seed"] + 509 * (k + 1) + 31 * i + 7 * len(row["mends"]), cur, m, strength=strength)
+                            if how.get("mask") == "wear":
+                                raw = keep_tone(raw, cur, "服・髪・持ち物", m)
+                            tried = _inside(raw, cur, m)
+                            dd = diff(cur, tried, m)
+                            s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
+                                      "words": [words], "changed": (dd["mean"] or 0) >= DIFF_MIN})
+                            mrow = {"phase": NAMES[i], "mend": "赤ペン" if how.get("mask") == "pen" else k + 1, "item": item,
+                                    "strength": strength, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd["outside"],
+                                    "inside": dd["inside"], "words": [words], "readable": True, "image": None, "changed": s["changed"],
+                                    "visit": visits[i], **({"pen": True} if how.get("mask") == "pen" else {})}
+                            row["mends"].append(mrow)
+                            if s["changed"]:
+                                fixes += 1
+                                memo.setdefault(("before", i, item), cur)
+                                st["image"] = tried
+                                s["image"] = mrow["image"] = save_img(tried, i, f"{NAMES[i]}-{'赤ペンの' if how.get('mask') == 'pen' else ''}直し")
+                                s["status"] = "done"
+                            else:
+                                # 絵がほとんど変わらなかった直しは工程として数えず、囲みを広げ、強さを上げて直し直す（同じ入力を繰り返さない）
+                                say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに囲みを広げ、強さを上げます")
+                                s["status"] = "unchanged"
+                                nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
+                                tries[tkey(i, item)] = nk
+                                old = plan.need()
+                                if nk < MENDS and how.get("mask") != "pen":
+                                    plan.insert([step("mend", i, item, flaws=list(s.get("flaws", [])), k=nk, how=how)])
+                                # 手を替え尽くしたら差し込まない。待っている確かめ直しが同じ崩れを見つけ、聞く工程を差し込む
+                                grew(old)
                 elif kind == "ask":
                     why = s.get("why", "")
                     flaws = list(s.get("flaws", []))

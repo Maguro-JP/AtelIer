@@ -44,6 +44,38 @@ def figure(size=(64, 96)):
     return im
 
 
+def sketch(size=(64, 96)):
+    """白い紙に、細い黒い線で描いたラフ画（人物の輪郭と目の線）。線画の工程の絵"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), "white")
+    d = ImageDraw.Draw(im)
+    d.ellipse([w * 0.38, h * 0.05, w * 0.62, h * 0.25], outline=(0, 0, 0), width=1)  # 頭の輪郭
+    d.rectangle([w * 0.35, h * 0.25, w * 0.65, h * 0.95], outline=(0, 0, 0), width=1)  # 体の輪郭
+    d.line([w * 0.45, h * 0.15, w * 0.55, h * 0.15], fill=(0, 0, 0), width=1)  # 目の線（内側の細い線）
+    return im
+
+
+def tilted_land(size=(128, 96), slope=0.09):
+    """上が白い空、下が灰色の地面の風景。地平線が slope だけ傾いている（右下がり）"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), "white")
+    d = ImageDraw.Draw(im)
+    for x in range(w):
+        y = int(h // 2 + (x - w // 2) * slope)
+        d.line([x, y, x, h], fill=(90, 90, 90))
+    return im
+
+
+def mean_diff(a, b):
+    """2 枚の絵の平均の差（0-255）。DIFF_MIN と比べる"""
+    import numpy as np
+    x = np.asarray(a.convert("RGB"), dtype=np.int16)
+    y = np.asarray(b.convert("RGB"), dtype=np.int16)
+    return float(np.abs(x - y).max(axis=2).mean())
+
+
 class Painter(FakePainter):
     abilities = (True, True)
     steps = 20
@@ -429,6 +461,244 @@ class NonPersonTest(unittest.TestCase):
         self.assertGreater(seen["request"], 0, seen)   # 頼んだ物があるかの確かめは使う
 
 
+class SubjectKindTest(unittest.TestCase):
+    """顔・目・足があるかどうかで分ける（人／顔のある物／物・風景）。動物・人型ロボット・架空の生き物は顔・目・足の検品を回す"""
+
+    def test_word_only(self):
+        self.assertEqual(phases.subject_kind("1girl, red scarf"), "person")
+        self.assertEqual(phases.subject_kind("dog"), "face")
+        self.assertEqual(phases.subject_kind("cat sitting"), "face")
+        self.assertEqual(phases.subject_kind("dragon"), "face")
+        self.assertEqual(phases.subject_kind("robot"), "face")   # 人型か箱型か分からなければ人型
+        self.assertEqual(phases.subject_kind("humanoid robot"), "face")
+        self.assertEqual(phases.subject_kind("box robot"), "object")   # 箱型は物
+        self.assertEqual(phases.subject_kind("car"), "object")
+
+    def test_tagger_read(self):
+        empty = {"readable": True, "people": [], "read": {}}
+        self.assertEqual(phases.subject_kind("mountain, lake", empty), "object")
+        self.assertEqual(phases.subject_kind("a landscape", empty), "object")
+        self.assertEqual(phases.subject_kind("a landscape", {"readable": True, "people": [1], "read": {}}), "person")
+        self.assertEqual(phases.subject_kind("a landscape", {"readable": True, "people": [], "read": {"dog": 0.8}}), "face")
+
+
+def _clean_checks():
+    """体・構図・依頼物は合格させ、手の検品だけを 1 回目に崩れ（足）で返す。動物・人型ロボット用"""
+    seen = {"hands": 0, "body": 0, "pose": 0, "points": 0, "request": 0}
+
+    class C:
+        @staticmethod
+        def request(image, prompt):
+            seen["request"] += 1
+            return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+        @staticmethod
+        def body(image, prompt, tags=None):
+            seen["body"] += 1
+            return {"readable": True, "bad": [], "avoid": []}
+
+        @staticmethod
+        def points(image):
+            seen["points"] += 1
+            w, h = image.size
+            return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                    "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15), "right_ear": (w * .6, h * .15),
+                    "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+        @staticmethod
+        def pose(image):
+            seen["pose"] += 1
+            return {"readable": True, "bad": [], "map": image}
+
+        @staticmethod
+        def hands(image, prompt):
+            seen["hands"] += 1
+            if seen["hands"] == 1:
+                # 動物の顔・足はあるが、人の手は無い。足の崩れを 1 回だけ返す
+                return {"readable": True, "bad": ["足 1: 指が 6 本"], "hands": [],
+                        "feet": [{"box": [10, 10, 30, 30], "bad": ["指が 6 本"], "seen": True}],
+                        "faces": [{"box": [20, 5, 40, 20]}], "face": {"readable": True}, "legs": []}
+            return {"readable": True, "bad": [], "hands": [], "feet": [],
+                    "faces": [{"box": [20, 5, 40, 20]}], "face": {"readable": True}, "legs": []}
+    return C, seen
+
+
+class DustyPainter(Painter):
+    """描くたびに、主役から離れた所に小さなゴミを描く"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        im = super().paint(prompt, seed, on_step=on_step, **kw)
+        from PIL import ImageDraw
+        d = ImageDraw.Draw(im)
+        d.rectangle([5, 5, 7, 7], fill=(30, 30, 30))
+        return im
+
+
+class DetachedPainter(Painter):
+    """描くたびに、体の近くに離れた塊（位置ずれ）を描く"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        im = super().paint(prompt, seed, on_step=on_step, **kw)
+        from PIL import ImageDraw
+        d = ImageDraw.Draw(im)
+        d.rectangle([45, 40, 55, 50], fill=(60, 60, 80))
+        return im
+
+
+class LandPainter(Painter):
+    """最初の 2 回（サムネイルとアタリ）は傾いた地平線の風景を描き、あとは人物の絵を描く。
+    風景のままでは「縮めて見る」の検品（人物が紙に載っている前提）が通らないので、アタリの確かめだけを風景で試す"""
+
+    def __init__(self):
+        super().__init__()
+        self.n = 0
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.n += 1
+        if self.n <= 2:
+            super().paint(prompt, seed, on_step=on_step, **kw)
+            return tilted_land((128, 96))
+        return super().paint(prompt, seed, on_step=on_step, **kw)
+
+
+def _counting_lines(weights=None, max_gaps=None):
+    """pt.lines の偽物。呼ぶたびに weight / max_gap を順に返す（無ければ最後の値）。gap は 0"""
+    weights = weights or [0.6]
+    max_gaps = max_gaps or [0.0]
+    seen = {"n": 0}
+
+    def fake(_im):
+        i = seen["n"]
+        seen["n"] += 1
+        return {"readable": True, "gap": 0.0,
+                "max_gap": max_gaps[min(i, len(max_gaps) - 1)],
+                "weight": weights[min(i, len(weights) - 1)]}
+    return fake
+
+
+class NewChecksFlowTest(unittest.TestCase):
+    """新しい検品が、崩れを見つけ、直し、直したあとに通ることを、流れで確かめる"""
+
+    def run_draw(self, painter, prompt, checks, lines=None):
+        lines = lines or (lambda _im: {"readable": True, "gap": 0.0})
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lines):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", checks=checks)
+        return got
+
+    def mends_of(self, got, item):
+        return [m for r in got["history"] for m in r.get("mends", []) if m.get("item") == item]
+
+    def test_line_strength_flagged_then_thickened(self):
+        """線の強弱: 細い線を崩れとし、太らせる直しで直し、確かめ直しで通る。線画のコマが DIFF_MIN を超える"""
+        C, _seen = checks(always_bad=False)
+        got = self.run_draw(Painter(), "1girl, red scarf", C, lines=_counting_lines(weights=[0.2, 0.6]))
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "線の強弱")
+        self.assertTrue(mends, got["history"])
+        self.assertEqual(mends[0]["mend"], "太らせる")
+        self.assertGreaterEqual(mends[0]["diff"], phases.DIFF_MIN)   # 太らせる直しで絵が変わった
+
+    def test_line_shift_flagged_then_fixed(self):
+        """線のズレ: 線が途中でずれているのを崩れとし、直し、確かめ直しで通る"""
+        C, _seen = checks(always_bad=False)
+        got = self.run_draw(Painter(), "1girl, red scarf", C, lines=_counting_lines(max_gaps=[0.8, 0.0]))
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "線の途切れ")
+        self.assertTrue(mends, got["history"])
+
+    def test_dust_erased_and_recheck_passes(self):
+        """ゴミ: 小さなゴミを紙の色で消し、確かめ直しで通る。囲みの外は変えない"""
+        C, _seen = checks(always_bad=False)
+        got = self.run_draw(DustyPainter(), "1girl, red scarf", C)
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "ゴミ")
+        self.assertTrue(mends, got["history"])
+        self.assertEqual(mends[0]["mend"], "消す")
+        self.assertEqual(mends[0]["outside"], 0)   # 消すのは囲みの中だけ
+
+    def test_detached_part_carried_not_redrawn(self):
+        """位置ずれ: 体から離れた物を崩れとし、直す工程が回る。偽の模型では消せないので、残った崩れとして次へ進む（全体の描き直しはしない）。残った崩れがあるので complete は偽だが、最後の工程まで進む"""
+        C, _seen = checks(always_bad=False)
+        got = self.run_draw(DetachedPainter(), "1girl, red scarf", C)
+        self.assertFalse(got["complete"])
+        self.assertEqual(got["history"][-1]["phase"], "仕上げ")
+        mends = self.mends_of(got, "位置ずれ")
+        self.assertTrue(mends, got["history"])
+        self.assertTrue(all(m["outside"] == 0 for m in mends))   # 囲みの外は 1 画素も変えない
+        self.assertTrue(any("離れている" in f for f in got["left"]), got["left"])   # 直せないので残った崩れになる
+
+    def test_horizon_tilt_rotated_and_recheck_passes(self):
+        """画角: 傾いた地平線を回して直し、確かめ直しで通る"""
+        C, _seen = _clean_checks()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(LandPainter(), "mountain, lake", 5, (128, 96), Path(d) / "k", checks=C)
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "画角")
+        self.assertTrue(mends, got["history"])
+        self.assertEqual(mends[0]["mend"], "回す")
+
+    def test_background_mismatch_carried(self):
+        """背景: 頼んだ場所と違う背景を崩れとする。背景の囲みは絵の半分を超えるので、直さずに残った崩れとして次へ進む（全体の描き直しはしない）。残った崩れがあるので complete は偽だが、最後の工程まで進む"""
+        seen = {"request": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                seen["request"] += 1
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": [],
+                        "read": {"beach": 0.1, "mountain": 0.9}}   # beach を頼んだのに mountain が読めている
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                return dict(CLEAN_HAND)
+        got = self.run_draw(Painter(), "beach", C)
+        self.assertFalse(got["complete"])
+        self.assertEqual(got["history"][-1]["phase"], "仕上げ")
+        self.assertTrue(any("背景が違う" in f for f in got["left"]), got["left"])
+        self.assertFalse(any(m["item"] == "背景" and m.get("changed") for r in got["history"] for m in r.get("mends", [])))
+
+    def test_animal_runs_face_feet_checks(self):
+        """動物: 顔・目・足の検品を回す。人の手の指・服・等身・骨組みの検品は回さない"""
+        C, seen = _clean_checks()
+        got = self.run_draw(Painter(), "dog", C)
+        self.assertTrue(got["complete"], got.get("left"))
+        self.assertGreater(seen["hands"], 0, seen)   # 顔・足を見る模型は使う
+        self.assertEqual(seen["body"], 0, seen)   # 人の体の検品は使わない
+        self.assertEqual(seen["pose"], 0, seen)   # 人の骨組みの検品は使わない
+        self.assertTrue(self.mends_of(got, "足"), got["history"])   # 足の崩れを直す工程が回った
+
+    def test_robot_humanoid_runs_face_checks(self):
+        """人型ロボット: 顔・目・足の検品を回す（動物と同じ）"""
+        C, seen = _clean_checks()
+        got = self.run_draw(Painter(), "robot", C)
+        self.assertTrue(got["complete"], got.get("left"))
+        self.assertGreater(seen["hands"], 0, seen)
+        self.assertEqual(seen["body"], 0, seen)
+        self.assertEqual(seen["pose"], 0, seen)
+
+    def test_robot_box_is_object(self):
+        """箱型ロボット: 物と同じ扱いで、顔・目・足の検品は回さない"""
+        C, seen = _clean_checks()
+        got = self.run_draw(Painter(), "box robot", C)
+        self.assertTrue(got["complete"], got.get("left"))
+        self.assertEqual(seen["hands"], 0, seen)
+        self.assertEqual(seen["body"], 0, seen)
+        self.assertEqual(seen["pose"], 0, seen)
+
+
 class ToolsTest(unittest.TestCase):
     """模型を使わない処理（atelier/ai/phase_tools.py）が、人物の外を変えず、数字を返す"""
 
@@ -459,6 +729,90 @@ class ToolsTest(unittest.TestCase):
         self.assertTrue(pt.shrink_view(im)["readable"])
         self.assertTrue(pt.flip_view(im, (40, 0, 90, 50))["readable"])
         self.assertIn("weight_x", pt.thumb_weight(im))
+
+    def test_weight_lines_thickens_sketch_frame(self):
+        """線の強弱: 細い線のラフ画を太らせると、線画だけの独立したコマになる（差が DIFF_MIN を超える）。内側の細い線はそのまま"""
+        import numpy as np
+        from atelier.ai import phase_tools as pt
+        sk = sketch((64, 96))
+        before = pt.lines(sk)
+        self.assertTrue(before["readable"])
+        self.assertIn("weight", before)
+        out, hit = pt.weight_lines(sk)
+        self.assertGreater(hit, 0)
+        self.assertGreater(mean_diff(sk, out), phases.DIFF_MIN)   # 線画のコマが DIFF_MIN を超える
+        after = pt.lines(out)
+        self.assertGreater(after["weight"], before["weight"])   # 外の輪郭が太くなった
+        # 内側の目の線（細い線）は太らせない。目の線の辺りの画素は変わらない
+        a, b = np.asarray(sk), np.asarray(out)
+        eye = a[14:16, 28:36]
+        self.assertTrue((eye == b[14:16, 28:36]).all())
+
+    def test_lines_max_gap_finds_broken_line(self):
+        """線のズレ: 輪郭の線が途中で薄くなっていると、途切れの長さ（max_gap）が大きくなる。切れていない線は小さい"""
+        from atelier.ai import phase_tools as pt
+        from PIL import Image, ImageDraw
+        sk = sketch((64, 96))
+        self.assertLess(pt.lines(sk)["max_gap"], 0.3)
+        broken = sketch((64, 96))
+        d = ImageDraw.Draw(broken)
+        # 体の輪郭の左辺全体を薄い色で描き直す（線が薄く、輪郭に線が無い所が長く続く）
+        d.line([int(64 * 0.35), int(96 * 0.25), int(64 * 0.35), int(96 * 0.95)], fill=(200, 200, 200), width=1)
+        self.assertGreater(pt.lines(broken)["max_gap"], pt.LINE_MAX_GAP_MOST)
+        self.assertGreater(pt.lines(broken)["max_gap"], pt.lines(sk)["max_gap"])
+
+    def test_dust_finds_specks(self):
+        """ゴミ: 主役から離れた小さな点をゴミと見る。きれいな絵は 0 個"""
+        from PIL import ImageDraw
+        from atelier.ai import phase_tools as pt
+        im = figure((64, 96))
+        self.assertEqual(pt.dust(im)["count"], 0)
+        dusty = figure((64, 96))
+        d = ImageDraw.Draw(dusty)
+        d.rectangle([5, 5, 7, 7], fill=(30, 30, 30))
+        d.rectangle([55, 80, 57, 82], fill=(30, 30, 30))
+        got = pt.dust(dusty)
+        self.assertEqual(got["count"], 2)
+        self.assertEqual(len(got["boxes"]), 2)
+
+    def test_detached_finds_near_blob_not_far_blob(self):
+        """位置ずれ: 体の近くに離れた塊があれば位置ずれ。遠くの塊（鳥など）は位置ずれにしない"""
+        from PIL import ImageDraw
+        from atelier.ai import phase_tools as pt
+        im = figure((64, 96))
+        self.assertEqual(pt.detached(im)["count"], 0)
+        det = figure((64, 96))
+        d = ImageDraw.Draw(det)
+        d.rectangle([45, 40, 55, 50], fill=(60, 60, 80))  # 体の近くに離れた塊
+        self.assertEqual(pt.detached(det)["count"], 1)
+        far = figure((64, 96))
+        d = ImageDraw.Draw(far)
+        d.rectangle([5, 5, 12, 12], fill=(60, 60, 80))  # 遠くの塊
+        self.assertEqual(pt.detached(far)["count"], 0)
+
+    def test_horizon_tilt_and_flat(self):
+        """画角: 傾いた地平線の傾きを測る。水平な地平線は 0 度。地平線の無い絵は読めない"""
+        from atelier.ai import phase_tools as pt
+        land = tilted_land((128, 96))
+        got = pt.horizon(land)
+        self.assertTrue(got["readable"])
+        self.assertGreater(got["tilt"], pt.HORIZON_TILT_MOST)
+        flat = tilted_land((128, 96), slope=0.0)
+        self.assertAlmostEqual(pt.horizon(flat)["tilt"], 0.0, places=1)
+        self.assertFalse(pt.horizon(figure((64, 96)))["readable"])   # 人物だけの絵に地平線は無い
+
+    def test_bleed_finds_patch(self):
+        """色のにじみ: 紙の上に主役から離れた色があればにじみ。きれいな絵は 0 個"""
+        from PIL import ImageDraw
+        from atelier.ai import phase_tools as pt
+        im = figure((64, 96))
+        self.assertEqual(pt.bleed(im)["count"], 0)
+        bl = figure((64, 96))
+        d = ImageDraw.Draw(bl)
+        d.rectangle([14, 60, 18, 70], fill=(200, 30, 30))  # 紙の上に赤い色
+        got = pt.bleed(bl)
+        self.assertEqual(got["count"], 1)
+        self.assertGreater(got["share"], 0)
 
 
 class ToneGuardTest(unittest.TestCase):

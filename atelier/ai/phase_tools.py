@@ -14,6 +14,16 @@ HEADS = (2.0, 9.5)    # 等身の範囲。外れたら体の比が崩れてい�
 EYE_TILT = 0.25       # 左右の目の高さの差が、目の間の幅のこの割合を超えたら崩れ
 WEIGHT_MOST = 0.35    # サムネイルの画面の重さ（暗い塊）の重心が、真ん中から幅のこの割合より外れたら釣り合いが悪い
 LINE_GAP_MOST = 0.75  # 人物の外の輪郭のうち、線の無い所の割合がこれを超えたら輪郭が途切れている
+LINE_WEIGHT_LEAST = 0.45   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（細い 1 画素の線は 0.32、太らせると 0.6。私の推測）   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（外の輪郭が細く薄い。私の推測）
+LINE_MAX_GAP_MOST = 0.25   # 外の輪郭のうち、線の無い所が続く一番長い区間がこれを超えたら、線が途中でずれている（私の推測）
+OUTLINE_GROW = 0.004       # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、1216 画素なら 5 画素。私の推測）
+DUST_MAX_PIXELS = 64       # ゴミ: 塊の画素数がこれ以下ならゴミ（私の推測）
+DUST_SIZE_MOST = 0.05      # ゴミ: 塊の長い辺が短い辺のこの割合以下（ただし 3 画素以上）ならゴミ（私の推測）
+DETACH_MOST = 0.08         # 位置ずれ: 主役から離れた塊が、短い辺のこの割合より近くにあれば体から離れた部位（私の推測）
+HORIZON_TILT_MOST = 2.0    # 画角: 地平線の傾きがこれ（度）を超えたら傾いている（私の推測）
+BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこれ以上なら色がはみ出している（私の推測）
+BLEED_MOST = 0.005         # 色のにじみ: はみ出した色の画素が絵全体のこの割合を超えたらにじんでいる（私の推測）
+# 暗い画素の左右の割合は髪・服の色にも左右されるので、極端な場合（3 割未満）だけ見る（私の推測）
 OUTER_DARK = 0.65     # 線の強弱: 外の輪郭の線をこの倍率まで暗くする（手前・外側を太く濃く）
 SHADE2 = 0.82         # 影の 2 段目: 影の中の一番暗い所をこの倍率で暗くする
 SHADE2_PART = 0.12    # 影の 2 段目にする割合（人物の画素のうち暗い方から）
@@ -118,23 +128,67 @@ def _dilate(m, r):
     return np.asarray(img.filter(ImageFilter.MaxFilter(2 * r + 1))) > 127
 
 
+def _max_gap_run(edge, near):
+    """輪郭のうち線の無い所が続く一番長い区間の、輪郭全体に対する割合。線の無い所を塊に分け、一番大きい塊で見る。
+    散らばった小さな途切れは小さく、一か所で長く途切れた線のズレは大きく出る"""
+    import numpy as np
+    gap = edge & ~near
+    if not gap.any() or not edge.any():
+        return 0.0
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ、線の無い所の割合で代用する
+        return float(gap.sum()) / max(int(edge.sum()), 1)
+    lab, n = ndimage.label(gap)
+    if n == 0:
+        return 0.0
+    sizes = ndimage.sum(gap, lab, range(1, n + 1))
+    return float(sizes.max()) / max(int(edge.sum()), 1)
+
+
+def _filled_silhouette(image):
+    """シルエットの穴を埋めた物（外の輪郭を取るときに使う）。線画は輪郭だけの絵で、中の紙が穴になる。穴を埋めないと、内側の細い線まで外の輪郭と見てしまう。
+    scipy が無ければ、埋めていないシルエットを返す"""
+    import numpy as np
+    m = silhouette(image)
+    try:
+        from scipy import ndimage
+        return ndimage.binary_fill_holes(m)
+    except Exception:   # noqa: BLE001  scipy が無ければ、穴を埋められない
+        return m
+
+
 def lines(image) -> dict:
-    """線画を見る: 外の輪郭のうち線（暗い画素）の無い所の割合と、線と周りの明るさの差"""
+    """線画を見る: 外の輪郭のうち線（暗い画素）の無い所の割合と、線と周りの明るさの差。
+    weight は外の輪郭の帯のうち暗い画素の割合（線の強弱。太く濃い外の輪郭ほど高い）。
+    max_gap は線の無い所が続く一番長い区間の割合（線のズレ。一か所で長く途切れていたら線がずれている）"""
     import numpy as np
     lum = luminance(image)
     m = silhouette(image)
     if m.sum() < 50:
         return {"readable": False}
-    edge = m & ~_erode(m, 1)
-    dark = lum < np.percentile(lum[m], 20)
+    filled = _filled_silhouette(image)   # 外の輪郭だけを見る（内側の細い線は外の輪郭ではない）
+    edge = filled & ~_erode(filled, 1)
+    dark = lum <= np.percentile(lum[m], 20)   # 線は一番暗い所。真っ黒な線だけのとき 20 パーセント点が 0 になるので、< ではなく <= で見る
     near = _dilate(dark, 2)
     gap = 1.0 - float((edge & near).sum()) / max(int(edge.sum()), 1)
-    contrast = float(lum[m & ~dark].mean() - lum[dark & m].mean()) if (dark & m).any() else 0.0
-    return {"readable": True, "gap": round(gap, 3), "contrast": round(contrast, 1)}
+    contrast = float(lum[m & ~dark].mean() - lum[dark & m].mean()) if (dark & m).any() and (m & ~dark).any() else 0.0
+    band = _dilate(filled, 1) & ~_erode(filled, 2)
+    weight = float((band & dark).sum()) / max(int(band.sum()), 1)
+    return {"readable": True, "gap": round(gap, 3), "contrast": round(contrast, 1),
+            "weight": round(weight, 3), "max_gap": round(_max_gap_run(edge, near), 3)}
 
 
-def weight_lines(image):
-    """線の強弱: 外の輪郭に掛かっている線だけを暗くする（手前・外側を太く濃く、内側の細い線はそのまま）。人物の外は 1 画素も変えない"""
+def outline_radius(image) -> int:
+    """外の輪郭を太らせる幅（画素）。絵の短い辺に比例する（64 画素なら 1 画素、1216 画素なら 5 画素）"""
+    return max(1, round(min(image.size) * OUTLINE_GROW))
+
+
+def weight_lines(image, r=None):
+    """線の強弱: 外の輪郭に掛かっている線だけを暗くし、外の輪郭の線を太らせる（手前・外側を太く濃く、内側の細い線はそのまま）。
+    太らせるのは線の周り（内側と外側の紙）。線画は細い線だけなので、内側だけでは太らせる所が無い。
+    太らせた所は線の色にする。遠くの紙は変えない。r は太らせる幅（画素）。無ければ絵の大きさから決める。
+    返すのは (絵, 変えた画素の数)"""
     import numpy as np
     from PIL import Image
     a = _np(image).astype(np.float32)
@@ -142,11 +196,189 @@ def weight_lines(image):
     m = silhouette(image)
     if m.sum() < 50:
         return image, 0
-    outer = _dilate(m, 1) & ~_erode(m, 2)
-    dark = lum < np.percentile(lum[m], 30)
+    filled = _filled_silhouette(image)   # 外の輪郭だけを太らせる（内側の細い線は太らせない）
+    outer = _dilate(filled, 1) & ~_erode(filled, 2)
+    dark = lum <= np.percentile(lum[m], 30)   # 線は一番暗い所。真っ黒な線だけのとき 30 パーセント点が 0 になるので、< ではなく <= で見る
     hit = outer & dark & m
     a[hit] *= OUTER_DARK
-    return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum())
+    r = outline_radius(image) if r is None else max(1, int(r))
+    thick = _dilate(hit, r) & ~hit   # 線の周り（内側と外側の紙）を太らせる。内側の細い線は太らせない
+    if thick.any() and hit.any():
+        line_col = np.median(a[hit], axis=0)   # 線の色（暗くした外の輪郭の線の色の中央）
+        a[thick] = line_col
+    return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum() + thick.sum())
+
+
+def _components(image):
+    """シルエットの連結成分。返すのは (ラベル配列, 成分の大きさの配列, 一番大きい成分の番号)。scipy が無ければ None"""
+    import numpy as np
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ、塊を分けられない
+        return None
+    m = silhouette(image)
+    lab, n = ndimage.label(m)
+    if n == 0:
+        return lab, np.array([]), 0
+    sizes = ndimage.sum(m, lab, range(1, n + 1))
+    return lab, sizes, int(np.argmax(sizes)) + 1
+
+
+def _component_boxes(lab, sizes, big, keep):
+    """連結成分のうち、keep(番号, 大きさ, 枠) が真の物の枠 (x0, y0, x1, y1) の一覧"""
+    from scipy import ndimage
+    boxes = []
+    for k, sl in enumerate(ndimage.find_objects(lab), 1):
+        if k == big or sl is None:
+            continue
+        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
+        if keep(k, sizes[k - 1], box):
+            boxes.append(box)
+    return boxes
+
+
+def dust(image) -> dict:
+    """ゴミ: 主役のシルエットにつながっていない、小さく孤立した暗い塊（点・汚れ・はみ出した線）。
+    主役が無ければ読めない。返すのは {"readable", "boxes", "count"}。boxes は (x0, y0, x1, y1)"""
+    import numpy as np
+    got = _components(image)
+    if got is None:
+        return {"readable": False, "boxes": [], "count": 0}
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return {"readable": False, "boxes": [], "count": 0}
+    h, w = lab.shape
+    small = DUST_MAX_PIXELS
+    boxes = _component_boxes(lab, sizes, big, lambda _k, size, box: (
+        size <= small and max(box[3] - box[1], box[2] - box[0]) <= max(3, min(h, w) * DUST_SIZE_MOST)))
+    return {"readable": True, "boxes": boxes, "count": len(boxes)}
+
+
+def detached(image) -> dict:
+    """位置ずれ: 主役から離れた、ゴミより大きい塊（体から離れた手・足・物）。主役の近く（DETACH_MOST 以内）にある物だけ。
+    遠くにある物（空の鳥など）は別の物なので数えない。主役が無ければ読めない。返すのは {"readable", "boxes", "count"}"""
+    import numpy as np
+    got = _components(image)
+    if got is None:
+        return {"readable": False, "boxes": [], "count": 0}
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return {"readable": False, "boxes": [], "count": 0}
+    h, w = lab.shape
+    from scipy import ndimage
+    big_sl = ndimage.find_objects(lab)[big - 1]
+    bx0, bx1 = big_sl[1].start, big_sl[1].stop
+    by0, by1 = big_sl[0].start, big_sl[0].stop
+    near = min(h, w) * DETACH_MOST
+    boxes = []
+    for box in _component_boxes(lab, sizes, big, lambda _k, size, box: (
+            not (size <= DUST_MAX_PIXELS
+                 and max(box[3] - box[1], box[2] - box[0]) <= max(3, min(h, w) * DUST_SIZE_MOST)))):
+        # 枠の距離（主役の枠から。0 なら重なっている）。枠の距離で見るのは、正確な画素の距離は重いため
+        dx = max(bx0 - box[2], box[0] - bx1, 0)
+        dy = max(by0 - box[3], box[1] - by1, 0)
+        if max(dx, dy) <= near:
+            boxes.append(box)
+    return {"readable": True, "boxes": boxes, "count": len(boxes)}
+
+
+def horizon(image) -> dict:
+    """画角: 地平線の傾き。列ごとに一番強い横の線（地平線）の高さを読み、左と右の高さの差から傾き（度）を測る。
+    横に長い線が無ければ読めない（人物だけの絵では地平線は無い）。返すのは {"readable", "tilt", "row"}"""
+    import numpy as np
+    lum = luminance(image)
+    h, w = lum.shape
+    gy = np.abs(np.diff(lum, axis=0))   # 縦の明るさの変化（横の線）
+    col_max = gy.max(axis=0)
+    col_arg = gy.argmax(axis=0)
+    # 列ごとに、横の線として強い変化があるか。強い列が横に長く続くのが地平線
+    strong = col_max > 20
+    if strong.mean() < 0.6:
+        return {"readable": False}   # 横に長い線ではない（人物の縁など）
+    ys = col_arg[strong]
+    xs = np.nonzero(strong)[0]
+    # 左の 3 分の 1 と右の 3 分の 1 で、地平線の高さ（中央値）を比べる。中央値で、山などの凹凸に強くする
+    left = ys[xs < w // 3]
+    right = ys[xs >= 2 * w // 3]
+    if len(left) < 3 or len(right) < 3:
+        return {"readable": False}
+    yl, yr = float(np.median(left)), float(np.median(right))
+    tilt = float(np.degrees(np.arctan2(yr - yl, (5 * w // 6) - (w // 6))))
+    return {"readable": True, "tilt": round(tilt, 2), "row": int(np.median(ys))}
+
+
+def bleed(image) -> dict:
+    """色のにじみ: 主役から離れた所に、彩度の高い色の小さな塊がある所（色が紙にはみ出している）。
+    主役の近くの小さな色の塊だけを数える（遠くの赤い花など、別の物をにじみとしない）。主役が無ければ読めない。
+    返すのは {"readable", "boxes", "count", "share"}"""
+    import numpy as np
+    a = np.asarray(image.convert("RGB"), dtype=np.float32)
+    mx = a.max(axis=2)
+    mn = a.min(axis=2)
+    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1) * 255, 0)
+    got = _components(image)
+    if got is None:
+        return {"readable": False, "boxes": [], "count": 0, "share": 0.0}
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return {"readable": False, "boxes": [], "count": 0, "share": 0.0}
+    h, w = lab.shape
+    from scipy import ndimage
+    big_sl = ndimage.find_objects(lab)[big - 1]
+    bx0, bx1 = big_sl[1].start, big_sl[1].stop
+    by0, by1 = big_sl[0].start, big_sl[0].stop
+    near = min(h, w) * DETACH_MOST
+    boxes = []
+    for k, sl in enumerate(ndimage.find_objects(lab), 1):
+        if k == big or sl is None:
+            continue
+        # その塊の中に、彩度の高い画素があるか
+        part_sat = sat[lab == k]
+        if part_sat.size == 0 or (part_sat > BLEED_SAT).mean() < 0.5:
+            continue
+        if sizes[k - 1] > 200:   # 大きな色の塊は別の物（花など）で、にじみではない
+            continue
+        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
+        dx = max(bx0 - box[2], box[0] - bx1, 0)
+        dy = max(by0 - box[3], box[1] - by1, 0)
+        if max(dx, dy) <= near:
+            boxes.append(box)
+    share = 0.0
+    if boxes:
+        m = np.zeros_like(lab, dtype=bool)
+        for (x0, y0, x1, y1) in boxes:
+            m[y0:y1, x0:x1] |= (lab[y0:y1, x0:x1] > 0) & (lab[y0:y1, x0:x1] != big)
+        share = float((m & (sat > BLEED_SAT)).sum()) / max(h * w, 1)
+    return {"readable": True, "boxes": boxes, "count": len(boxes), "share": round(share, 4)}
+
+
+def shadow_side_mask(image, lit: dict):
+    """影の側（光源と反対の側）の人物の範囲を L の絵で返す。光源が読めなければ None"""
+    import numpy as np
+    from PIL import Image
+    if not lit.get("readable"):
+        return None
+    m = silhouette(image)
+    ys, xs = np.nonzero(m)
+    if len(xs) < 50:
+        return None
+    cx = xs.mean()
+    cols = np.arange(m.shape[1])[None, :]
+    side = (cols <= cx) if lit["dx"] > 0 else (cols > cx)
+    hit = m & side
+    if hit.sum() < 50:
+        return None
+    return Image.fromarray((hit * 255).astype("uint8"))
+
+
+def paper_color(image):
+    """紙の色（四隅の色の中央）。ゴミ・にじみを消すときに使う"""
+    import numpy as np
+    a = _np(image)
+    h, w = a.shape[:2]
+    k = max(2, min(w, h) // 20)
+    corners = np.concatenate([a[:k, :k].reshape(-1, 3), a[:k, -k:].reshape(-1, 3), a[-k:, :k].reshape(-1, 3), a[-k:, -k:].reshape(-1, 3)])
+    return tuple(int(v) for v in np.median(corners, axis=0))
 
 
 def light(image) -> dict:
