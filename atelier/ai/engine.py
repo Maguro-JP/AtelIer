@@ -269,6 +269,17 @@ def cpu_upcast(pipe, say=None) -> bool:
         part.register_forward_pre_hook(lambda m, a, kw: (_to_dtype(a, torch.float32), _to_dtype(kw, torch.float32)),
                                        with_kwargs=True)
         changed = True
+        if name == "vae":
+            # VAE の encode/decode は forward を通らず encoder/decoder を直接呼ぶので、
+            # VAE 本体の入口だけでは bf16 の絵がそのまま入って型が合わず落ちる
+            # （Actions のアタリで RuntimeError: Input type (BFloat16) and bias type (float)）。
+            # 入口の部品にも同じ仕掛けを付ける。
+            for sub in ("encoder", "decoder"):
+                entry = getattr(part, sub, None)
+                if isinstance(entry, torch.nn.Module):
+                    entry.register_forward_pre_hook(
+                        lambda m, a, kw: (_to_dtype(a, torch.float32), _to_dtype(kw, torch.float32)),
+                        with_kwargs=True)
     if changed and say:
         say("この CPU は bf16 の計算が遅いので、描く本体を float32 にして描きます（文字の部品は bf16 のまま）")
     return changed

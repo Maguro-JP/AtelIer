@@ -19,6 +19,22 @@ except ImportError:   # 描く部品の無い機械
     torch = None
 
 
+class FakeVAE(torch.nn.Module if torch is not None else object):
+    """diffusers の AutoencoderKL の形だけをまねる。
+    encode/decode は forward を通らず encoder/decoder を直接呼ぶ。"""
+
+    def __init__(self):
+        super().__init__()
+        self.encoder = torch.nn.Conv2d(3, 4, 1)
+        self.decoder = torch.nn.Conv2d(4, 3, 1)
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, z):
+        return self.decoder(z)
+
+
 @unittest.skipIf(torch is None, "torch がありません")
 class CpuUpcastTest(unittest.TestCase):
     def pipe(self):
@@ -48,6 +64,27 @@ class CpuUpcastTest(unittest.TestCase):
         self.assertEqual(p.text_encoder.weight.dtype, torch.bfloat16)   # 文字の部品は bf16 のまま
         self.assertTrue(said and "float32" in said[0])   # 進みの欄に、どの形で描くかを出す
         out = p.unet(torch.randn(1, 4, 8, 8, dtype=torch.bfloat16))   # bf16 の値が入っても落ちない
+        self.assertEqual(out.dtype, torch.float32)
+
+    def test_slow_bf16_cpu_upcasts_vae_encode_and_decode(self):
+        """VAE の encode/decode に bf16 の絵が入っても落ちない。
+        Actions で、cpu_upcast で VAE を float32 にしたあと、アタリの描き重ね（img2img）で
+        VAE の encode に bf16 の絵が入り、conv_in で
+        RuntimeError: Input type (BFloat16) and bias type (float) should be the same
+        となって落ちた。encode/decode は forward を通らないので、VAE 本体の入口だけでは
+        bf16 がそのまま入る。入口の部品（encoder/decoder）にも同じ仕掛けを付ける。"""
+        p, said = self.pipe(), []
+        p.vae = FakeVAE().to(torch.bfloat16)   # diffusers の VAE の形をまねる
+        with mock.patch.object(engine, "bf16_fast", return_value=False), \
+                mock.patch.object(torch.cuda, "is_available", return_value=False):
+            self.assertTrue(engine.cpu_upcast(p, said.append))
+        self.assertEqual(p.vae.encoder.weight.dtype, torch.float32)
+        self.assertEqual(p.vae.decoder.weight.dtype, torch.float32)
+        # bf16 の絵を encode しても落ちない（直し前は RuntimeError）
+        out = p.vae.encode(torch.randn(1, 3, 8, 8, dtype=torch.bfloat16))
+        self.assertEqual(out.dtype, torch.float32)
+        # decode も同じ
+        out = p.vae.decode(torch.randn(1, 4, 8, 8, dtype=torch.bfloat16))
         self.assertEqual(out.dtype, torch.float32)
 
     def test_fast_bf16_cpu_keeps_bf16(self):
