@@ -41,7 +41,6 @@ jobs:
           LLM_HOME: ${{ runner.temp }}/llm
           ATELIER_HOME: ${{ runner.temp }}/cd
           ATELIER_FETCH: "1"
-          ATELIER_ASSUME_FREE_RAM_GB: "14"
           BENCH_MODEL: cagliostrolab/animagine-xl-4.0
           # 全身の入る頼み（phase-bench の既定）。「1girl, red hair」では胸から上だけが描かれ、体と手の点を読めなかった（run 45098290062）
           BENCH_PROMPT: "1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer"
