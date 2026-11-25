@@ -9,12 +9,47 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QInputDialog, QLabel, QListView, QListWidget,
-                               QListWidgetItem, QMenu, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QListView,
+                               QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QTabWidget,
+                               QVBoxLayout, QWidget)
 
-from atelier.files.library import DISLIKE, LIKE, NONE, exists
+from atelier.files.library import DISLIKE, LIKE, NONE, exists, format_check
 
 MARK = {LIKE: "♥ 好き", DISLIKE: "× いまいち", NONE: ""}
+
+
+class LibraryCheckDialog(QDialog):
+    """ライブラリーを確かめた結果の窓。何百件でも、報告の文を流して見られる。保存もできる"""
+
+    def __init__(self, parent, report: dict):
+        super().__init__(parent)
+        self.report = report
+        self.setWindowTitle("ライブラリーを確かめる")
+        lay = QVBoxLayout(self)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(format_check(report))
+        lay.addWidget(text, 1)
+        row = QHBoxLayout()
+        save = QPushButton("報告を保存…")
+        save.clicked.connect(self.save)
+        close = QPushButton("閉じる")
+        close.clicked.connect(self.accept)
+        row.addStretch(1)
+        row.addWidget(save)
+        row.addWidget(close)
+        lay.addLayout(row)
+        self.resize(640, 480)
+
+    def save(self):
+        path, _ = QFileDialog.getSaveFileName(self, "報告を保存", "library-check.txt", "テキスト (*.txt)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(format_check(self.report), encoding="utf-8")
+        except OSError as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "保存できませんでした", str(e))
 
 
 def _grid() -> QListWidget:
@@ -39,6 +74,10 @@ class LibraryPanel(QWidget):
         lay.setContentsMargins(6, 4, 6, 6)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs)
+        check = QPushButton("ライブラリーを確かめる")
+        check.setToolTip("一覧の絵が本当にあるか、無い物の道がどこを指しているかを確かめます（絵は読みません）")
+        check.clicked.connect(self.check_library)
+        lay.addWidget(check)
 
         self.works = _grid()
         self.works.setToolTip("描いた絵。右クリックで「好き」「いまいち」を付けると、好みを学びます")
@@ -347,6 +386,14 @@ class LibraryPanel(QWidget):
         self.w.feature_tour("library")
         self.tabs.setCurrentIndex(1)
         self.refresh()
+
+    def check_library(self):
+        """一覧の絵が本当にあるかを確かめ、結果の窓を出す（絵は読まず、あるかないかだけ見る）。
+        開いてから外で一覧が変わっていても、一覧を読み直してから確かめる"""
+        self.w.library.load()
+        rep = self.w.library.check()
+        self.refresh()
+        LibraryCheckDialog(self, rep).exec()
 
     def make_preset(self):
         from atelier.panels.ai_panel import STYLE_TAGS

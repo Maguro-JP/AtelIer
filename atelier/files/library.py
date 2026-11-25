@@ -53,6 +53,50 @@ def _normalize(rows) -> list[dict]:
     return out
 
 
+def _under(path: str, root: Path) -> bool:
+    """path が root の下か。Windows の道を Linux の試験でも分けられるよう、区切りと大文字小文字をそろえて比べる"""
+    p = str(path).replace("\\", "/").rstrip("/")
+    r = str(root).replace("\\", "/").rstrip("/")
+    return p.lower() == r.lower() or p.lower().startswith(r.lower() + "/")
+
+
+def _check_group(path: str, places, home: Path) -> str:
+    """確かめで、無い物の道がどこを指しているかの組。CharacterDesigner の置き場は migrate と同じ見分け方"""
+    from atelier.app import migrate
+    if migrate.rebase(path, places, home) is not None:
+        return "CharacterDesigner の置き場"
+    parts = [x for x in str(path).replace("\\", "/").split("/") if x]
+    if any(x.lower() == "characterdesigner" for x in parts):
+        return "CharacterDesigner の保存先など"
+    if _under(path, home):
+        return "AtelIer の置き場"
+    return "その他"
+
+
+def format_check(rep: dict) -> str:
+    """確かめの結果を、人が読む報告の文にする"""
+    lines = [f"一覧: {rep['index']}"]
+    if rep["shape_error"]:
+        lines.append(rep["shape_error"])
+    lines.append(f"行の数: {rep['rows']}（道の無い行 {rep['dropped']} 件は読めないので外しました）")
+    lines.append(f"作品: {rep['works']} 件、資料: {rep['docs']} 件")
+    lines.append(f"絵のファイルがある: {rep['exist']} 件")
+    lines.append(f"絵のファイルが無い: {rep['missing']} 件")
+    if rep["missing"]:
+        lines.append("")
+        lines.append("―― ファイルが無い物の、道の指す先 ――")
+        for group, n in sorted(rep["groups"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"  {group}: {n} 件")
+        if rep["fixable"]:
+            lines.append(f"  うち、AtelIer の置き場に絵がある（道が古いだけ）: {rep['fixable']} 件")
+        lines.append("")
+        lines.append("―― ファイルが無い物の一覧 ――")
+        for item in rep["missing_items"]:
+            note = "（AtelIer の置き場に絵あり）" if item["fixable"] else ""
+            lines.append(f"  [{item['kind']}] {item['path']}{note}")
+    return "\n".join(lines)
+
+
 def exists(item: dict) -> bool:
     """項目の絵のファイルがあるか。消された・動かされた・別の機械の道（C:\\ など）を指す項目は False"""
     try:
@@ -223,6 +267,53 @@ class Library:
 
     def missing(self) -> list[dict]:
         return [i for i in self.items if not exists(i)]
+
+    def check(self) -> dict:
+        """ライブラリーの中身を確かめる。何百件でも一気に見る（絵は読まず、あるかないかだけ見る）。
+        CharacterDesigner の置き場を指す道で、AtelIer の置き場に絵がある物は「直せる物」として数える。
+        絵のファイルには触らない。一覧のファイルそのものを読み直すので、開いてから外で変わっても今の姿を見る。
+        返すのは、一覧の有無と形・行の数・作品と資料の数・ある物と無い物の数・
+        無い物の道の指す先の組・無い物の一覧。文にするには format_check を使う"""
+        from atelier.app import migrate
+        home = self.root.parent
+        places = migrate.source_places()
+        index_exists = self.index.is_file()
+        shape_error = ""
+        raw: list = []
+        if index_exists:
+            try:
+                raw = json.loads(self.index.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                shape_error = f"一覧が読めません（{e}）"
+                raw = []
+        else:
+            shape_error = "一覧がありません（ライブラリーは空です）"
+        if not isinstance(raw, list):
+            if not shape_error:
+                shape_error = "一覧の形が違います（行の集まりではありません）"
+            raw = []
+        rows = _normalize(raw)
+        dropped = len(raw) - len(rows)
+        works = [r for r in rows if r["kind"] == "work"]
+        docs = [r for r in rows if r["kind"] == "doc"]
+        exist = [r for r in rows if exists(r)]
+        missing = [r for r in rows if not exists(r)]
+        groups: dict[str, int] = {}
+        missing_items = []
+        fixable = 0
+        for row in missing:
+            group = _check_group(row["path"], places, home)
+            groups[group] = groups.get(group, 0) + 1
+            target = migrate.rebase(row["path"], places, home)
+            is_fixable = target is not None and target.is_file()
+            if is_fixable:
+                fixable += 1
+            missing_items.append({"kind": row["kind"], "path": row["path"],
+                                  "added": row.get("added", ""), "fixable": is_fixable})
+        return {"index": str(self.index), "index_exists": index_exists, "shape_error": shape_error,
+                "rows": len(raw), "dropped": dropped, "works": len(works), "docs": len(docs),
+                "exist": len(exist), "missing": len(missing), "groups": groups,
+                "fixable": fixable, "missing_items": missing_items}
 
     def works(self) -> list[dict]:
         return [i for i in self.items if i["kind"] == "work"]
