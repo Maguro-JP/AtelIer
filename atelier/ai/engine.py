@@ -1310,6 +1310,11 @@ class Painter:
         from atelier.models.catalog import image_model
         try:
             if cpu_upcast_fits(image_model(self.model).gb or 7) and cpu_upcast(self._pipe, self._note):
+                # 本体が float32 になったので、予算の見積もりも float32 で計算する。
+                # 直さないと _weights() が bf16 の重みで見積もり、直しの 1.5 倍が「収まる」と判定されて
+                # 分割なしで描き、16GB の機械で OOM キラーに殺された（Actions 45593722018、exit 137）。
+                import torch
+                self.dtype = torch.float32
                 return
             note = dtype_note(self.dtype)
         except Exception:   # noqa: BLE001  替えられなくても bf16 のまま描く

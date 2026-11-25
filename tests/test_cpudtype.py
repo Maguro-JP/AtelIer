@@ -95,5 +95,58 @@ class CpuUpcastTest(unittest.TestCase):
         self.assertEqual(p.unet.weight.dtype, torch.bfloat16)
 
 
+@unittest.skipIf(torch is None, "torch がありません")
+class CpuDtypeFixTest(unittest.TestCase):
+    """upcast したあと、予算の見積もりも float32 で計算すること。
+
+    Actions 45593722018（exit 137）で、cpu_upcast が UNet＋VAE を float32（重み約 12.2GB）に
+    替えたのに Painter.dtype が bfloat16 のままだったので、_weights() の fp32 が False になり、
+    予算は bf16 の重み（6.9GB）で計算し続けた。手の直しの 1.5 倍が「予算 11.2GB に収まる」と
+    判定されて分割なしで描き、16GB の機械で OOM キラーに殺された。直しは _cpu_dtype_fix で
+    upcast のあと dtype を float32 に直すこと。"""
+
+    def painter(self):
+        p = engine.Painter(model="cagliostrolab/animagine-xl-4.0")
+        p._pipe = self.pipe()
+        p.dtype = torch.bfloat16
+        p.placed = "cpu"
+        return p
+
+    def pipe(self):
+        class Pipe:
+            pass
+        p = Pipe()
+        p.unet = torch.nn.Conv2d(4, 4, 3, padding=1).to(torch.bfloat16)
+        p.vae = torch.nn.Conv2d(4, 3, 1).to(torch.bfloat16)
+        p.text_encoder = torch.nn.Linear(8, 8).to(torch.bfloat16)
+        return p
+
+    def _upcast(self, p):
+        with mock.patch.object(engine, "bf16_fast", return_value=False), \
+                mock.patch.object(torch.cuda, "is_available", return_value=False), \
+                mock.patch.object(engine, "total_ram_gb", return_value=16.7):
+            p._cpu_dtype_fix()
+
+    def test_cpu_dtype_fix_marks_float32_after_upcast(self):
+        p = self.painter()
+        self._upcast(p)
+        self.assertEqual(p.dtype, torch.float32)   # 直し前は bfloat16 のまま
+        self.assertTrue(p._weights()[3])   # fp32=True（直し前は False）
+
+    def test_redraw_scale_uses_slicing_after_upcast_on_16gb(self):
+        """upcast したあと、手の直し（832x1216 の 1.5 倍）は分割なしでは通らない。
+        16GB の機械（空き 14GB、予算 11.2GB）で、直し前は分割なしの計画が「収まる」と
+        判定されて OOM になった。直し後は注意の分割と VAE の分割が入った計画になる。"""
+        from atelier.ai import memory_budget as mb
+        p = self.painter()
+        self._upcast(p)
+        budget = mb.Budget(ram=11.2, vram=0.0, free_ram=14.0, free_vram=0.0)   # Actions の 16GB 機
+        with mock.patch.object(mb, "has_cuda", return_value=False):
+            p.redraw_scale((832, 1216), b=budget)
+        plan = p.redraw_plan
+        self.assertTrue(plan.ok)
+        self.assertTrue(plan.slicing or plan.tiling)   # 直し前は両方 False
+
+
 if __name__ == "__main__":
     unittest.main()
