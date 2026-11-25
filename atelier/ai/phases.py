@@ -1253,7 +1253,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             words = phase_prompt(i)
                             missing = how.get("missing") or []
                             if missing:
-                                words = f"{words}, {', '.join(str(x) for x in missing)}"
+                                # 描かれていない物は言葉の頭に置く。後ろに足すだけでは埋もれて、模型は同じ物を描かない。
+                                # 頭の言葉ほど拡散で重みが大きい
+                                words = f"{', '.join(str(x) for x in missing)}, {words}"
                             say(f"アタリ全体を描き直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                             tell(words)
                             raw = painter.refine(words, seed, cur, strength=strength)

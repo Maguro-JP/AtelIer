@@ -1637,3 +1637,5 @@ class MendFixTest(unittest.TestCase):
         self.assertTrue(mends, got["history"])
         self.assertTrue(any(m.get("full") for m in mends), mends)
         self.assertTrue(any("red scarf" in p for (p, _s) in painter.refine_calls), painter.refine_calls)
+        # 描かれていない物は、言葉の頭に置いて強く出す。後ろに足すだけでは埋もれて、模型は同じ物を描かない
+        self.assertTrue(any(p.startswith("red scarf") for (p, _s) in painter.refine_calls), painter.refine_calls)
