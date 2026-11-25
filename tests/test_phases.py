@@ -1615,7 +1615,8 @@ class MendFixTest(unittest.TestCase):
     アタリ全体を描き直す（絵から絵）。"""
 
     def test_hand_mend_erases_and_names_the_fix(self):
-        """手の形の崩れの直しは、囲みの中を消してから描き直し、言葉に指の直しを入れる"""
+        """手の形の崩れの直しは、囲みの中を消してから描き直し、言葉に指の直しを入れる。
+        囲みの中に渡すのは、その囲みの直す内容の言葉だけ。依頼の文（場面の説明）は渡さない"""
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             painter = RecordingPainter()
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=1))
@@ -1623,6 +1624,8 @@ class MendFixTest(unittest.TestCase):
         hand_redraws = [(p, c, s) for (p, c, s) in painter.redraw_calls if "five fingers" in p]
         self.assertTrue(hand_redraws, painter.redraw_calls)
         self.assertTrue(all(c for (_p, c, _s) in hand_redraws), painter.redraw_calls)
+        # 囲みの中の直しは、依頼の文を渡さない。直す内容の言葉だけを渡す
+        self.assertTrue(all("red scarf" not in p for (p, _c, _s) in hand_redraws), painter.redraw_calls)
 
     def test_composition_mend_redraws_whole_atari(self):
         """アタリで頼んだ物が無い崩れの直しは、囲みの描き直しではなくアタリ全体の描き直し（絵から絵）になる"""

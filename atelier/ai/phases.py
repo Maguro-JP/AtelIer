@@ -1282,11 +1282,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 words = emphasize(phase_prompt(i), how["missing"]) if how.get("mask") == "wear" and how.get("missing") else phase_prompt(i)
                                 clean = False
                                 if how.get("mask") == "regions":
-                                    # 手・足・顔の形の崩れ：崩れた形をなぞらないよう、囲みの中を消してから描き直す。
-                                    # 直す内容の言葉も足す（同じ言葉では同じ崩れが出るだけ）
+                                    # 手・足・顔の形の崩れ：囲みの中を消してから描き直す。
+                                    # 囲みの中に渡すのは、その囲みの直す内容の言葉だけ。
+                                    # 依頼の文（場面の説明）は渡さない。囲みの外の絵が場面を教える。
+                                    # 線の工程では線の言葉だけを足して、線画の調子を保つ。
                                     fw = fix_words(how.get("regions"))
                                     if fw:
-                                        words = f"{words}, {fw}"
+                                        words = f"{fw}, {SKETCH_WORDS}" if i <= 3 else fw
                                     clean = True
                                 say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                                 tell(words)
