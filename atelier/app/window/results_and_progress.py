@@ -28,7 +28,24 @@ class ResultsAndProgressMixin:
             self.show_phase_work(img, img.info[PHASE_TAG])
             return
         q = qimage_from_pil(img)
-        self.canvas.show_overlay(q)
+        # 描いている途中の絵も筆で描き込む様子を見せる。裏で描いていても、画面上は今筆が動いているようにする。
+        # 途中の絵は次々届くので移りは短くして筆を動かし続ける。工程の絵を筆で見せている最中は邪魔しない。
+        player = getattr(self, "_phase_player", None)
+        if player is not None and player.active():
+            pass
+        else:
+            try:
+                from atelier.app.window.image_convert import qimage_to_pil
+                from atelier.paint.brush_reveal import Player
+                if player is None:
+                    player = Player(self.canvas)
+                    self._phase_player = player
+                before = player.visible()
+                if before is None:
+                    before = qimage_to_pil(self.canvas.flatten()) if self.canvas.layers else None
+                player.show(before, img, keep=True, max_seconds=Player.MID_SECONDS)
+            except Exception:   # noqa: BLE001  見せ方の失敗で途中の絵を出さないことはしない
+                self.canvas.show_overlay(q)
         self.progress_popup.set_thumb(q)   # 進みのポップアップにも途中の絵を小さく出す
         self.recorder.add(img)
 

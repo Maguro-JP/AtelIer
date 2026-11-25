@@ -23,6 +23,12 @@ WORK_SIDE = 384          # 筆の運びを計算する大きさ（長い辺）�
 DIFF_MIN = 10            # これより小さい色の差は「変わっていない」とする（縮めたときの揺れ）
 LINE_END, BIG_END, SMALL_END = 0.30, 0.62, 0.84   # 各段が終わる時刻（0〜1）。残りが仕上げ
 BIG_AREA = 0.004         # 絵の面積に対するこの割合より大きい塊を「大きな塗り」にする
+LINE_PX_PER_SEC = 600.0   # 線をなぞる速さ（縮めた絵の画素／秒）。線が多いほど線画の段は長くかかる
+LINE_SECONDS_MAX = 12.0   # 線画の段の長さの上限（秒）
+SECONDS = 2.4             # 線の無い移りの長さ（秒）
+SECONDS_MAX = 20.0        # 1 回の移りの長さの上限（秒）
+HATCH_PERIOD = 7          # はらいの間隔（画素）。斜めの線の繰り返し
+HATCH_WIDTH = 2           # はらいの線の太さ（画素）
 
 
 def _dist_from_seeds(mask: np.ndarray, seeds: np.ndarray) -> np.ndarray:
@@ -109,6 +115,14 @@ class Plan:
                 at += span
         tips.sort()
         self.t, self.tips = t, tips
+        # その場の線の太さ（筆の太さにする）。線の画素から一番近い線でない所までの距離の 2 倍
+        from scipy.ndimage import distance_transform_edt
+        self._line_width = distance_transform_edt(line) * 2.0
+        # 線画の段の長さ。線が多いほど長くかけ、0.72 秒で終わることはなくする
+        line_px = float(line.sum())
+        self.line_seconds = min(LINE_SECONDS_MAX, line_px / LINE_PX_PER_SEC) if line_px else 0.0
+        self.seconds = (max(SECONDS, min(SECONDS_MAX, self.line_seconds / LINE_END))
+                        if self.line_seconds else SECONDS)
 
     def fill(self):
         """塗りの段の筆の運びを計算する。線画は先に見せ始め、これは裏で後から足す（初めに止まって見えないように）"""
@@ -141,13 +155,16 @@ class Plan:
                 j = int(np.argmin((ys + sl[0].start - cy[i]) ** 2 + (xs + sl[1].start - cx[i]) ** 2))
                 seeds[ys[j] + sl[0].start, xs[j] + sl[1].start] = True
             dist = _dist_from_seeds(blobs > 0, seeds)
+            # はらい：斜めの線の表。塗りはこの線を先に描いてから間を埋める
+            yy, xx = np.indices((h, w))
+            hatch = ((yy + xx) % HATCH_PERIOD) < HATCH_WIDTH
             for lo, hi, pick in ((LINE_END, BIG_END, area >= big_px), (BIG_END, SMALL_END, area < big_px)):
                 ids = [i for i in np.argsort(-area) if pick[i]]
                 tot = float(sum(area[i] for i in ids)) or 1.0
                 at = lo
                 for i in ids:
                     span = (hi - lo) * float(area[i]) / tot
-                    tips.extend(self._lay(t, blobs, dist, bobjs[i], i + 1, at, span))
+                    tips.extend(self._lay(t, blobs, dist, bobjs[i], i + 1, at, span, hatch=hatch))
                     at += span
         t[diff & ~np.isfinite(t)] = SMALL_END
         tips.sort()
@@ -155,14 +172,20 @@ class Plan:
         self.ready = True
 
     @staticmethod
-    def _lay(t, lab, dist, sl, ident, at: float, span: float, steps: int = 6):
+    def _lay(t, lab, dist, sl, ident, at: float, span: float, steps: int = 6, hatch=None):
         """1 つの線・塊に描く時刻を入れ、筆先が通る点（距離の段ごとの真ん中）を返す。
-        塊ごとに絵全体を見ると数千の塊で遅かったので、塊の外枠の中だけを見る"""
+        塊ごとに絵全体を見ると数千の塊で遅かったので、塊の外枠の中だけを見る。
+        hatch（はらいの線の表）を渡すと、はらいを先に、間を後に描く。どちらも距離の順に描く"""
         m = lab[sl] == ident
         d = dist[sl][m].astype(np.float32)
         top = max(1.0, float(d.max()))
         sub = t[sl]
-        sub[m] = at + span * d / top
+        if hatch is not None:
+            hm = hatch[sl][m]
+            sub[m] = np.where(hm, at + span * 0.5 * d / top,
+                              at + span * 0.5 + span * 0.5 * d / top)
+        else:
+            sub[m] = at + span * d / top
         ys, xs = np.nonzero(m)
         out = []
         if span * 400 < 1 and len(d) < 30:   # 小さな点は筆先を飛ばさない（ちらつく）
@@ -193,12 +216,17 @@ class Plan:
         return Image.fromarray(np.where(shown[..., None], self.A_full, self.B_full))
 
     def tip(self, t: float):
-        """時刻 t の筆先の位置（元の絵の大きさの座標）。動いていないときは None"""
+        """時刻 t の筆先の位置と太さ（元の絵の大きさの座標）。動いていないときは None。
+        太さはその場の線の太さに合わせる。細い線でも見える大きさを保ち、太すぎないようにする"""
         if not self.tips or t >= SMALL_END + 0.01:
             return None
         i = min(range(len(self.tips)), key=lambda j: abs(self.tips[j][0] - t))
         _, x, y = self.tips[i]
-        return x / self.scale, y / self.scale
+        wx = min(self.size[0] - 1, max(0, int(x)))
+        wy = min(self.size[1] - 1, max(0, int(y)))
+        half = float(self._line_width[wy, wx]) / 2.0
+        r = min(12.0, max(3.0, half)) / self.scale
+        return x / self.scale, y / self.scale, r
 
 
 def strokes(before: Image.Image | None, after: Image.Image, n: int = 18, work_side: int = 256) -> list[Image.Image]:
@@ -215,7 +243,8 @@ class Player:
     show(before, after, keep) を呼ぶたびに、見せている途中の物は最後まで飛ばして次へ進む（遅れて溜めない）。
     keep=False は絵を先にレイヤーへ置いた場合で、見せ終えたら重ね絵を外す。True は途中の絵で、最後に重ね絵として残す"""
 
-    SECONDS = 2.4   # 1 回の移りにかける秒（私の推測。描く処理を待たせないので短めにする）
+    SECONDS = SECONDS   # 線の無い移りの長さ（秒）。線のある移りは Plan.seconds（線の量で決まる）を使う
+    MID_SECONDS = 1.0   # 描いている途中の絵の移りの長さ（秒）。次々届くので短くして筆を動かし続ける
     TICK_MS = 33
 
     def __init__(self, canvas):
@@ -229,6 +258,8 @@ class Player:
         self.keep = False
         self.final = None
         self.t = 0.0
+        self.seconds = self.SECONDS   # 今の移りの長さ（秒）。運びが決まったら Plan.seconds にする
+        self.max_seconds: float | None = None   # 移りの長さの上限（show の引き数。途中の絵で短くする）
         self.token = 0
         self.tip_item = None
         self.shown: Image.Image | None = None   # 重ね絵として見せたままの途中の絵（次の移りの出発点）
@@ -259,12 +290,16 @@ class Player:
         self.finish()
         return self.shown
 
-    def show(self, before: Image.Image | None, after: Image.Image, keep: bool = False):
+    def show(self, before: Image.Image | None, after: Image.Image, keep: bool = False, max_seconds: float | None = None):
+        """前の絵から次の絵への筆の運びを見せる。keep=False は絵を先にレイヤーへ置いた場合で、見せ終えたら重ね絵を外す。
+        keep=True は途中の絵で、最後に重ね絵として残す。max_seconds は移りの長さの上限（秒）。
+        描いている途中の絵は次々届くので、長くかけると次の絵に追いつかず筆が飛ぶ。短くして筆を動かし続ける"""
         self.finish()
         self.token += 1
         tok = self.token
         self.final = after
         self.keep = keep
+        self.max_seconds = max_seconds
         self.shown = None
         # 計算の間は前の絵を重ねておく（置いた絵がいきなり見えないように）
         self._overlay(before if before is not None else Image.new("RGB", after.size, "white"))
@@ -295,7 +330,10 @@ class Player:
                 self.finish()
                 return
             self.plan, self.t = plan, 0.0
-        self.t = min(1.0, self.t + self.TICK_MS / 1000.0 / self.SECONDS)
+            self.seconds = getattr(plan, "seconds", self.SECONDS)
+            if self.max_seconds is not None:   # 途中の絵は短く（次の絵が来る前に筆を動かし終える）
+                self.seconds = min(self.seconds, self.max_seconds)
+        self.t = min(1.0, self.t + self.TICK_MS / 1000.0 / self.seconds)
         if not self.plan.ready and self.t > LINE_END:   # 塗りの計算が終わるまで線画の終わりで待つ
             self.t = LINE_END
         if self.t >= 1.0:
@@ -325,6 +363,8 @@ class Player:
         self.canvas.show_overlay(qimage_from_pil(im))
 
     def _tip(self, pos):
+        """筆先の丸。pos は (x, y, 太さ)（元の絵の大きさの座標）。線の色で塗った丸にする。
+        前は縁だけの薄い丸で、線をなぞっているのが見えなかった"""
         from PySide6.QtGui import QBrush, QColor, QPen
         from PySide6.QtWidgets import QGraphicsEllipseItem
         if self.tip_item is None:
@@ -332,20 +372,18 @@ class Player:
                 return
             self.tip_item = QGraphicsEllipseItem()
             self.tip_item.setZValue(1e8 + 1)
-            pen = QPen(QColor(60, 60, 60, 110))   # 縁だけの薄い丸（絵を隠さない）
-            pen.setWidthF(1.0)
-            pen.setCosmetic(True)
-            self.tip_item.setPen(pen)
-            self.tip_item.setBrush(QBrush())
+            self.tip_item.setPen(QPen(QColor(30, 30, 30, 200)))
+            self.tip_item.setBrush(QBrush(QColor(30, 30, 30, 150)))
             self.tip_item.setFlag(QGraphicsEllipseItem.ItemIgnoresTransformations, True)
             self.canvas.scene().addItem(self.tip_item)
         if pos is None:
             self.tip_item.setVisible(False)
             return
+        x, y, r = pos
         w, h = self.canvas.size_px()
         fw, fh = self.final.size if self.final is not None else (w, h)
         z = self.canvas.transform().m11() if hasattr(self.canvas, "transform") else 1.0
-        r = max(2.0, min(6.0, 2.5 * z))   # 描いている線の太さ程度（画面の画素）
-        self.tip_item.setRect(-r, -r, 2 * r, 2 * r)
-        self.tip_item.setPos(pos[0] * w / fw, pos[1] * h / fh)
+        rr = max(3.0, min(16.0, r * (w / fw) * z))   # 線の太さに合わせた筆の太さ（画面の画素）
+        self.tip_item.setRect(-rr, -rr, 2 * rr, 2 * rr)
+        self.tip_item.setPos(x * w / fw, y * h / fh)
         self.tip_item.setVisible(True)
