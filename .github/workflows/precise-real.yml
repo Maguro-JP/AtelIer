@@ -44,8 +44,8 @@ jobs:
           BENCH_MODEL: cagliostrolab/animagine-xl-4.0
           # 全身の入る頼み（phase-bench の既定）。「1girl, red hair」では胸から上だけが描かれ、体と手の点を読めなかった（run 45098290062）
           BENCH_PROMPT: "1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer"
-          BENCH_STEPS: "20"
-          BENCH_SIZE: 832x1216
+          BENCH_STEPS: "15
+          BENCH_SIZE: 768x1152
           BENCH_SEED: "7"
           BENCH_WAYS: phases
           BENCH_REQUIRE_COMPLETE: "1"
