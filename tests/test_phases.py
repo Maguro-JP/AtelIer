@@ -1560,3 +1560,77 @@ class ProcessingChangesTest(unittest.TestCase):
         self.assertFalse(rec["kept_ref"])
         self.assertFalse(rec["left"])
         self.assertGreater(mean_diff(ref, out), phases.DIFF_MIN)
+
+
+class RecordingPainter(Painter):
+    """直しの呼び出しを記録する画家。redraw は言葉・消すかどうか・強さを、refine は言葉・強さを残す"""
+
+    def __init__(self):
+        super().__init__()
+        self.redraw_calls = []   # (prompt, clean, strength)
+        self.refine_calls = []   # (prompt, strength)
+
+    def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+        self.redraw_calls.append((prompt, kw.get("clean", False), kw.get("strength")))
+        return super().redraw(prompt, seed, image, mask, on_step=on_step, **kw)
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        self.refine_calls.append((prompt, strength))
+        from PIL import ImageChops
+        return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 5 + seed % 7))
+
+
+def missing_item_checks():
+    """頼んだ物だけをいつも欠落させる検品。構図の直し（アタリ全体の描き直し）を単独で試す。
+    欠落はずっと残るので、直しは MENDS 回まで重ねてから聞く工程へ進む（完了は見ない）"""
+    class C:
+        @staticmethod
+        def request(image, prompt):
+            return {"readable": True, "missing": ["red scarf"], "extra": [], "people": [], "body": []}
+
+        @staticmethod
+        def body(image, prompt, tags=None):
+            return {"readable": True, "bad": [], "avoid": []}
+
+        @staticmethod
+        def points(image):
+            w, h = image.size
+            return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                    "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15), "right_ear": (w * .6, h * .15),
+                    "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+        @staticmethod
+        def pose(image):
+            return {"readable": True, "bad": [], "map": image}
+
+        @staticmethod
+        def hands(image, prompt):
+            return dict(CLEAN_HAND)
+    return C
+
+
+class MendFixTest(unittest.TestCase):
+    """直しが直せない欠陥の回帰試験。手・足・顔の形の崩れは、崩れた形をなぞらないよう消してから描き直し、
+    直す内容の言葉を渡す。構図の崩れ（頼んだ物が無い・物が離れている）は、囲みの中だけでは直せないので
+    アタリ全体を描き直す（絵から絵）。"""
+
+    def test_hand_mend_erases_and_names_the_fix(self):
+        """手の形の崩れの直しは、囲みの中を消してから描き直し、言葉に指の直しを入れる"""
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            painter = RecordingPainter()
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=1))
+        self.assertTrue(got["complete"])
+        hand_redraws = [(p, c, s) for (p, c, s) in painter.redraw_calls if "five fingers" in p]
+        self.assertTrue(hand_redraws, painter.redraw_calls)
+        self.assertTrue(all(c for (_p, c, _s) in hand_redraws), painter.redraw_calls)
+
+    def test_composition_mend_redraws_whole_atari(self):
+        """アタリで頼んだ物が無い崩れの直しは、囲みの描き直しではなくアタリ全体の描き直し（絵から絵）になる"""
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            painter = RecordingPainter()
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=missing_item_checks())
+        mends = [m for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", [])
+                 if m.get("item") == "頼んだ物"]
+        self.assertTrue(mends, got["history"])
+        self.assertTrue(any(m.get("full") for m in mends), mends)
+        self.assertTrue(any("red scarf" in p for (p, _s) in painter.refine_calls), painter.refine_calls)

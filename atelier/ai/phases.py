@@ -65,6 +65,20 @@ MEND = (0.45, 0.55, 0.65, 0.75, 0.85, 0.95)   # 囲みの直しの強さ。変�
 GROW = 12            # 囲みを広げる画素の数（1 段ごと）
 RESTART, GO_ON, REDPEN = "restart", "go", "redpen"   # REDPEN の答えは ("redpen", 囲みの白黒の絵の道)
 MENDS = 3            # 同じ工程で手を替えて囲みを直す回数。消えなければ絵を前のまま残し、残った崩れとして次の工程へ進む
+FIX_WORDS = {"hand": "correct hand, five fingers, anatomically correct fingers",
+             "foot": "correct foot, five toes, anatomically correct toes",
+             "face": "correct face, anatomically correct face"}   # 枠の種類ごとの、直す内容の言葉
+COMPOSITION_ITEMS = ("頼んだ物", "位置ずれ")   # アタリの構図の崩れ。囲みの中だけでは直せない（腕の位置・物の配置は全体で決まる）
+
+
+def fix_words(regions):
+    """枠の種類（hand/foot/face）から、直す内容の言葉を作る。直す言葉が無い種類は入れない"""
+    seen = []
+    for _b, t in regions or []:
+        w = FIX_WORDS.get(t)
+        if w and w not in seen:
+            seen.append(w)
+    return ", ".join(seen)
 WORDS_NOTE = "模型に渡す言葉: "   # この頭の知らせは会話に出さず、進み具合の欄の詳細にだけ置く（atelier/panels/activity_panel.py）
 GO, REDO, WORDS = "go", "redo", "words"   # 工程の確かめの答え
 
@@ -1228,38 +1242,68 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                     plan.insert([step("mend", i, item, flaws=list(s.get("flaws", [])), k=nk, how=how)])
                                 grew(old)
                     else:
-                        mask = mend_mask(cur, how) if cur is not None else None
-                        if mask is None:
-                            s["status"] = "skipped"
-                            queue_fix(i, item, s.get("flaws", []), {}, s.get("k", 0), why="囲めない崩れです")
-                        else:
-                            k = int(s.get("k", 0))
-                            if how.get("mask") == "pen":
-                                strength, m = MEND[0], mask
-                            else:
-                                strength = (FIXES[min(k, len(FIXES) - 1)] if how.get("mask") == "regions"
-                                            else (REPAINT if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "wear"
-                                            else (SHINE if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "eyes"
-                                            else MEND[min(k, len(MEND) - 1)])
-                                m = _grow(mask, GROW * k)
-                                r = GROW * k
-                                while r > 0 and _share(m) > max(_share(mask), GROW_MOST):   # 広げすぎて絵全体の描き直しにならないようにする
-                                    r //= 2
-                                    m = _grow(mask, r)
-                            words = emphasize(phase_prompt(i), how["missing"]) if how.get("mask") == "wear" and how.get("missing") else phase_prompt(i)
-                            say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
+                        k = int(s.get("k", 0))
+                        seed = st["seed"] + 509 * (k + 1) + 31 * i + 7 * len(row["mends"])
+                        full = False
+                        attempted = False
+                        if i == 2 and item in COMPOSITION_ITEMS and can_refine:
+                            # 構図の崩れ（頼んだ物が無い・物が離れている）は、囲みの中だけでは直せない。
+                            # 腕の位置や物の配置はアタリ全体で決まるので、アタリ全体を描き直す（絵から絵）。囲みは要らない
+                            strength = MEND[min(k, len(MEND) - 1)]
+                            words = phase_prompt(i)
+                            missing = how.get("missing") or []
+                            if missing:
+                                words = f"{words}, {', '.join(str(x) for x in missing)}"
+                            say(f"アタリ全体を描き直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                             tell(words)
-                            raw = painter.redraw(words, st["seed"] + 509 * (k + 1) + 31 * i + 7 * len(row["mends"]), cur, m, strength=strength)
-                            if how.get("mask") == "wear":
-                                raw = keep_tone(raw, cur, "服・髪・持ち物", m)
-                            tried = _inside(raw, cur, m)
-                            dd = diff(cur, tried, m)
+                            raw = painter.refine(words, seed, cur, strength=strength)
+                            tried = raw
+                            dd = diff(cur, tried)
+                            full = True
+                            attempted = True
+                        else:
+                            mask = mend_mask(cur, how) if cur is not None else None
+                            if mask is None:
+                                s["status"] = "skipped"
+                                queue_fix(i, item, s.get("flaws", []), {}, s.get("k", 0), why="囲めない崩れです")
+                            else:
+                                if how.get("mask") == "pen":
+                                    strength, m = MEND[0], mask
+                                else:
+                                    strength = (FIXES[min(k, len(FIXES) - 1)] if how.get("mask") == "regions"
+                                                else (REPAINT if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "wear"
+                                                else (SHINE if k == 0 else MEND[min(k, len(MEND) - 1)]) if how.get("mask") == "eyes"
+                                                else MEND[min(k, len(MEND) - 1)])
+                                    m = _grow(mask, GROW * k)
+                                    r = GROW * k
+                                    while r > 0 and _share(m) > max(_share(mask), GROW_MOST):   # 広げすぎて絵全体の描き直しにならないようにする
+                                        r //= 2
+                                        m = _grow(mask, r)
+                                words = emphasize(phase_prompt(i), how["missing"]) if how.get("mask") == "wear" and how.get("missing") else phase_prompt(i)
+                                clean = False
+                                if how.get("mask") == "regions":
+                                    # 手・足・顔の形の崩れ：崩れた形をなぞらないよう、囲みの中を消してから描き直す。
+                                    # 直す内容の言葉も足す（同じ言葉では同じ崩れが出るだけ）
+                                    fw = fix_words(how.get("regions"))
+                                    if fw:
+                                        words = f"{words}, {fw}"
+                                    clean = True
+                                say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
+                                tell(words)
+                                raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean)
+                                if how.get("mask") == "wear":
+                                    raw = keep_tone(raw, cur, "服・髪・持ち物", m)
+                                tried = _inside(raw, cur, m)
+                                dd = diff(cur, tried, m)
+                                attempted = True
+                        if attempted:
                             s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
                                       "words": [words], "changed": (dd["mean"] or 0) >= DIFF_MIN})
                             mrow = {"phase": NAMES[i], "mend": "赤ペン" if how.get("mask") == "pen" else k + 1, "item": item,
                                     "strength": strength, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd["outside"],
                                     "inside": dd["inside"], "words": [words], "readable": True, "image": None, "changed": s["changed"],
-                                    "visit": visits[i], **({"pen": True} if how.get("mask") == "pen" else {})}
+                                    "visit": visits[i], **({"pen": True} if how.get("mask") == "pen" else {}),
+                                    **({"full": True} if full else {})}
                             row["mends"].append(mrow)
                             if s["changed"]:
                                 fixes += 1
