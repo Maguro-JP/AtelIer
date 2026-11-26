@@ -73,6 +73,7 @@ MEND = (0.45, 0.55, 0.65, 0.75, 0.85, 0.95)   # 囲みの直しの強さ。変�
 GROW = 12            # 囲みを広げる画素の数（1 段ごと）
 RESTART, GO_ON, REDPEN = "restart", "go", "redpen"   # REDPEN の答えは ("redpen", 囲みの白黒の絵の道)
 MENDS = 3            # 同じ工程で手を替えて囲みを直す回数。消えなければ絵を前のまま残し、残った崩れとして次の工程へ進む
+NO_PROGRESS = MENDS  # 直しても崩れの重さが下がらない直しがこの回数続いた項目は、後の工程で同じ直しを繰り返さない
 FIX_WORDS = {"hand": "correct hand, five fingers, anatomically correct fingers",
              "foot": "correct foot, five toes, anatomically correct toes",
              "face": "correct face, anatomically correct face",
@@ -785,7 +786,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         tilt = pt.eye_tilt(pts)
         if _is_person():
             # 人のときだけ、等身・骨組みの比・体の検品と、手の指・服の検品を使う
-            hd = pt.heads(pts, bal.get("height", 0)) if bal.get("readable") else None
+            # 等身は全身が写っているときだけ測れる。足首の点が無い構図（上半身だけなど）では
+            # 人物の高さそのものが写っていないので、比を出しても意味が無く、直しでも直らない
+            full = "left_ankle" in pts and "right_ankle" in pts
+            hd = pt.heads(pts, bal.get("height", 0)) if bal.get("readable") and full else None
             if hd is not None and not (pt.HEADS[0] <= hd <= pt.HEADS[1]):
                 flaws.append(f"等身が外れている（{hd}）")
             pz, bd = checks.pose(img), checks.body(img, st["prompt"])
@@ -1056,6 +1060,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     # 部品不足・例外で読めなかった検品の理由のうち、直しを 1 度試した物。同じ理由で
     # 読めないままなら、それ以上は絵を直さない（検品の故障は絵を直しても直らない）
     unreadable_hopeless: set = set()
+    # 項目ごとに、直しても崩れの重さが下がらなかった直しの回数。重さが下がれば数え直す
+    no_progress: dict = {}
 
     def tkey(i, item):
         return f"{i}:{item}"
@@ -1299,6 +1305,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         old = plan.need()
         if why is None and not can_fix:
             why = "この模型は囲みの中だけを直せません"
+        if why is None and no_progress.get(item, 0) >= NO_PROGRESS:
+            why = "直しても崩れの重さが変わりませんでした"
         if why is None and k >= MENDS:
             why = f"{MENDS} 回手を替えて囲みの中を直しても消えませんでした"
         if why is None:
@@ -1431,6 +1439,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             grew(old)
                     if kind == "recheck":
                         prev = phase_left.get(str(i), {}).get(item, [])
+                        if prev and got_flaws:
+                            # 直したのに崩れの重さが下がらなかった（同じか増えた）ら数える。
+                            # 重さが下がれば、直しが効いているので数え直す
+                            if _severity(got_flaws) >= _severity(prev):
+                                no_progress[item] = no_progress.get(item, 0) + 1
+                            else:
+                                no_progress.pop(item, None)
                         if prev and _severity(got_flaws) > _severity(prev) and memo.get(("before", i, item)) is not None:
                             # 直しで崩れが増えた。直す前の絵に戻し、手を替えて直し直す（ゼロには戻らない）
                             say(f"「{item}」の直しで崩れが増えたので、直す前の絵に戻します")
@@ -1554,6 +1569,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             else:
                                 say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに直し直します")
                                 s["status"] = "unchanged"
+                                no_progress[item] = no_progress.get(item, 0) + 1   # 絵が変わらなかった直しは、進まなかった直しとして数える
                                 nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
                                 tries[tkey(i, item)] = nk
                                 old = plan.need()
@@ -1640,6 +1656,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 # 絵がほとんど変わらなかった直しは工程として数えず、囲みを広げ、強さを上げて直し直す（同じ入力を繰り返さない）
                                 say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに囲みを広げ、強さを上げます")
                                 s["status"] = "unchanged"
+                                no_progress[item] = no_progress.get(item, 0) + 1   # 絵が変わらなかった直しは、進まなかった直しとして数える
                                 nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
                                 tries[tkey(i, item)] = nk
                                 old = plan.need()

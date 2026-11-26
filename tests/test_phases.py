@@ -2537,3 +2537,98 @@ class WeightLinesConvergeTest(unittest.TestCase):
             again, _ = pt.weight_lines(again)
         self.assertGreater(dark(once), dark(img))              # 1 回目は太る（強弱付けの仕事）
         self.assertLessEqual(dark(again), dark(once) * 1.15)   # 繰り返しても太り続けない
+
+
+class HeadsFramingTest(unittest.TestCase):
+    """等身は全身が写っているときだけ測る。足首の点が無い構図（上半身だけなど）では、
+    人物の高さそのものが写っていないので比に意味が無く、直しでも直らない。
+    検証 45839398250 では upper body shot の絵に等身 15.8 が出続け、直しを繰り返した"""
+
+    def _checks(self, ankles):
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                pts = {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                       "nose": (w * .5, h * .17), "left_ear": (w * .4, h * .15),
+                       "left_shoulder": (w * .4, h * .19), "right_shoulder": (w * .6, h * .19),
+                       "left_hip": (w * .42, h * .5), "right_hip": (w * .58, h * .5),
+                       "left_knee": (w * .43, h * .75), "right_knee": (w * .57, h * .75)}
+                if ankles:
+                    pts["left_ankle"] = (w * .43, h * .97)
+                    pts["right_ankle"] = (w * .57, h * .97)
+                return {"readable": True, "points": pts}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                return dict(CLEAN_HAND)
+        return C
+
+    def _found_text(self, ankles):
+        painter = Painter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              say=lambda _s: None, checks=self._checks(ankles))
+        texts = [f for r in got["history"] for f in (r.get("found") or [])]
+        texts += [f for r in got["history"] for f in (r.get("after") or [])]
+        texts += [str(x) for x in got["left"]]
+        return "\n".join(str(t) for t in texts)
+
+    def test_heads_not_measured_without_ankles(self):
+        self.assertNotIn("等身", self._found_text(ankles=False))
+
+    def test_heads_measured_with_ankles(self):
+        self.assertIn("等身が外れている", self._found_text(ankles=True))
+
+
+class NoProgressMendTest(unittest.TestCase):
+    """直しても崩れの重さが下がらない項目は、1 つの工程で手を替え尽くしたら、
+    後の工程で同じ直しを繰り返さない。検証 45839398250 では、手の形・位置と等身が
+    強さを変えても同じ値のまま、線画だけで直し 37 回・総工程 123 まで膨らんだ"""
+
+    def test_unmoving_flaw_is_not_remended_in_later_phases(self):
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                return dict(HAND)   # 何度直しても同じ崩れを返し続ける
+
+        painter = Painter()
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              say=said.append, checks=C)
+        self.assertEqual(len(got["phases"]), N)                    # 工程は最後まで進む
+        self.assertLessEqual(len(painter.masks), phases.MENDS)     # 直しは最初の工程の分だけ。後の工程で繰り返さない
+        self.assertTrue(any("手" in k for k in got["left"]))        # 崩れは残った崩れとして正直に残る
+        self.assertTrue(any("変わりませんでした" in s for s in said))
