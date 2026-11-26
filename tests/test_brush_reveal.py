@@ -88,6 +88,60 @@ class BrushRevealTest(unittest.TestCase):
         self.assertLess(shown_now, shown_later)
 
 
+
+    def test_specks_are_not_traced_as_lines(self):
+        """小さな点々は線としてなぞらない。筆で 1 点ずつ描くと、筆と関係ない所に
+        点々が出現して見える。点は線の段から外し、塗りの段で一緒に出す"""
+        from atelier.paint import brush_reveal as br
+        from scipy import ndimage
+        im = Image.new("RGB", (192, 192), "white")
+        d = ImageDraw.Draw(im)
+        d.line((20, 96, 172, 96), fill="black", width=3)   # 本物の線
+        for x, y in ((30, 30), (160, 40), (90, 160), (50, 170)):   # 離れた点々
+            d.rectangle([x, y, x + 1, y + 1], fill="black")
+        plan = br.Plan(Image.new("RGB", (192, 192), "white"), im)
+        lab, n = ndimage.label(plan.line)
+        sizes = ndimage.sum(np.ones_like(lab), lab, index=np.arange(1, n + 1)) if n else []
+        self.assertTrue(all(s >= br.MIN_LINE_PX for s in sizes), sizes)
+        for x, y in ((30, 30), (160, 40), (90, 160), (50, 170)):
+            self.assertFalse(bool(plan.line[y, x]), f"点 ({x},{y}) が線として残っている")
+
+    def test_brush_moves_to_the_nearest_line(self):
+        """線の順は、前の線の終わりから一番近い線へ。画面の上から順に飛ぶと、
+        筆が関係ない所へ跳んで、線があちこちに出現して見える"""
+        from atelier.paint import brush_reveal as br
+        im = Image.new("RGB", (192, 192), "white")
+        d = ImageDraw.Draw(im)
+        d.line((10, 10, 40, 10), fill="black", width=3)      # A: 左上（最初）
+        d.line((10, 60, 60, 60), fill="black", width=3)      # B: A の近く（下）
+        d.line((165, 50, 185, 50), fill="black", width=3)    # C: B より上だが、ずっと右（遠い）
+        plan = br.Plan(Image.new("RGB", (192, 192), "white"), im)
+
+        def first_tip(x0, y0, x1, y1):
+            ts = [t for t, x, y in plan.tips if x0 <= x <= x1 and y0 <= y <= y1]
+            return min(ts) if ts else None
+        tb = first_tip(5, 55, 65, 65)
+        tc = first_tip(160, 45, 190, 55)
+        self.assertIsNotNone(tb)
+        self.assertIsNotNone(tc)
+        self.assertLess(tb, tc, "近い線（B）より先に遠い線（C）を描いている")
+
+
+
+    def test_branches_are_drawn_one_at_a_time(self):
+        """枝分かれした線は、枝ごとに順に描く。距離の順だと、種から同じ距離の枝が
+        同時に伸びて、複数本を同時に描くことになる（ペンではありえない）"""
+        from atelier.paint import brush_reveal as br
+        im = Image.new("RGB", (192, 192), "white")
+        d = ImageDraw.Draw(im)
+        d.line((96, 30, 96, 90), fill="black", width=3)    # 縦
+        d.line((66, 60, 126, 60), fill="black", width=3)   # 横（真ん中で交わる）
+        plan = br.Plan(Image.new("RGB", (192, 192), "white"), im)
+        ends = [plan.t[90, 96], plan.t[60, 66], plan.t[60, 126]]   # 3 つの腕の先
+        self.assertGreater(max(ends) - min(ends), br.LINE_END * 0.25,
+                           f"腕の先がほぼ同時に描かれている: {ends}")
+
+
 class MidDrawBrushTest(unittest.TestCase):
     def test_mid_preview_moves_the_brush(self):
         """描いている途中の絵も筆で見せる。裏で描いていても、画面上は今筆が動いている。

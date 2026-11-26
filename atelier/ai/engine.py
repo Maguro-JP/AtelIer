@@ -2404,6 +2404,7 @@ class Studio:
             return image
         from PIL import Image, ImageDraw
         from atelier.qc import hand_check as handcheck
+        from atelier.ai.phases import fix_words   # 囲みの中に渡す言葉は、その囲みの直す内容だけ（精度優先の直しと同じ決まり）
         best = None   # (崩れの数, 絵, 崩れ, 検品の結果)。直しで崩れが増えた回の絵は使わない（直すたびに別の所が崩れることがあった）
 
         def done(img):
@@ -2439,8 +2440,9 @@ class Studio:
                     for (x0, y0, x1, y1), _kind in detail:
                         cx, cy, rr = (x0 + x1) / 2, (y0 + y1) / 2, max(x1 - x0, y1 - y0) * 0.6
                         d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=255)
-                    # 渡す言葉は頼みの訳だけ（five fingers などの頼んでいない言葉を足さない）
-                    tried = self.painter.redraw(prompt, seed + 991, image, mask, strength=0.4)
+                    # 渡す言葉は、その囲みの直す内容の言葉だけ。依頼の文をそのまま渡すと、
+                    # 小さな囲みの中で場面全体を描こうとして崩れる（利用者の指摘。精度優先の直しと同じ決まり）
+                    tried = self.painter.redraw(fix_words(detail) or prompt, seed + 991, image, mask, strength=0.4)
                     again = handcheck.check(tried, asked=prompt)
                     self.hand_rounds.append({"round": r, "detail": True, "bad": again["bad"]})
                     if not again["bad"]:
@@ -2457,7 +2459,8 @@ class Studio:
                 cx, cy, rr = (x0 + x1) / 2, (y0 + y1) / 2, max(x1 - x0, y1 - y0) * 0.6
                 d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=255)
             # 回を重ねるほど強く描き直す（弱いままだと崩れた指の形をなぞり、何回直しても同じ崩れが残った）
-            image = self.painter.redraw(prompt, seed + 77 * (r + 1), image, mask, strength=(0.55, 0.65, 0.75, 0.85, 0.9, 0.95)[min(r, 5)])
+            # 渡す言葉は、その囲みの直す内容の言葉だけ（依頼の文は渡さない。囲みの外の絵が場面を教える）
+            image = self.painter.redraw(fix_words(regions) or prompt, seed + 77 * (r + 1), image, mask, strength=(0.55, 0.65, 0.75, 0.85, 0.9, 0.95)[min(r, 5)])
         return done(image)
 
     def _inspect(self, path: Path, say):

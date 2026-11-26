@@ -209,6 +209,36 @@ def weight_lines(image, r=None):
     return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum() + thick.sum())
 
 
+def line_like(image) -> bool:
+    """線画らしい絵かどうか（紙の白が大半で、中間の灰色が少なく、色が付いていない）。
+
+    色の上に乗せてよい線レイヤーは、本物の線画だけ。色の付いた絵や灰色の
+    面が多い絵を乗せると、絵全体がその絵の暗さで沈む（乗算は線画の前提で
+    しか正しくない）。判定は、明るさ 40〜200 の中間の割合と、色の濃さの平均。
+    """
+    import numpy as np
+    a = _np(image).astype(np.float32)
+    lum = luminance(image).astype(np.float32)
+    mid = float(((lum > 40) & (lum < 200)).mean())
+    sat = float((a.max(axis=2) - a.min(axis=2)).mean())
+    return mid <= 0.10 and sat <= 15.0
+
+
+def over_lines(color, line):
+    """色のレイヤーの上に、線のレイヤーを乗せて合成する（乗算）。
+
+    線の所は線画の暗さがそのまま残り、線の無い所（紙の白）は色がそのまま
+    出る。色を線画に描き重ねるだけだと、色の工程が線を薄くしてしまう
+    （検証 45696035067 で下塗りが良い線画を壊した）。線を別レイヤーに
+    残して上に乗せれば、色を塗り直しても線は壊れない。
+    """
+    import numpy as np
+    from PIL import Image
+    c = _np(color).astype(np.float32)
+    ln = _np(line.convert("RGB").resize(color.size)).astype(np.float32) / 255.0
+    return Image.fromarray(np.clip(c * ln, 0, 255).astype("uint8"))
+
+
 def _components(image):
     """シルエットの連結成分。返すのは (ラベル配列, 成分の大きさの配列, 一番大きい成分の番号)。scipy が無ければ None"""
     import numpy as np
@@ -237,20 +267,55 @@ def _component_boxes(lab, sizes, big, keep):
     return boxes
 
 
-def dust(image) -> dict:
-    """ゴミ: 主役のシルエットにつながっていない、小さく孤立した暗い塊（点・汚れ・はみ出した線）。
-    主役が無ければ読めない。返すのは {"readable", "boxes", "count"}。boxes は (x0, y0, x1, y1)"""
+def _dust_labels(image):
+    """ゴミとみなす成分の番号の一覧と、成分の表を返す。主役・実の線から離れた所に孤立した
+    小さな塊だけをゴミとする。主役の中にある小さな塊（目・ボタン・模様）や、線の近くの欠片は
+    ディテールなのでゴミにしない（必要な線までゴミとして消される事故の再発防止）。
+    主役が読めなければ None"""
     import numpy as np
     got = _components(image)
     if got is None:
-        return {"readable": False, "boxes": [], "count": 0}
+        return None
     lab, sizes, big = got
     if big == 0 or len(sizes) == 0:
-        return {"readable": False, "boxes": [], "count": 0}
+        return None
     h, w = lab.shape
-    small = DUST_MAX_PIXELS
-    boxes = _component_boxes(lab, sizes, big, lambda _k, size, box: (
-        size <= small and max(box[3] - box[1], box[2] - box[0]) <= max(3, min(h, w) * DUST_SIZE_MOST)))
+    limit = max(3, min(h, w) * DUST_SIZE_MOST)
+    margin = max(3, min(h, w) // 50)
+    from scipy import ndimage
+    anchor = np.isin(lab, [k for k in range(1, len(sizes) + 1) if sizes[k - 1] > DUST_MAX_PIXELS])
+    inside = ndimage.binary_fill_holes(anchor) if anchor.any() else np.zeros(lab.shape, bool)
+    dist = ndimage.distance_transform_edt(~anchor) if anchor.any() else None
+    keep = []
+    for k, sl in enumerate(ndimage.find_objects(lab), 1):
+        if k == big or sl is None or sizes[k - 1] > DUST_MAX_PIXELS:
+            continue
+        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
+        if max(box[3] - box[1], box[2] - box[0]) > limit:
+            continue
+        comp = lab[sl] == k
+        if inside[sl][comp].any():
+            continue   # 主役の中の小さな塊はディテール（目・ボタン・模様）
+        if dist is not None and float(dist[sl][comp].min()) <= margin:
+            continue   # 実の線の近くの欠片もディテール（線の一部）
+        keep.append(k)
+    return lab, keep
+
+
+def dust(image) -> dict:
+    """ゴミ: 主役から離れた所に孤立した、小さな暗い塊（点・汚れ）。主役の中や線の近くの
+    小さな塊はディテールなので数えない。主役が無ければ読めない。
+    返すのは {"readable", "boxes", "count"}。boxes は (x0, y0, x1, y1)"""
+    got = _dust_labels(image)
+    if got is None:
+        return {"readable": False, "boxes": [], "count": 0}
+    lab, keep = got
+    from scipy import ndimage
+    objs = ndimage.find_objects(lab)
+    boxes = []
+    for k in keep:
+        sl = objs[k - 1]
+        boxes.append((sl[1].start, sl[0].start, sl[1].stop, sl[0].stop))
     return {"readable": True, "boxes": boxes, "count": len(boxes)}
 
 
@@ -261,23 +326,10 @@ def dust_mask(image):
     主役が読めなければ None"""
     import numpy as np
     from PIL import Image
-    got = _components(image)
+    got = _dust_labels(image)
     if got is None:
         return None
-    lab, sizes, big = got
-    if big == 0 or len(sizes) == 0:
-        return None
-    h, w = lab.shape
-    small = DUST_MAX_PIXELS
-    limit = max(3, min(h, w) * DUST_SIZE_MOST)
-    from scipy import ndimage
-    keep = []
-    for k, sl in enumerate(ndimage.find_objects(lab), 1):
-        if k == big or sl is None:
-            continue
-        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
-        if sizes[k - 1] <= small and max(box[3] - box[1], box[2] - box[0]) <= limit:
-            keep.append(k)
+    lab, keep = got
     m = np.isin(lab, keep) if keep else np.zeros(lab.shape, bool)
     return Image.fromarray((m * 255).astype("uint8"))
 
@@ -407,6 +459,44 @@ def paper_color(image):
     k = max(2, min(w, h) // 20)
     corners = np.concatenate([a[:k, :k].reshape(-1, 3), a[:k, -k:].reshape(-1, 3), a[-k:, :k].reshape(-1, 3), a[-k:, -k:].reshape(-1, 3)])
     return tuple(int(v) for v in np.median(corners, axis=0))
+
+
+def erase_fill(image, mask):
+    """囲んだ所を消す。紙の色（四隅の中央）1 色で平らに塗りつぶすのではなく、
+    囲みの外の色だけを種に、色合いを内側へ広げて流し込む。消す物自体の色は
+    混ぜない（混ぜると、消したはずの線や塊がにじんで残る）。
+    1 色で塗ると、色や影や階調のある所では塗りつぶした塊に見える
+    （利用者の指摘: 「消すが上から塗りつぶす動きをしてる」）。
+    囲みの外は変えない。返すのは消したあとの絵"""
+    import numpy as np
+    from PIL import Image
+    im = image.convert("RGB")
+    m = np.asarray(mask.convert("L").resize(im.size)) > 0
+    if not m.any():
+        return im
+    h, w = m.shape
+    work = np.asarray(im).astype(np.float32)
+    known = ~m
+    work[m] = 0.0
+    for _ in range(512):   # 囲みの縁から 1 画素ずつ内側へ広げる。たいていの囲みは数回で埋まる
+        if known.all():
+            break
+        wp = np.pad(work, ((1, 1), (1, 1), (0, 0)), mode="edge")
+        kp = np.pad(known, ((1, 1), (1, 1)), mode="constant", constant_values=True)
+        s = np.zeros_like(work)
+        c = np.zeros(m.shape, np.float32)
+        for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+            kv = kp[1 + dy:1 + dy + h, 1 + dx:1 + dx + w]
+            s += wp[1 + dy:1 + dy + h, 1 + dx:1 + dx + w] * kv[..., None]
+            c += kv
+        new = (~known) & (c > 0)
+        if not new.any():
+            break
+        work[new] = s[new] / c[new][..., None]
+        known |= new
+    if not known.all():   # 広すぎて広げきれなかった所は紙の色で埋める
+        work[~known] = np.array(paper_color(im), dtype=np.float32)
+    return Image.fromarray(np.clip(work, 0, 255).astype("uint8"))
 
 
 def light(image) -> dict:

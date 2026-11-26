@@ -21,6 +21,7 @@ from PIL import Image, ImageChops, ImageFilter
 
 WORK_SIDE = 384          # 筆の運びを計算する大きさ（長い辺）。見せるだけなので縮めて速くする
 DIFF_MIN = 10            # これより小さい色の差は「変わっていない」とする（縮めたときの揺れ）
+MIN_LINE_PX = 5          # これより小さい塊は線としてなぞらない（筆で 1 点ずつ描くと、点々が出現して見える）
 LINE_END, BIG_END, SMALL_END = 0.30, 0.62, 0.84   # 各段が終わる時刻（0〜1）。残りが仕上げ
 BIG_AREA = 0.004         # 絵の面積に対するこの割合より大きい塊を「大きな塗り」にする
 LINE_PX_PER_SEC = 600.0   # 線をなぞる速さ（縮めた絵の画素／秒）。線が多いほど線画の段は長くかかる
@@ -61,6 +62,34 @@ def _dist_from_seeds(mask: np.ndarray, seeds: np.ndarray) -> np.ndarray:
     return dist
 
 
+def _stroke_order(line: np.ndarray, lab: np.ndarray, n: int, starts: list) -> np.ndarray:
+    """線の画素に、ペンが通る順の番号を付ける。種から深さ優先にたどるので、
+    枝分かれは 1 本ずつ順に描かれる。距離の順だと、種から同じ距離にある全部の枝が
+    同時に伸びて、複数本を同時に描く見え方になる（ペンではありえない）"""
+    order = np.full(line.shape, -1, np.int32)
+    h, w = line.shape
+    for i in range(n):
+        seed = starts[i]
+        stack = [seed]
+        seen = {seed}
+        idx = 0
+        while stack:
+            y, x = stack.pop()
+            order[y, x] = idx
+            idx += 1
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    q = (y + dy, x + dx)
+                    if q in seen or not (0 <= q[0] < h and 0 <= q[1] < w):
+                        continue
+                    if lab[q] == i + 1:
+                        seen.add(q)
+                        stack.append(q)
+    return order
+
+
 class Plan:
     """前の絵から次の絵への筆の運び。frame(t) で途中の絵、tip(t) で筆先の位置を返す"""
 
@@ -94,20 +123,46 @@ class Plan:
         self._rx = np.minimum((np.arange(self.full[0]) * w) // self.full[0], w - 1)
         t = np.full((h, w), np.inf, np.float32)
         tips: list[tuple[float, float, float]] = []   # (時刻, x, y)
-        # 線画: つながった線ごと、上の線から順に。1 本の中は一番上の端から線に沿って伸ばす
+        # 線画: つながった線ごと。順は、前の線の終わりから一番近い線へつなぐ
         lab, n = ndimage.label(line, ndimage.generate_binary_structure(2, 2))
         if n:
-            objs = ndimage.find_objects(lab)
-            order = sorted(range(n), key=lambda i: (objs[i][0].start, objs[i][1].start))
             sizes = ndimage.sum(np.ones_like(lab), lab, index=np.arange(1, n + 1))
+            # 小さすぎる塊は線ではない（色の段のざらつきやゴミ）。筆で 1 点ずつ描くと、
+            # 筆と関係ない所に点々が出現して見える。線の段からは外し、塗りの段で一緒に出す
+            keep = sizes >= MIN_LINE_PX
+            if not keep.all():
+                line = line & keep[lab - 1]
+                self.line = line
+                lab, n = ndimage.label(line, ndimage.generate_binary_structure(2, 2))
+                sizes = ndimage.sum(np.ones_like(lab), lab, index=np.arange(1, n + 1)) if n else np.zeros(0)
+        if n:
+            objs = ndimage.find_objects(lab)
             total = float(sizes.sum()) or 1.0
-            seeds = np.zeros_like(line)
+            starts = []
             for i in range(n):
                 ys, xs = objs[i]
                 sub = lab[ys, xs] == i + 1
                 yy, xx = np.argwhere(sub)[0]
-                seeds[ys.start + yy, xs.start + xx] = True
-            dist = _dist_from_seeds(line, seeds)
+                starts.append((ys.start + yy, xs.start + xx))
+            dist = _stroke_order(line, lab, n, starts)
+            ends = []
+            for i in range(n):
+                ys, xs = objs[i]
+                sub = np.where(lab[ys, xs] == i + 1, dist[ys, xs], -1)
+                yy, xx = np.unravel_index(int(np.argmax(sub)), sub.shape)
+                ends.append((ys.start + yy, xs.start + xx))
+            # 画面の上から順に飛ぶと筆が関係ない所へ跳ぶ。一番上の線から始め、
+            # あとは終わりから一番近い線へつないでいく（人の手の動きに寄せる）
+            order = []
+            left = set(range(n))
+            cur = min(left, key=lambda i: (starts[i][0], starts[i][1]))
+            while True:
+                order.append(cur)
+                left.discard(cur)
+                if not left:
+                    break
+                ey, ex = ends[cur]
+                cur = min(left, key=lambda i: (starts[i][0] - ey) ** 2 + (starts[i][1] - ex) ** 2)
             at = 0.0
             for i in order:
                 span = LINE_END * float(sizes[i]) / total

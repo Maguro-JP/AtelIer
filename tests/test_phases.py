@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 from atelier.ai import phases  # noqa: E402
 from atelier.ai import phase_tools as pt  # noqa: E402
 from atelier.ai.engine import Stopped, Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 
 HAND = {"readable": True, "bad": ["手 1: 指が 6 本"], "hands": [{"box": [10, 10, 30, 30], "bad": ["指が 6 本"], "seen": True}],
         "feet": [], "faces": []}
@@ -392,8 +392,8 @@ class PhasesTest(unittest.TestCase):
             painter = P()
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks())
         self.assertTrue(got["complete"])
-        # 下描き（アタリの中）は refine で描き重ねる。下塗りも refine を使うので、強さで分ける（下描き REFINE、下塗り BASE_COLOR）
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 1, painter.log)
+        # 下描き（アタリの中）と線画のペンなぞりは refine で描き重ねる。下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗り BASE_COLOR）
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 2, painter.log)
         self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 1, painter.log)
         fixes = [m["strength"] for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", [])]
         self.assertGreaterEqual(len(fixes), 1, got["history"])
@@ -408,9 +408,9 @@ class PhasesTest(unittest.TestCase):
             self.assertIn("mem_mb", r)
 
     def test_no_words_added(self):
-        """渡す言葉は頼みの訳だけ。手・足・顔の直しにも five fingers などを足さない。線の工程の線画の言葉（SKETCH_WORDS）は、色や内容ではなく線の描き方なので許す"""
+        """渡す言葉は頼みの訳だけ。手・足・顔の直しにも five fingers などを足さない。線の工程の線の描き方の言葉（ROUGH_WORDS・PEN_WORDS）は、色や内容ではなく描き方なので許す"""
         got, painter, *_ = self.run_phases(always_bad=True)
-        sketch = {t.strip() for t in phases.SKETCH_WORDS.split(",") if t.strip()}
+        sketch = {t.strip() for wds in (phases.ROUGH_WORDS, phases.PEN_WORDS) for t in wds.split(",") if t.strip()}
         for r in got["history"]:
             for w in r["words"]:
                 rest = w.replace("(red scarf:1.3)", "red scarf")
@@ -745,14 +745,13 @@ class NewChecksFlowTest(unittest.TestCase):
         self.assertTrue(mends, got["history"])
 
     def test_dust_erased_and_recheck_passes(self):
-        """ゴミ: 小さなゴミを紙の色で消し、確かめ直しで通る。囲みの外は変えない"""
+        """ゴミ: 清書（線画の仕上げ）で小さなゴミを塊そのものだけ消す。線画の時点でゴミは無い。
+        色の工程に入ってから出たゴミは仕上げで消さない（ゴミ取りは清書だけ、という利用者の規則）"""
         C, _seen = checks(always_bad=False)
         got = self.run_draw(DustyPainter(), "1girl, red scarf", C)
         self.assertTrue(got["complete"], got.get("left"))
-        mends = self.mends_of(got, "ゴミ")
-        self.assertTrue(mends, got["history"])
-        self.assertEqual(mends[0]["mend"], "消す")
-        self.assertEqual(mends[0]["outside"], 0)   # 消すのは囲みの中だけ
+        row = [r for r in got["history"] if r["phase"] == "線画"][0]
+        self.assertEqual(row["numbers"].get("dust"), 0)   # 清書で消えたので、線画の時点でゴミは無い
 
     def test_detached_part_carried_not_redrawn(self):
         """位置ずれ: 体から離れた物を崩れとし、直す工程が回る。偽の模型では消せないので、残った崩れとして次へ進む（全体の描き直しはしない）。残った崩れがあるので complete は偽だが、最後の工程まで進む"""
@@ -1600,7 +1599,14 @@ class NoSketchModelTest(unittest.TestCase):
         from atelier.ai import phase_tools as pt
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             p = Dit()
-            C, _seen = checks(False)
+            C0, _seen = checks(False)
+
+            class C(C0):
+                @staticmethod
+                def request(image, prompt):
+                    # 頼んだ物はずっと描かれていない（検品のたびに崩れを返し続ける）。線画でも確かめ直すので、
+                    # 1 回だけ崩れる偽物では「直せない崩れが残る」ことを確かめられない
+                    return {"readable": True, "missing": ["red scarf"], "extra": [], "people": [], "body": []}
             got = phases.draw(p, "1girl, red scarf", 1, (64, 64), Path(d), checks=C)
         self.assertTrue(any(x[0] == "refine" for x in p.log), p.log)
         self.assertFalse(got["complete"])   # 直せない崩れは残った崩れになる（全体の描き重ねを直しとして使わない）
@@ -2019,7 +2025,7 @@ class BrushUpBaseTest(unittest.TestCase):
                 self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
                 if kw.get("base") is not None:
                     return phase_img.copy()
-                return (base_img if "lineart" not in prompt else phase_img).copy()
+                return (base_img if "monochrome" not in prompt else phase_img).copy()
 
             def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
                 self.log.append(("redraw", seed, kw.get("strength")))
@@ -2072,7 +2078,7 @@ class BrushUpBaseTest(unittest.TestCase):
                 self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
                 if kw.get("base") is not None:
                     return figure(kw.get("size") or (64, 96))
-                if "lineart" not in prompt:
+                if "monochrome" not in prompt:
                     self.painted_base = kw.get("on_preview") is None
                     return base_img.copy()
                 return figure(kw.get("size") or (64, 96))
@@ -2089,7 +2095,7 @@ class BrushUpBaseTest(unittest.TestCase):
         self.assertNotEqual(list(got["image"].getdata()), base_px)
 
     def test_color_starts_from_clean_lines(self):
-        """線の段階にゴミが残ったまま色の工程に入らない。下塗りの前に、線画のゴミを塊そのものだけ消す"""
+        """線の段階にゴミが残ったまま色の工程に入らない。ゴミ消しは清書（線画の仕上げ）で済ませる"""
         def dusty(size=(64, 96)):
             im = sketch(size)
             from PIL import ImageDraw
@@ -2105,7 +2111,7 @@ class BrushUpBaseTest(unittest.TestCase):
                 self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
                 if kw.get("base") is not None:
                     return kw["base"].copy()
-                return figure(kw.get("size") or (64, 96)) if "lineart" not in prompt else dusty(kw.get("size") or (64, 96))
+                return figure(kw.get("size") or (64, 96)) if "monochrome" not in prompt else dusty(kw.get("size") or (64, 96))
         said = []
         # 線の強弱付け（weight_lines）は別の試験で確かめる。ここでは「線画にゴミが残ったまま下塗りに来る」条件を作るため素通しにする
         # （偽の線画では、強弱付けが小さな断片を線に寄せてしまい、ゴミが残らない）
@@ -2115,12 +2121,9 @@ class BrushUpBaseTest(unittest.TestCase):
                               checks=hand_only_checks(bad_times=0))
             files = sorted((Path(d) / "k").glob("*.png"))
             from PIL import Image
-            cleaned = [p for p in files if "土台の掃除" in p.name]
-            self.assertTrue(cleaned, [p.name for p in files])
-            self.assertEqual(pt.dust(Image.open(cleaned[0]))["count"], 0)
-        gate = [m for r in got["phases"] if r["phase"] == "下塗り" for m in r.get("mends", []) if m.get("mend") == "土台の掃除"]
-        self.assertTrue(gate and gate[0]["found"], got["phases"])   # 下塗りの前に、線画のゴミ（found）が見つかって掃除された
-        self.assertTrue(any("色を塗る前に" in m for m in said), said)
+            line_files = [p for p in files if "線画" in p.name and not p.name.startswith("layer")]
+            self.assertTrue(line_files, [p.name for p in files])
+            self.assertEqual(pt.dust(Image.open(line_files[-1]))["count"], 0)   # 清書で消えたので、線画の時点でゴミは無い
         self.assertEqual(pt.dust(got["image"])["count"], 0)   # 色の工程以降、ゴミは無い
 
 
@@ -2201,3 +2204,254 @@ class DegradationGuardTest(unittest.TestCase):
         arr = np.asarray(im.convert("RGB")).copy()
         arr[m] = pt.paper_color(im)
         self.assertEqual(pt.dust(Image.fromarray(arr.astype("uint8")))["count"], 0)   # この囲みで消せば検品が通る
+
+
+class LayerBasePainter(Painter):
+    """線画は白地に黒い帯、下塗りの描き重ねは薄い色の一色を返す画家。
+    本物の模型で下塗りが線を薄くしたのと同じ壊れ方をさせる"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+        from PIL import Image, ImageDraw
+        size = kw.get("size") or (64, 96)
+        im = Image.new("RGB", size, "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))   # 線画の線
+        return im
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        self.log.append(("refine", seed, strength))
+        if strength == phases.BASE_COLOR:
+            import numpy as np
+            from PIL import Image
+            w, h = image.size
+            grad = np.tile(np.linspace(195, 230, w, dtype=np.uint8), (h, 1))   # 薄い色（右が明るい）。線は入っていない
+            return Image.fromarray(np.stack([grad, grad, grad], axis=2))
+        return image.copy()
+
+
+class LayerTest(unittest.TestCase):
+    """レイヤー管理: 線画をレイヤーに残し、清書して、色は別レイヤーに塗る"""
+
+    def run_layered(self):
+        painter = LayerBasePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+            rows = {r["phase"]: r for r in got["phases"]}
+            img = None
+            if rows["下塗り"].get("image"):
+                from PIL import Image
+                img = Image.open(rows["下塗り"]["image"]).convert("RGB")
+        return got, rows, img
+
+    def test_base_color_does_not_bury_the_lines(self):
+        """下塗りの色が線を埋めない。線画レイヤーを色の上に乗せるので、
+        線の所は線画の黒が残り、線の無い所は塗った色が出る"""
+        got, rows, img = self.run_layered()
+        self.assertTrue(got["complete"])
+        self.assertIsNotNone(img)
+        self.assertLess(img.getpixel((32, 48))[0], 60, "線が色に埋もれている")   # 線の所
+        self.assertGreater(img.getpixel((8, 48))[0], 180, "色が付いていない")   # 線の無い所
+
+    def test_layers_are_recorded(self):
+        """下塗りの記録に、残したレイヤー（線画・清書・下塗り）が出る"""
+        got, rows, img = self.run_layered()
+        self.assertEqual(rows["下塗り"]["numbers"].get("layers"), ["線画", "清書", "下塗り"])
+
+    def test_line_like_gate(self):
+        """上に乗せてよいのは本物の線画だけ。色の付いた絵は線レイヤーにしない"""
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (64, 96), "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle([30, 0, 34, 96], fill=(0, 0, 0))
+        self.assertTrue(pt.line_like(im))
+        self.assertFalse(pt.line_like(car_side_scene((64, 96))))
+
+
+class CompareSeverityTest(unittest.TestCase):
+    """土台と比べる重さ: ゴミの個数で完成が決まらないこと"""
+
+    def test_dust_count_does_not_dominate(self):
+        """ゴミの文は個数を数えず 1 件。線の欠片まで数える検品なので、個数で比べると
+        絵の良し悪しではなくゴミの数だけで「良くなっていない」が決まってしまう"""
+        self.assertEqual(phases._compare_severity(["ゴミがある（758 個）"]), 1.0)
+        self.assertEqual(phases._compare_severity(["ゴミがある（758 個）", "描かれていない: waving"]),
+                         phases._compare_severity(["描かれていない: waving"]) + 1.0)
+
+    def test_other_counts_still_count(self):
+        """離れた物の数のような、増えると悪くなる数は今までどおり数える"""
+        self.assertGreater(phases._compare_severity(["体から離れている物がある（124 個）"]),
+                           phases._compare_severity(["体から離れている物がある（2 個）"]))
+        self.assertEqual(phases._compare_severity(["描かれていない: waving"]),
+                         phases._severity(["描かれていない: waving"]))
+
+
+class EraseFillTest(unittest.TestCase):
+    """消すは塗りつぶしではない: 周りの色合いを流し込む"""
+
+    def test_fill_matches_local_tone_not_corner_color(self):
+        """横の階調（左 100 → 右 200）の真ん中のゴミを消すと、消した所は
+        その場所の色合い（約 150）になる。四隅の色（紙の色）で平らに塗らない"""
+        import numpy as np
+        from PIL import Image
+        w, h = 64, 64
+        grad = np.tile(np.linspace(100, 200, w, dtype=np.uint8), (h, 1))
+        im = Image.fromarray(np.stack([grad, grad, grad], axis=2))
+        arr = np.asarray(im).copy()
+        arr[30:34, 30:34] = 0   # ゴミ
+        im = Image.fromarray(arr)
+        mask = Image.new("L", (w, h), 0)
+        ma = np.asarray(mask).copy()
+        ma[30:34, 30:34] = 255
+        mask = Image.fromarray(ma)
+        out = pt.erase_fill(im, mask)
+        center = out.getpixel((32, 32))[0]
+        self.assertLess(abs(center - 150), 20, f"消した所がその場所の色合いになっていない: {center}")
+        self.assertEqual(out.getpixel((5, 5)), im.getpixel((5, 5)))   # 囲みの外は変えない
+
+    def test_layer_files_are_saved(self):
+        """レイヤーはファイルにも残る（線画レイヤーには線だけ、下塗りレイヤーには色だけ）。
+        あとから見て、線画が残っていることを確かめられるようにする"""
+        painter = LayerBasePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+            from PIL import Image
+            line = Image.open(Path(d) / "k" / "layer-05-線画.png").convert("RGB")
+            color = Image.open(Path(d) / "k" / "layer-05-下塗り.png").convert("RGB")
+        self.assertLess(line.getpixel((32, 48))[0], 60)      # 線画レイヤーの線は黒いまま
+        self.assertGreater(color.getpixel((32, 48))[0], 180)   # 下塗りレイヤーに線は無い（色だけ）
+
+
+class LineStagesTest(unittest.TestCase):
+    """線の段階: ラフ（鉛筆でさっと）→線画（ペンで描く）→清書（強弱とゴミ消し）"""
+
+    def test_rough_words_pen_words_and_pen_pass(self):
+        class P(Painter):
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.log.append(("refine", seed, strength))
+                return image.copy()
+        painter = P()
+        C = hand_only_checks(bad_times=0)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+        rows = {r["phase"]: r for r in got["phases"]}
+        thumb_words = " ".join(rows["サムネイル"]["words"])
+        self.assertIn("pencil", thumb_words)           # ラフは鉛筆でさっと描く
+        self.assertNotIn("clean lines", thumb_words)   # ラフは、きれいに清書された線画ではない
+        line_words = " ".join(rows["線画"]["words"])
+        self.assertIn("inked", line_words)             # 線画はペンで描く
+        # ペンなぞりは描き重ね（refine）でする。下描きの描き重ねと合わせて 2 回
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 2, painter.log)
+
+
+class CarriedFlawGuardTest(unittest.TestCase):
+    """持ち越した崩れは、その項目を実際に測った工程の確かめでだけ外す。
+    項目名だけが工程の並びにあって検品が測っていない場合は、消えたことにしない"""
+
+    def test_uncovered_phase_does_not_clear_carried_flaw(self):
+        from atelier.ai import phase_plan
+        patched = [list(x) for x in phase_plan.PHASE_ITEMS]
+        patched[4] = patched[4] + ["線の強弱"]   # 下塗りの並びに線の強弱を足す（が、下塗りの検品は線を測らない）
+        painter = Painter()
+        C, _seen = checks(False)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0, "weight": 0.1}), \
+                mock.patch.object(phase_plan, "PHASE_ITEMS", patched):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+        self.assertFalse(got["complete"])
+        self.assertTrue(any("強弱" in f for f in got["left"]), got["left"])
+
+
+class DustPrecisionTest(unittest.TestCase):
+    """ゴミは、主役から離れた所に孤立した小さな塊だけ。主役の中や線の近くにある小さな塊
+    （目・ボタン・線の欠片などのディテール）はゴミにしない（利用者の指摘: 必要な線もゴミとして消される）"""
+
+    def _img(self):
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (200, 200), "white")
+        d = ImageDraw.Draw(im)
+        d.ellipse([60, 40, 140, 160], outline=(0, 0, 0), width=3)   # 主役の輪郭（大きい成分）
+        d.ellipse([97, 82, 103, 88], fill=(0, 0, 0))                 # 目（輪郭の中の小さな塊）
+        d.rectangle([10, 10, 12, 12], fill=(0, 0, 0))                # 紙の隅のゴミ（孤立）
+        return im
+
+    def test_detail_inside_subject_is_not_dust(self):
+        got = pt.dust(self._img())
+        self.assertTrue(got["readable"])
+        self.assertEqual(got["count"], 1, got)   # 隅のゴミだけ。目は数えない
+        import numpy as np
+        a = np.asarray(pt.dust_mask(self._img()))
+        self.assertEqual(int(a[85, 100] > 0), 0)   # 目の所は消す範囲に入っていない
+        self.assertTrue(a[11, 11] > 0)             # 隅のゴミは入っている
+
+
+class DustOnlyAtCleanStageTest(unittest.TestCase):
+    """ちゃんとしたゴミ取りは清書（線画）だけ。色の工程に入ってから出たゴミは、
+    仕上げで消さない（都度入るゴミ消しが細い線やディテールを壊す、という利用者の規則）"""
+
+    def test_dust_appearing_after_lines_is_not_erased_at_finish(self):
+        def speckled(base):
+            from PIL import ImageDraw
+            im = base.copy()
+            ImageDraw.Draw(im).rectangle([3, 3, 5, 5], fill=(30, 30, 30))
+            return im
+
+        class P(Painter):
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                if kw.get("base") is not None:
+                    # 線の工程（モノクロの言葉）は土台のまま。色の工程で初めてゴミが入る
+                    return kw["base"].copy() if "monochrome" in prompt else speckled(kw["base"])
+                return sketch(kw.get("size") or (64, 96)) if "monochrome" in prompt else figure(kw.get("size") or (64, 96))
+        C = hand_only_checks(bad_times=0)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(P(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+        self.assertEqual(pt.dust(got["image"])["count"], 1)   # 仕上げで消されていない
+        late = [m for r in got["history"] if r["phase"] in ("下塗り", "光源", "影 2 段", "光・艶・目のハイライト", "仕上げ")
+                for m in r.get("mends", []) if m.get("item") == "ゴミ"]
+        self.assertEqual(late, [])
+
+
+class UnreadableCheckTest(unittest.TestCase):
+    """検品の部品が無い・検品自体が例外で落ちる場合、その検品は絵を直しても直らない。
+    絵を壊す直しを繰り返さず、未検品として理由つきで残す（ただし完成にはしない）"""
+
+    def _run(self, checks_cls):
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            return phases.draw(Painter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=checks_cls)
+
+    def test_missing_check_component_is_not_mended(self):
+        base, _ = checks(always_bad=False)
+
+        class NoHands:
+            request = staticmethod(base.request)
+            body = staticmethod(base.body)
+            pose = staticmethod(base.pose)
+            points = staticmethod(base.points)
+            # hands が無い = 手の検品の部品が無い
+
+        got = self._run(NoHands)
+        self.assertFalse(got["complete"])   # 読めていない検品を、通ったことにしない
+        unread = [m for r in got["history"] for m in r.get("mends", []) if "検品できませんでした" in m["found"]]
+        self.assertEqual(unread, [])   # 部品の無い検品のために絵を描き直さない
+        self.assertTrue(any("検品 hands がありません" in x for x in got["left"]))
+
+    def test_throwing_check_is_mended_once_then_left(self):
+        base, _ = checks(always_bad=False)
+
+        class BoomHands:
+            request = staticmethod(base.request)
+            body = staticmethod(base.body)
+            pose = staticmethod(base.pose)
+            points = staticmethod(base.points)
+
+            @staticmethod
+            def hands(image, prompt):
+                raise RuntimeError("boom")
+
+        got = self._run(BoomHands)
+        self.assertFalse(got["complete"])
+        unread = [m for r in got["history"] for m in r.get("mends", []) if "検品できませんでした" in m["found"]]
+        self.assertEqual(len(unread), 1)   # 直しは 1 度だけ試し、直しても読めなければ諦めて残す
+        self.assertTrue(any("RuntimeError" in x for x in got["left"]))

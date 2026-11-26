@@ -325,3 +325,28 @@ class RealImages(unittest.TestCase):
         res = handcheck.check(LIB / "body/2026-10-26/r87/r87-armsup-s87100.jpg", fetch=False)
         self.assertTrue([b for b in res["bad"] if b.startswith("手 ")], res["bad"])
         self.assertTrue([r for r in handcheck.bad_regions(res) if r[1] == "hand"])
+
+
+class FixWordsForRegions(unittest.TestCase):
+    """AIモードの直し: 囲みの中に渡すのは、その囲みの直す内容の言葉だけ。
+    依頼の文をそのまま渡すと、小さな囲みの中で場面全体を描こうとして崩れる"""
+
+    def test_redraw_gets_fix_words_not_the_request(self):
+        painter = FakePainter()
+        seen_prompts = []
+        orig_redraw = painter.redraw
+
+        def redraw(prompt, seed, image, mask, strength=0.45, **kw):
+            seen_prompts.append(prompt)
+            return orig_redraw(prompt, seed, image, mask, strength=strength, **kw)
+        painter.redraw = redraw
+        studio = engine.Studio(painter=painter, out=Path("."))
+
+        def check(image, asked=""):
+            return hand_result(0 if painter.redraws else 2)
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=check):
+            studio._fix_hands(Image.new("RGB", (64, 64)), "1girl, red scarf, school uniform", 1, lambda m: None)
+        self.assertTrue(seen_prompts)
+        for p in seen_prompts:
+            self.assertIn("correct hand", p)
+            self.assertNotIn("red scarf", p)
