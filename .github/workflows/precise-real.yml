@@ -23,7 +23,7 @@ jobs:
   # CPU で描き、描き直しの回数に上限が無いので、時間の上限を広く取る。Release は止めない。落ちたらこのジョブが赤くなる
   precise-real:
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - name: 置き場を空ける
@@ -36,7 +36,7 @@ jobs:
           pip install -q torch --index-url https://download.pytorch.org/whl/cpu
           pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image ai-edge-litert onnxruntime
       - name: 精度優先で 1 枚を最後まで描く
-        timeout-minutes: 320
+        timeout-minutes: 360
         env:
           LLM_HOME: ${{ runner.temp }}/llm
           ATELIER_HOME: ${{ runner.temp }}/cd
