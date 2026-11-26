@@ -68,6 +68,130 @@ def tilted_land(size=(128, 96), slope=0.09):
     return im
 
 
+def _light_gradient(im, amount=10):
+    """絵に左から右への明るさの段差を付ける（光の向きが読めるようにする）。
+    均一な色の絵だと、光源の検品が「明るさが平たい」と崩れを出す。なだらかな勾配だと色が連続的にばらまき下塗りの色数が増えるので、段差にする（左半分 -5、右半分 +5）。
+    段差は水・葉の明るさの広がり（20 未満で崩れ）に 5 しか足さない"""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(im.convert("RGB"), dtype=np.float32)
+    w = a.shape[1]
+    step = np.full((1, w, 1), -amount / 2, dtype=np.float32)
+    step[:, w // 2:, :] = amount / 2
+    return Image.fromarray(np.clip(a + step, 0, 255).astype("uint8"))
+
+
+def water_scene(size=(64, 96), with_light=False):
+    """空・地面・水（青い所）の風景。光があるときは水に明るい縦の筋を入れる。右を明るくして光の向きが読めるようにする"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (200, 220, 240))  # 空
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, h // 2, w, h], fill=(90, 110, 90))  # 地面
+    d.rectangle([0, int(h * 0.62), w, h], fill=(40, 90, 140))  # 水（青）
+    if with_light:
+        # 水の光の筋。3 か所に太めの筋を入れ、水の 9% ほどを明るくする（95パーセンタイルが光の明るさに届くため）
+        for cx in (w * 0.3, w * 0.5, w * 0.7):
+            for x in range(int(cx) - 2, int(cx) + 2):
+                d.line([x, int(h * 0.62), x, h], fill=(220, 230, 250), width=1)
+    return _light_gradient(im)
+
+
+def leaf_scene(size=(64, 96), with_gloss=False):
+    """木の葉（緑の塊）の風景。つやがあるときは葉に明るい点を散らす。右を明るくして光の向きが読めるようにする"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (220, 225, 235))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, h // 2, w, h], fill=(120, 100, 80))
+    d.ellipse([w * 0.15, h * 0.1, w * 0.85, h * 0.55], fill=(40, 110, 50))  # 葉の塊
+    d.rectangle([w * 0.48, h * 0.5, w * 0.52, h], fill=(90, 60, 40))  # 幹
+    if with_gloss:
+        import numpy as np
+        rng = np.random.default_rng(3)
+        for _ in range(40):
+            x = int(rng.integers(w * 0.2, w * 0.8))
+            y = int(rng.integers(h * 0.15, h * 0.5))
+            d.ellipse([x - 1, y - 1, x + 1, y + 1], fill=(180, 230, 140))  # 葉のつや
+    return _light_gradient(im)
+
+
+def car_side_scene(size=(64, 96), flat_tire=False):
+    """横から見た車。車体と 2 つの黒いタイヤ（円）。flat_tire なら右のタイヤの下を平らにする。右を明るくして光の向きが読めるようにする"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), "white")
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.15, h * 0.35, w * 0.85, h * 0.6], fill=(180, 40, 40))  # 車体
+    d.rectangle([w * 0.3, h * 0.2, w * 0.7, h * 0.38], fill=(180, 40, 40))   # キャビン
+    for cx in (w * 0.3, w * 0.7):
+        r = max(4, int(min(w, h) * 0.11))
+        d.ellipse([cx - r, h * 0.55 - r, cx + r, h * 0.55 + r], fill=(20, 20, 20))
+    if flat_tire:
+        # 右のタイヤの下を平らに切る（白で塗りつぶす）
+        d.rectangle([w * 0.7 - 12, h * 0.55 + 6, w * 0.7 + 12, h * 0.55 + 12], fill=(255, 255, 255))
+    return _light_gradient(im)
+
+
+def car_front_scene(size=(64, 96), asym=False):
+    """正面から見た車。左右対称。asym なら右側を潰す。右を明るくして光の向きが読めるようにする"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), "white")
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.2, h * 0.3, w * 0.8, h * 0.75], fill=(40, 80, 180))  # 車体
+    d.rectangle([w * 0.3, h * 0.15, w * 0.7, h * 0.32], fill=(40, 80, 180))  # キャビン
+    d.rectangle([w * 0.28, h * 0.55, w * 0.42, h * 0.62], fill=(240, 240, 200))  # 左のライト
+    d.rectangle([w * 0.58, h * 0.55, w * 0.72, h * 0.62], fill=(240, 240, 200))  # 右のライト
+    if asym:
+        # 右側を潰す（右半分の車体を白で削る）
+        d.polygon([(w * 0.65, h * 0.3), (w * 0.8, h * 0.3), (w * 0.8, h * 0.75), (w * 0.65, h * 0.75)], fill=(255, 255, 255))
+        d.rectangle([w * 0.58, h * 0.55, w * 0.65, h * 0.62], fill=(255, 255, 255))
+    return _light_gradient(im)
+
+
+def road_scene(size=(64, 96), converge=True):
+    """道路の風景。converge なら道の両端が地平線で 1 点に集まる。平行なら両端が平行（斜めの平行線）。
+    右を明るくして光の向きが読めるようにする"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (200, 220, 240))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, h // 2, w, h], fill=(110, 130, 90))  # 地面
+    if converge:
+        d.polygon([(w * 0.3, h), (w * 0.7, h), (w * 0.52, h // 2), (w * 0.48, h // 2)], fill=(90, 90, 90))  # 収束する道
+    else:
+        # 斜めの平行な道。両端が同じ傾きで、地平線に集まらない
+        d.polygon([(w * 0.25, h), (w * 0.55, h), (w * 0.75, h // 2), (w * 0.45, h // 2)], fill=(90, 90, 90))
+    return _light_gradient(im)
+
+
+def _scene_checks():
+    """体・構図・依頼物は合格させる。風景・車の場面では、手・顔・体を見る模型は使わない"""
+    class C:
+        @staticmethod
+        def request(image, prompt):
+            return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+        @staticmethod
+        def body(image, prompt, tags=None):
+            return {"readable": True, "bad": [], "avoid": []}
+
+        @staticmethod
+        def points(image):
+            w, h = image.size
+            return {"readable": True, "points": {}}
+
+        @staticmethod
+        def pose(image):
+            return {"readable": True, "bad": [], "map": image}
+
+        @staticmethod
+        def hands(image, prompt):
+            return dict(CLEAN_HAND)
+    return C
+
+
 def mean_diff(a, b):
     """2 枚の絵の平均の差（0-255）。DIFF_MIN と比べる"""
     import numpy as np
@@ -108,6 +232,17 @@ class Painter(FakePainter):
         return ImageChops.add(image.convert("RGB"), image.convert("RGB").point(lambda _v: 5 + seed % 7))
 
 
+class ScenePainter(Painter):
+    """描くたびに、決めた場面の絵を返す画家。場面は paint のたびに同じ絵（直しの描き直しは Painter の redraw がずらす）"""
+
+    scene = None   # (size) -> Image を返す関数
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+        size = kw.get("size") or (64, 96)
+        return self.scene(size)
+
+
 BAD_TIMES = 3   # 崩れを返し続ける検品が、何回目で通るか（必ず通る回を持たせ、試験を終わらせる）
 
 
@@ -119,9 +254,9 @@ def checks(always_bad: bool):
         @staticmethod
         def request(image, prompt):
             seen["request"] += 1
-            # サムネイルでは依頼物を検査せず、アタリの確かめ（2 回目）で初めて欠落を検出する。
-            # request はサムネイル 1 回の後、アタリで検品する（アタリの確かめは request を 1 回だけ呼ぶ）。
-            bad = not always_bad and seen["request"] == 2
+            # サムネイルでは依頼物を検査せず、アタリの確かめで初めて欠落を検出する。
+            # request はサムネイル 1 回、土台（80 点の一発の絵）の計測 1 回の後、アタリで検品する（アタリの確かめは request を 1 回だけ呼ぶ）。
+            bad = not always_bad and seen["request"] == 3
             return {"readable": True, "missing": ["red scarf"] if bad else [], "extra": [], "people": [], "body": []}
 
         @staticmethod
@@ -144,8 +279,9 @@ def checks(always_bad: bool):
         @staticmethod
         def hands(image, prompt):
             seen["hands"] += 1
-            # 下描きの描く工程は手を測らないので（測るのは確かめる工程だけ）、崩れを返す回は BAD_TIMES - 1 回にそろえる
-            return dict(HAND) if ((always_bad and seen["hands"] <= BAD_TIMES - 1) or seen["hands"] == 1) else dict(CLEAN_HAND)
+            # 下描きの描く工程は手を測らないので（測るのは確かめる工程だけ）、崩れを返す回は BAD_TIMES - 1 回にそろえる。
+            # 土台（80 点の一発の絵）の計測が最初の 1 回を消費するので、工程から見える崩れの回数を保つため 1 回分足す
+            return dict(HAND) if ((always_bad and seen["hands"] <= BAD_TIMES) or seen["hands"] <= 2) else dict(CLEAN_HAND)
     return C, seen
 
 
@@ -184,7 +320,8 @@ def hand_only_checks(bad_times=BAD_TIMES - 1):
         @staticmethod
         def hands(image, prompt):
             seen["hands"] += 1
-            return dict(HAND) if seen["hands"] <= bad_times else dict(CLEAN_HAND)
+            # 土台の計測が最初の 1 回を消費するので、工程から見える不合格の回数を保つため 1 回足す（0 回＝常に合格はそのまま）
+            return dict(HAND) if seen["hands"] <= bad_times + (1 if bad_times else 0) else dict(CLEAN_HAND)
     return C
 
 
@@ -239,8 +376,9 @@ class PhasesTest(unittest.TestCase):
     def test_thumbnail_direct_and_reused(self):
         got, painter, *_ = self.run_phases(always_bad=False)
         paints = [x for x in painter.log if x[0] == "paint" and not x[3]]   # 下描きの線に沿う描き（base あり）は除く
-        # サムネイルは工程の数を減らさずに 1 枚を直接描き、そのままアタリにする（同じ構図を 2 度描かない）
-        self.assertEqual(len(paints), 1, painter.log)
+        # サムネイルは工程の数を減らさずに 1 枚を直接描き、そのままアタリにする（同じ構図を 2 度描かない）。
+        # もう 1 枚は土台の一発の絵（画面には出さない。アタリはサムネイルを使い回すので、土台のために描き直しはしない）
+        self.assertEqual(len(paints), 2, painter.log)
         self.assertTrue(all(x[2] == 20 for x in paints))
         self.assertIn("picked", got["phases"][1]["numbers"])
 
@@ -513,8 +651,8 @@ def _clean_checks():
         @staticmethod
         def hands(image, prompt):
             seen["hands"] += 1
-            if seen["hands"] == 1:
-                # 動物の顔・足はあるが、人の手は無い。足の崩れを 1 回だけ返す
+            if seen["hands"] <= 2:
+                # 動物の顔・足はあるが、人の手は無い。足の崩れを返す（土台の計測が 1 回目を消費するので、工程の確かめでも見えるよう 2 回目まで）
                 return {"readable": True, "bad": ["足 1: 指が 6 本"], "hands": [],
                         "feet": [{"box": [10, 10, 30, 30], "bad": ["指が 6 本"], "seen": True}],
                         "faces": [{"box": [20, 5, 40, 20]}], "face": {"readable": True}, "legs": []}
@@ -699,6 +837,103 @@ class NewChecksFlowTest(unittest.TestCase):
         self.assertEqual(seen["pose"], 0, seen)
 
 
+class LandscapeObjectFlowTest(unittest.TestCase):
+    """風景と車・物の新しい検品が、崩れを見つけ、直し、直したあとに通ることを、流れで確かめる"""
+
+    def run_scene(self, painter, prompt, size=(64, 96)):
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, prompt, 5, size, Path(d) / "k", checks=_scene_checks())
+        return got
+
+    def mends_of(self, got, item):
+        return [m for r in got["history"] for m in r.get("mends", []) if m.get("item") == item]
+
+    def test_water_light_flagged_then_shined(self):
+        """水の光: 光の無い水を崩れとし、光の筋を付ける直しで直し、確かめ直しで通る。光の筋は模型で描き直さない"""
+        class WP(ScenePainter):
+            scene = staticmethod(lambda size: water_scene(size, with_light=False))
+        got = self.run_scene(WP(), "mountain, lake")
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "水の光")
+        self.assertTrue(mends, got["history"])
+        self.assertEqual(mends[0]["mend"], "光を付ける")
+        self.assertGreaterEqual(mends[0]["diff"], phases.DIFF_MIN)
+
+    def test_leaf_gloss_flagged_then_shined(self):
+        """葉のつや: つやの無い葉を崩れとし、つやの点を付ける直しで直し、確かめ直しで通る"""
+        class LP(ScenePainter):
+            scene = staticmethod(lambda size: leaf_scene(size, with_gloss=False))
+        got = self.run_scene(LP(), "forest")
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "葉のつや")
+        self.assertTrue(mends, got["history"])
+        self.assertEqual(mends[0]["mend"], "光を付ける")
+        self.assertGreaterEqual(mends[0]["diff"], phases.DIFF_MIN)
+
+    def test_tire_roundness_flagged_then_redrawn(self):
+        """タイヤの丸み: 丸くないタイヤを崩れとし、タイヤの枠を描き直す。直す言葉に丸いタイヤを入れる"""
+        def counting_tire(_im):
+            counting_tire.n = getattr(counting_tire, "n", 0) + 1
+            if counting_tire.n == 1:
+                return {"readable": True,
+                        "tires": [{"area": 300, "cv": 0.2, "box": (10, 40, 30, 60)},
+                                  {"area": 300, "cv": 0.02, "box": (40, 40, 60, 60)}],
+                        "worst": 0.2, "boxes": [(10, 40, 30, 60), (40, 40, 60, 60)]}
+            return {"readable": True,
+                    "tires": [{"area": 300, "cv": 0.02, "box": (10, 40, 30, 60)},
+                              {"area": 300, "cv": 0.02, "box": (40, 40, 60, 60)}],
+                    "worst": 0.02, "boxes": [(10, 40, 30, 60), (40, 40, 60, 60)]}
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+             mock.patch.object(pt, "tire_roundness", counting_tire):
+            got = phases.draw(Painter(), "car", 5, (64, 96), Path(d) / "k", checks=_scene_checks())
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "タイヤの丸み")
+        self.assertTrue(mends, got["history"])
+        self.assertTrue(any("round tire" in w for r in got["history"] for m in r.get("mends", [])
+                            if m.get("item") == "タイヤの丸み" for w in m.get("words", [])), got["history"])
+
+    def test_symmetry_mirror_flagged_then_mirrored(self):
+        """左右対称: 片側が潰れた車を崩れとし、鏡写しで直し、確かめ直しで通る。鏡写しは模型で描き直さない"""
+        class FP(ScenePainter):
+            scene = staticmethod(lambda size: car_front_scene(size, asym=True))
+        got = self.run_scene(FP(), "car, front view")
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "左右対称")
+        self.assertTrue(mends, got["history"])
+        self.assertEqual(mends[0]["mend"], "鏡写し")
+        self.assertGreaterEqual(mends[0]["diff"], phases.DIFF_MIN)
+
+    def test_tire_pair_flagged_then_redrawn(self):
+        """左右のタイヤの大きさ: そろっていないタイヤを崩れとし、小さいタイヤの枠を描き直す"""
+        def counting_sym(_im):
+            counting_sym.n = getattr(counting_sym, "n", 0) + 1
+            if counting_sym.n == 1:
+                return {"readable": True, "iou": 0.9, "tire_ratio": 1.8, "tire_dy": 2.0, "small_box": (40, 40, 60, 60)}
+            return {"readable": True, "iou": 0.9, "tire_ratio": 1.0, "tire_dy": 1.0, "small_box": (40, 40, 60, 60)}
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+             mock.patch.object(pt, "symmetry", counting_sym):
+            got = phases.draw(Painter(), "car", 5, (64, 96), Path(d) / "k", checks=_scene_checks())
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "左右対称")
+        self.assertTrue(mends, got["history"])
+
+    def test_vanishing_flagged_then_redrawn(self):
+        """遠近の収束: 収束しない線を崩れとし、線の所の枠を描き直す。直す言葉に遠近を入れる"""
+        def counting_vanish(_im):
+            counting_vanish.n = getattr(counting_vanish, "n", 0) + 1
+            if counting_vanish.n == 1:
+                return {"readable": True, "angle": 5.0, "point": (60, 40), "box": (30, 40, 90, 90)}
+            return {"readable": True, "angle": 45.0, "point": (60, 40), "box": (30, 40, 90, 90)}
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+             mock.patch.object(pt, "vanishing", counting_vanish):
+            got = phases.draw(Painter(), "car", 5, (64, 96), Path(d) / "k", checks=_scene_checks())
+        self.assertTrue(got["complete"], got.get("left"))
+        mends = self.mends_of(got, "遠近の収束")
+        self.assertTrue(mends, got["history"])
+        self.assertTrue(any("vanishing point" in w for r in got["history"] for m in r.get("mends", [])
+                            if m.get("item") == "遠近の収束" for w in m.get("words", [])), got["history"])
+
+
 class ToolsTest(unittest.TestCase):
     """模型を使わない処理（atelier/ai/phase_tools.py）が、人物の外を変えず、数字を返す"""
 
@@ -813,6 +1048,88 @@ class ToolsTest(unittest.TestCase):
         got = pt.bleed(bl)
         self.assertEqual(got["count"], 1)
         self.assertGreater(got["share"], 0)
+
+    def test_water_light_spread(self):
+        """水の光: 光の筋がある水は明るさの広がりが大きく、光の無い水は広がりが 0 に近い"""
+        from atelier.ai import phase_tools as pt
+        self.assertGreater(pt.water_light(water_scene((128, 96), with_light=True))["spread"], pt.WATER_LIGHT_LEAST)
+        self.assertLess(pt.water_light(water_scene((128, 96), with_light=False))["spread"], pt.WATER_LIGHT_LEAST)
+        self.assertFalse(pt.water_light(figure((64, 96)))["readable"])   # 水が無ければ読めない
+
+    def test_shine_water_adds_light(self):
+        """水の光の直し: 光の無い水に光の筋を付けると、明るさの広がりがしきい値を超える。絵が変わる"""
+        from atelier.ai import phase_tools as pt
+        im = water_scene((128, 96), with_light=False)
+        out, hit = pt.shine_water(im)
+        self.assertGreater(hit, 0)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+        self.assertGreater(pt.water_light(out)["spread"], pt.WATER_LIGHT_LEAST)
+
+    def test_leaf_gloss_spread(self):
+        """葉のつや: つやの点がある葉は明るさの広がりが大きく、つやの無い葉は広がりが 0 に近い"""
+        from atelier.ai import phase_tools as pt
+        self.assertGreater(pt.leaf_gloss(leaf_scene((128, 96), with_gloss=True))["spread"], pt.LEAF_GLOSS_LEAST)
+        self.assertLess(pt.leaf_gloss(leaf_scene((128, 96), with_gloss=False))["spread"], pt.LEAF_GLOSS_LEAST)
+        self.assertFalse(pt.leaf_gloss(figure((64, 96)))["readable"])   # 葉が無ければ読めない
+
+    def test_shine_leaf_adds_gloss(self):
+        """葉のつやの直し: つやの無い葉につやの点を付けると、明るさの広がりがしきい値を超える。絵が変わる"""
+        from atelier.ai import phase_tools as pt
+        im = leaf_scene((128, 96), with_gloss=False)
+        out, hit = pt.shine_leaf(im)
+        self.assertGreater(hit, 0)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+        self.assertGreater(pt.leaf_gloss(out)["spread"], pt.LEAF_GLOSS_LEAST)
+
+    def test_tire_roundness(self):
+        """タイヤの丸み: 丸いタイヤは境界の半径の変動が小さく、平らなタイヤは大きい。楕円（遠近）は丸い方に入る"""
+        from atelier.ai import phase_tools as pt
+        from PIL import Image, ImageDraw
+        good = pt.tire_roundness(car_side_scene((128, 96), flat_tire=False))
+        self.assertTrue(good["readable"])
+        self.assertLess(good["worst"], pt.TIRE_CV_MOST)
+        bad = pt.tire_roundness(car_side_scene((128, 96), flat_tire=True))
+        self.assertTrue(bad["readable"])
+        self.assertGreater(bad["worst"], pt.TIRE_CV_MOST)
+        self.assertEqual(len(bad["boxes"]), 2)   # 2 つのタイヤの枠が返る
+        self.assertFalse(pt.tire_roundness(figure((64, 96)))["readable"])   # タイヤが無ければ読めない
+        # 楕円のタイヤ（横に 1.4 倍の遠近）は、丸い方に入る
+        im = Image.new("RGB", (128, 96), "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle([20, 33, 108, 58], fill=(180, 40, 40))
+        for cx in (38, 90):
+            d.ellipse([cx - 15, 53 - 11, cx + 15, 53 + 11], fill=(20, 20, 20))
+        self.assertLess(pt.tire_roundness(_light_gradient(im))["worst"], pt.TIRE_CV_MOST)
+
+    def test_symmetry_mirror_iou(self):
+        """左右対称: 対称な車は鏡像との重なりが高く、片側が潰れた車は低い"""
+        from PIL import Image
+        from atelier.ai import phase_tools as pt
+        self.assertGreater(pt.symmetry(car_front_scene((128, 96), asym=False))["iou"], pt.SYMMETRY_IOU_LEAST)
+        self.assertLess(pt.symmetry(car_front_scene((128, 96), asym=True))["iou"], pt.SYMMETRY_IOU_LEAST)
+        self.assertFalse(pt.symmetry(Image.new("RGB", (64, 96), "white"))["readable"])   # 物が無ければ読めない
+
+    def test_mirror_fix_restores_symmetry(self):
+        """左右対称の直し: 片側が潰れた車を鏡写しで直すと、鏡像との重なりがしきい値を超える。絵が変わる"""
+        from atelier.ai import phase_tools as pt
+        im = car_front_scene((128, 96), asym=True)
+        out, hit = pt.mirror_fix(im)
+        self.assertGreater(hit, 0)
+        self.assertGreater(mean_diff(im, out), phases.DIFF_MIN)
+        self.assertGreater(pt.symmetry(out)["iou"], pt.SYMMETRY_IOU_LEAST)
+
+    def test_vanishing_angle(self):
+        """遠近の収束: 収束する道は斜めの線の角度の差が大きく、平行な道は角度の差が 0 で収束が無い崩れ、人物の絵は斜めの線が無くて読めない"""
+        from atelier.ai import phase_tools as pt
+        good = pt.vanishing(road_scene((128, 96), converge=True))
+        self.assertTrue(good["readable"])
+        self.assertGreater(good["angle"], pt.VANISH_ANGLE_LEAST)
+        self.assertIsNotNone(good["point"])   # 消失点が返る
+        self.assertIsNotNone(good["box"])   # 直しの囲みが返る
+        par = pt.vanishing(road_scene((128, 96), converge=False))
+        self.assertTrue(par["readable"])   # 平行な斜めの道は線が読め、角度の差が 0 で収束が無い
+        self.assertLess(par["angle"], pt.VANISH_ANGLE_LEAST)
+        self.assertFalse(pt.vanishing(figure((64, 96)))["readable"])   # 人物の絵に遠近の線は無い
 
 
 class ToneGuardTest(unittest.TestCase):
@@ -1319,7 +1636,7 @@ class NoWholeRedrawTest(unittest.TestCase):
         self.assertFalse(any(m.get("whole") for r in got["history"] for m in r["mends"]))
         for m in getattr(painter, "masks", []):   # 模型に渡した囲みは、どれも絵の半分以下（全体の描き直しにしない）
             self.assertLessEqual(float((np.asarray(m.convert("L")) > 0).mean()), phases.GROW_MOST)
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 1)   # ゼロから描いたのはサムネイルだけ
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 2)   # ゼロから描いたのはサムネイルと土台の一発の絵だけ（土台は画面に出さず、作業中の絵を描き直すものではない）
 
     def test_people_unenclosable_is_carried_not_redrawn(self):
         import numpy as np
@@ -1639,3 +1956,248 @@ class MendFixTest(unittest.TestCase):
         self.assertTrue(any("red scarf" in p for (p, _s) in painter.refine_calls), painter.refine_calls)
         # 描かれていない物は、言葉の頭に置いて強く出す。後ろに足すだけでは埋もれて、模型は同じ物を描かない
         self.assertTrue(any(p.startswith("red scarf") for (p, _s) in painter.refine_calls), painter.refine_calls)
+
+
+class BrushUpBaseTest(unittest.TestCase):
+    """土台から磨き上げる進め方（ユーザーの方針、2026-11-26）。
+    最初に一発で描いた絵（人間で言う 80 点）を内側の土台として持ち、工程はそれを 100 点へ磨き上げる。
+    土台の絵は画面にも工程の絵にも出さない（見せるのは白い紙から描き上がる工程の絵だけ）。
+    最後の絵の崩れの重さが土台より小さくなければ完成にしない"""
+
+    def _img(self, red=False, mark=False):
+        """人物の絵。red は頼んだ物（赤い塊）、mark は手の崩れの印（黒い塊）。どちらも手の囲み（[10, 10, 30, 30] の円）の中に置く"""
+        from PIL import ImageDraw
+        im = figure()
+        d = ImageDraw.Draw(im)
+        if mark:
+            d.rectangle([13, 13, 20, 20], fill=(0, 0, 0))
+        if red:
+            d.rectangle([22, 16, 30, 24], fill=(200, 30, 30))
+        return im
+
+    def _content_checks(self):
+        """絵の中身で返す検品。赤い塊が無ければ頼んだ物が無い、手の印があれば手の崩れ。呼び出し回数には依存しない"""
+        import numpy as np
+
+        def has_red(im):
+            a = np.asarray(im.convert("RGB"), dtype=np.int16)
+            return int(((a[..., 0] > 150) & (a[..., 1] < 100) & (a[..., 2] < 100)).sum()) > 30
+
+        def has_mark(im):
+            a = np.asarray(im.convert("RGB"), dtype=np.int16)
+            return int((a[12:28, 12:28] < 40).all(axis=2).sum()) > 20
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [] if has_red(image) else ["red scarf"], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                                                     "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15), "right_ear": (w * .6, h * .15),
+                                                     "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                return dict(HAND) if has_mark(image) else dict(CLEAN_HAND)
+        return C
+
+    def _painter(self, base_img, phase_img, mend_img):
+        """土台の絵・工程の絵・直しの絵をそれぞれ決めて返す画家。描き重ね（base あり）は工程の絵を返す"""
+        class P(Painter):
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                if kw.get("base") is not None:
+                    return phase_img.copy()
+                return (base_img if "lineart" not in prompt else phase_img).copy()
+
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.log.append(("redraw", seed, kw.get("strength")))
+                self.masks = getattr(self, "masks", []) + [mask]
+                return mend_img.copy()
+        return P()
+
+    def _run(self, painter, checks):
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", say=said.append, checks=checks)
+        return got, said
+
+    def test_better_mends_complete_below_base(self):
+        """直しが崩れを減らすケース: 土台（手の崩れ＋頼んだ物が無い、重さ 2）から磨き上げ、最後の絵の重さ 0 で完成になる"""
+        from PIL import Image, ImageDraw
+        fixed = Image.new("RGB", (64, 96), "white")
+        ImageDraw.Draw(fixed).rectangle([22, 16, 30, 24], fill=(200, 30, 30))   # 囲みの中は白と頼んだ物だけ（手の印は無い）
+        painter = self._painter(self._img(mark=True), self._img(red=True, mark=True), fixed)
+        got, said = self._run(painter, self._content_checks())
+        self.assertEqual(got.get("base", {}).get("severity"), 2, got.get("base"))
+        self.assertEqual(got.get("final_severity"), 0, got.get("base"))
+        self.assertTrue(got["complete"], got["left"])
+        self.assertEqual(got["left"], [])
+
+    def test_worse_mends_do_not_complete(self):
+        """直しが別の崩れを増やすケース: 手の印は消えるが、頼んだ物まで消える。工程ごとの検品は通っても、
+        最後の絵の重さが土台より小さくなっていないので、完成にしない"""
+        from PIL import Image, ImageDraw
+        worse = Image.new("RGB", (64, 96), "white")
+        d = ImageDraw.Draw(worse)
+        d.rectangle([11, 15, 13, 17], fill=(0, 0, 0))   # 囲みの中にゴミ 2 つ（手の印でも頼んだ物でもない別の崩れ）
+        d.rectangle([11, 24, 13, 26], fill=(0, 0, 0))
+        painter = self._painter(self._img(red=True, mark=True), self._img(red=True, mark=True), worse)
+        got, said = self._run(painter, self._content_checks())
+        self.assertEqual(got.get("base", {}).get("severity"), 1, got.get("base"))
+        self.assertGreaterEqual(got.get("final_severity") or 0, 1, got.get("base"))
+        self.assertFalse(got["complete"])
+        self.assertTrue(any("良くなっていない" in f for f in got["left"]), got["left"])
+
+    def test_base_image_is_never_shown(self):
+        """土台の絵は内側だけ。preview にも、工程の絵のファイルにも、最後の絵にもならない"""
+        from PIL import Image
+        base_img = Image.new("RGB", (64, 96), (255, 0, 255))
+
+        class P(Painter):
+            painted_base = False
+
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                if kw.get("base") is not None:
+                    return figure(kw.get("size") or (64, 96))
+                if "lineart" not in prompt:
+                    self.painted_base = kw.get("on_preview") is None
+                    return base_img.copy()
+                return figure(kw.get("size") or (64, 96))
+        painter = P()
+        shown = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0), on_preview=shown.append)
+            files = sorted((Path(d) / "k").glob("*.png"))
+            base_px = list(base_img.getdata())
+            self.assertTrue(painter.painted_base)   # 土台は描かれた（そのとき preview は渡されていない）
+            self.assertFalse(any(list(im.getdata()) == base_px for im in shown), "土台が preview に出た")
+            self.assertFalse(any(list(Image.open(p).getdata()) == base_px for p in files), "土台が工程の絵として保存された")
+        self.assertNotEqual(list(got["image"].getdata()), base_px)
+
+    def test_color_starts_from_clean_lines(self):
+        """線の段階にゴミが残ったまま色の工程に入らない。下塗りの前に、線画のゴミを塊そのものだけ消す"""
+        def dusty(size=(64, 96)):
+            im = sketch(size)
+            from PIL import ImageDraw
+            d = ImageDraw.Draw(im)
+            for x, y in ((5, 5), (58, 10), (5, 90)):
+                d.rectangle([x, y, x + 1, y + 1], fill=(0, 0, 0))
+            return im
+
+        class P(Painter):
+            abilities = (True, False)   # 囲みの中だけを直せない。線画のゴミは直しの工程では消せない
+
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                if kw.get("base") is not None:
+                    return kw["base"].copy()
+                return figure(kw.get("size") or (64, 96)) if "lineart" not in prompt else dusty(kw.get("size") or (64, 96))
+        said = []
+        # 線の強弱付け（weight_lines）は別の試験で確かめる。ここでは「線画にゴミが残ったまま下塗りに来る」条件を作るため素通しにする
+        # （偽の線画では、強弱付けが小さな断片を線に寄せてしまい、ゴミが残らない）
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+                mock.patch.object(pt, "weight_lines", lambda im: (im, 0)):
+            got = phases.draw(P(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", say=said.append,
+                              checks=hand_only_checks(bad_times=0))
+            files = sorted((Path(d) / "k").glob("*.png"))
+            from PIL import Image
+            cleaned = [p for p in files if "土台の掃除" in p.name]
+            self.assertTrue(cleaned, [p.name for p in files])
+            self.assertEqual(pt.dust(Image.open(cleaned[0]))["count"], 0)
+        gate = [m for r in got["phases"] if r["phase"] == "下塗り" for m in r.get("mends", []) if m.get("mend") == "土台の掃除"]
+        self.assertTrue(gate and gate[0]["found"], got["phases"])   # 下塗りの前に、線画のゴミ（found）が見つかって掃除された
+        self.assertTrue(any("色を塗る前に" in m for m in said), said)
+        self.assertEqual(pt.dust(got["image"])["count"], 0)   # 色の工程以降、ゴミは無い
+
+
+class DegradationGuardTest(unittest.TestCase):
+    """工程が進むほど絵が壊れた事故（検証 45696035067）の回帰試験。良い線画（サムネイル）が出たのに、
+    アタリの直しで対比 35.9 → 12.8 に落ち、離れた物が 2 個 → 124 個に増え、仕上げのゴミ取りで
+    平らな紙の塊が顔を覆った。原因は 3 つ: 構図の直し（全体の描き直し）に色と明るさの守りが無かったこと、
+    確かめ直しの戻しが文の数だけを見て文に埋まった数（〜個）を見なかったこと、
+    ゴミ取りの囲みが枠の円で広がり、塊そのものより何倍も広く消したこと"""
+
+    def run_draw(self, painter, prompt, checks, said):
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", say=said.append, checks=checks)
+        return got
+
+    def test_composition_mend_keeps_tone(self):
+        """アタリの構図の直し（全体の描き直し）が霞んだ絵を返しても、色と明るさの守りが掛かり、霞んだ絵を採らない。
+        下描きの描き重ねには守りがあったが、構図の直しには無く、直しのたびに色が薄くなり汚れが広がった"""
+        class WashPainter(Painter):
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                from PIL import Image
+                return Image.blend(image.convert("RGB"), Image.new("RGB", image.size, (235, 235, 235)), 0.8)
+
+        said = []
+        got = self.run_draw(WashPainter(), "1girl, red scarf", missing_item_checks(), said)
+        mends = [m for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", []) if m.get("item") == "頼んだ物"]
+        self.assertTrue(mends, got["history"])
+        self.assertTrue(any("構図の直し" in m for m in said), said)   # 守り（keep_tone）が構図の直しにも掛かった
+        self.assertTrue(all(not m["changed"] for m in mends), mends)   # 霞んだ絵は採られなかった
+
+    def test_detached_growth_is_reverted(self):
+        """位置ずれの直しで離れた物が増えたら、文に埋まった数を見て直す前の絵に戻す。
+        前は文の数（いつも 1 本）だけを見ていたので、2 個 → 124 個に増えても戻らなかった"""
+        class BlobPainter(Painter):
+            def __init__(self):
+                super().__init__()
+                self.n = 0
+
+            def paint(self, prompt, seed, on_step=None, **kw):
+                im = super().paint(prompt, seed, on_step=on_step, **kw)
+                from PIL import ImageDraw
+                ImageDraw.Draw(im).rectangle([16, 26, 20, 30], fill=(60, 60, 80))   # 体から離れた塊 1 つ
+                return im
+
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.n += 1
+                im = image.convert("RGB").copy()
+                from PIL import ImageDraw
+                y = 26 + (self.n % 5) * 13
+                ImageDraw.Draw(im).rectangle([16, y, 20, y + 4], fill=(60, 60, 80))   # 描き重ねるたびに塊が 1 つ増える
+                return im
+
+        said = []
+        got = self.run_draw(BlobPainter(), "1girl, red scarf", hand_only_checks(bad_times=0), said)
+        self.assertTrue(any("位置ずれ" in m and "戻します" in m for m in said), said)
+        self.assertLessEqual(pt.detached(got["image"])["count"], 4, pt.detached(got["image"]))   # 塊が積み上がっていない
+
+    def test_dust_mask_is_the_specks_themselves(self):
+        """ゴミの囲みは塊そのものだけ。枠の円で広げると、細い線の欠片が集まった所（顔など）まで
+        紙の色で消えて、平らな塊になる（実測: 影 2 段の絵で円の囲みは頭の 19% を覆った）"""
+        import numpy as np
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (256, 384), "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle([100, 120, 160, 360], fill=(60, 60, 80))   # 主役
+        d.ellipse([105, 20, 155, 90], fill=(250, 250, 250))    # 紙とほぼ同じ色の顔（線の欠片だけが塊になる）
+        for j in range(8):   # 髪の線の欠片（細く短い線。塊の画素は少ないが、枠は塊より大きい）
+            x = 112 + j * 5
+            d.line([x, 30, x + 6, 40], fill=(30, 30, 30), width=1)
+        got_dust = pt.dust(im)
+        self.assertGreaterEqual(got_dust["count"], 6, got_dust)   # 検品は今までどおり欠片を見つける
+        mask = pt.dust_mask(im)
+        self.assertIsNotNone(mask)
+        m = np.asarray(mask.convert("L")) > 0
+        circles = np.asarray(phases._mask(im.size, [(b, "dust") for b in got_dust["boxes"]]).convert("L")) > 0
+        self.assertLessEqual(int(m.sum()), int(circles.sum()) // 3)   # 円で広げていない
+        self.assertFalse(bool((m & ~pt.silhouette(im)).any()))   # 囲みはゴミの画素だけ（紙の所は囲まない）
+        arr = np.asarray(im.convert("RGB")).copy()
+        arr[m] = pt.paper_color(im)
+        self.assertEqual(pt.dust(Image.fromarray(arr.astype("uint8")))["count"], 0)   # この囲みで消せば検品が通る

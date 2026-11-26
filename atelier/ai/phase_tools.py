@@ -254,6 +254,34 @@ def dust(image) -> dict:
     return {"readable": True, "boxes": boxes, "count": len(boxes)}
 
 
+def dust_mask(image):
+    """ゴミの塊そのものの囲み（L の絵）。dust と同じ物差しで選んだ塊の画素だけを囲む。
+    枠の円で囲むと塊より何倍も広くなり、細い線の欠片が集まった所（顔など）では円が重なって広い面になる。
+    その面を紙の色で消すと、絵が平らな塊に覆われる（検証 45696035067 の仕上げ）。
+    主役が読めなければ None"""
+    import numpy as np
+    from PIL import Image
+    got = _components(image)
+    if got is None:
+        return None
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return None
+    h, w = lab.shape
+    small = DUST_MAX_PIXELS
+    limit = max(3, min(h, w) * DUST_SIZE_MOST)
+    from scipy import ndimage
+    keep = []
+    for k, sl in enumerate(ndimage.find_objects(lab), 1):
+        if k == big or sl is None:
+            continue
+        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
+        if sizes[k - 1] <= small and max(box[3] - box[1], box[2] - box[0]) <= limit:
+            keep.append(k)
+    m = np.isin(lab, keep) if keep else np.zeros(lab.shape, bool)
+    return Image.fromarray((m * 255).astype("uint8"))
+
+
 def detached(image) -> dict:
     """位置ずれ: 主役から離れた、ゴミより大きい塊（体から離れた手・足・物）。主役の近く（DETACH_MOST 以内）にある物だけ。
     遠くにある物（空の鳥など）は別の物なので数えない。主役が無ければ読めない。返すのは {"readable", "boxes", "count"}"""
@@ -627,3 +655,326 @@ def guard(image, ref, mask=None) -> tuple:
     rec = {"ref": t_ref, "raw": t_raw, "out": t_out, "raw_flaws": raw_flaws, "matched": bool(raw_flaws), "left": left,
            "kept_ref": bool(left), "dehazed": dehazed}
     return (ref if left else out), rec
+
+
+# 風景と車・物の検品（水の光・葉のつや・タイヤの丸み・左右対称・遠近の収束）
+WATER_LIGHT_LEAST = 20    # 水の明るさの広がり（95%点-50%点）がこれ未満なら、水に光が無い（光あり 148、光なし 0。私の推測）
+LEAF_GLOSS_LEAST = 20     # 葉の明るさの広がりがこれ未満なら、葉につやが無い（つやあり 123、つやなし 0。私の推測）
+TIRE_CV_MOST = 0.12       # タイヤの境界の半径の変動係数がこれを超えたら、タイヤが丸くない（円 0.02、平ら 0.14、楕円 0.11。私の推測）
+SYMMETRY_IOU_LEAST = 0.6  # シルエットの鏡像との重なりがこれ未満なら、左右対称でない（対称 1.0、非対称 0.43。私の推測）
+TIRE_PAIR_RATIO_MOST = 1.3  # 左右のタイヤの大きさの比がこれを超えたら、タイヤがそろっていない（私の推測）
+VANISH_ANGLE_LEAST = 10.0  # 遠近の線の角度の差がこれ未満なら、線が平行で収束が無い（収束する道 52 度。私の推測）
+
+
+def water_mask(image):
+    """水の所（青い画素）。下半分だけを見る（上の空の青を水としない）"""
+    import numpy as np
+    a = np.asarray(image.convert("RGB"), dtype=np.float32)
+    h, w = a.shape[:2]
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    blue = (b > r + 10) & (b > g + 5)
+    lower = np.zeros((h, w), bool)
+    lower[h // 2:, :] = True
+    return blue & lower
+
+
+def leaf_mask(image):
+    """葉の所（緑の画素）"""
+    import numpy as np
+    a = np.asarray(image.convert("RGB"), dtype=np.float32)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    return (g > r + 10) & (g > b + 10)
+
+
+def _highlight_spread(image, mask):
+    """色の面の明るさの広がり（95%点 - 50%点）。光・つやがあれば明るい所ができ、広がりが大きくなる。
+    面が無ければ None"""
+    import numpy as np
+    if mask.sum() < 50:
+        return None
+    L = luminance(image)[mask]
+    return round(float(np.percentile(L, 95) - np.percentile(L, 50)), 1)
+
+
+def water_light(image) -> dict:
+    """水の光: 水の所の明るさの広がり。水が少なければ読めない。返すのは {"readable", "spread", "share", "box"}。
+    青い服（縦に細い）を水としないため、水は横に広い帯でなければならない（下半分のどこかの行で、幅の半分以上を水が占める）"""
+    import numpy as np
+    m = water_mask(image)
+    h, w = m.shape
+    if m.sum() < h * w * 0.02:
+        return {"readable": False}
+    row_share = m[h // 2:, :].mean(axis=1)   # 下半分の各行で、水が幅のどれだけを占めるか
+    if row_share.max() < 0.5:
+        return {"readable": False}   # 横に広い帯が無い。青い服などの細い物
+    spread = _highlight_spread(image, m)
+    ys, xs = np.nonzero(m)
+    box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+    return {"readable": True, "spread": spread, "share": round(float(m.mean()), 3), "box": box}
+
+
+def leaf_gloss(image) -> dict:
+    """葉のつや: 葉の所の明るさの広がり。葉が少なければ読めない。返すのは {"readable", "spread", "share", "box"}"""
+    import numpy as np
+    m = leaf_mask(image)
+    h, w = m.shape
+    if m.sum() < h * w * 0.02:
+        return {"readable": False}
+    spread = _highlight_spread(image, m)
+    ys, xs = np.nonzero(m)
+    box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+    return {"readable": True, "spread": spread, "share": round(float(m.mean()), 3), "box": box}
+
+
+def shine_water(image):
+    """水の光の直し: 水の所に、光の筋（縦の明るい帯）を付ける。水の真ん中に筋を置き、
+    地平線（水の上の端）で一番明るく、下へ行くほど薄くする（光の反射は地平線で強い）。返すのは (絵, 変えた画素の数)"""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(image.convert("RGB"), dtype=np.float32)
+    m = water_mask(image)
+    if m.sum() < 50:
+        return image, 0
+    h, w = m.shape
+    if m[h // 2:, :].mean(axis=1).max() < 0.5:
+        return image, 0   # 横に広い帯が無い。青い服などの細い物には光を付けない
+    ys, xs = np.nonzero(m)
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    cx = (x0 + x1) // 2
+    half = max(2, (x1 - x0) // 12)
+    yy, xx = np.mgrid[0:a.shape[0], 0:a.shape[1]]
+    band = (np.abs(xx - cx) <= half) & m
+    depth = np.clip((yy - y0) / max(y1 - y0, 1), 0, 1)   # 0=地平線、1=下
+    factor = 1.0 + 0.8 * (1.0 - depth)   # 地平線で 1.8 倍、下で 1.0 倍
+    hit = band
+    a[hit] = np.clip(a[hit] * factor[hit][..., None], 0, 255)
+    return Image.fromarray(a.astype("uint8")), int(hit.sum())
+
+
+def shine_leaf(image):
+    """葉のつやの直し: 葉に、つやの点を散らす（葉の画素のうち、座標で決まる散らばった所だけを明るくする）。
+    葉が均一な色だと、明るい所だけを明るくしても全部が同じ色で広がりが出ないので、散らして点を付ける。
+    返すのは (絵, 変えた画素の数)"""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(image.convert("RGB"), dtype=np.float32)
+    m = leaf_mask(image)
+    if m.sum() < 50:
+        return image, 0
+    yy, xx = np.mgrid[0:a.shape[0], 0:a.shape[1]]
+    hit = m & (((xx * 5 + yy * 11) % 13) < 2)   # 葉の約 15% を散らして選ぶ
+    a[hit] = np.clip(a[hit] * 1.6, 0, 255)
+    return Image.fromarray(a.astype("uint8")), int(hit.sum())
+
+
+def _dark_blobs(image, lum_max=50):
+    """暗い塊（タイヤの候補）。下の 3 分の 2 だけを見る。穴を埋めてから測る（タイヤは輪で、中のハブが穴になる）。
+    返すのは [{"area", "cv", "box"}]。cv は境界の半径の変動係数（円なら小さく、平ら・ゆがみなら大きい）"""
+    import numpy as np
+    from scipy import ndimage
+    L = luminance(image)
+    h, w = L.shape
+    dark = L < lum_max
+    lower = np.zeros((h, w), bool)
+    lower[h // 3:, :] = True
+    m = dark & lower
+    lab, n = ndimage.label(m)
+    out = []
+    for k in range(1, n + 1):
+        comp = ndimage.binary_fill_holes(lab == k)
+        area = int(comp.sum())
+        if area < 50 or area > h * w * 0.15:
+            continue
+        ys, xs = np.nonzero(comp)
+        cy, cx = ys.mean(), xs.mean()
+        er = ndimage.binary_erosion(comp)
+        by, bx = np.nonzero(comp & ~er)
+        if len(bx) < 8:
+            continue
+        r = np.hypot(bx - cx, by - cy)
+        cv = float(r.std() / max(r.mean(), 1))
+        box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+        out.append({"area": area, "cv": round(cv, 3), "box": box})
+    return out
+
+
+def tire_roundness(image) -> dict:
+    """タイヤの丸み: 暗い塊（タイヤ）の境界の半径の変動係数。タイヤが無ければ読めない。
+    返すのは {"readable", "tires", "worst", "boxes"}"""
+    tires = _dark_blobs(image)
+    if not tires:
+        return {"readable": False, "tires": [], "worst": None, "boxes": []}
+    worst = max(t["cv"] for t in tires)
+    return {"readable": True, "tires": tires, "worst": round(worst, 3),
+            "boxes": [t["box"] for t in tires]}
+
+
+def mirror_symmetry(image) -> dict:
+    """左右対称: シルエットの鏡像との重なり（IoU）。絵の真ん中を軸に反転し、重なる割合を測る。
+    絵の真ん中を軸にするのは、構図は主役を真ん中に置くため。シルエット自身の真ん中を軸にすると、
+    片側が潰れた絵でも潰れた形の真ん中で反転して対称に見えてしまう。
+    シルエットが無ければ読めない。返すのは {"readable", "iou"}"""
+    import numpy as np
+    m = silhouette(image)
+    if m.sum() < 50:
+        return {"readable": False}
+    h, w = m.shape
+    cx = w / 2
+    cols = np.arange(w)
+    mx = np.round(2 * cx - cols).astype(int)
+    ok = (mx >= 0) & (mx < w)
+    mirrored = np.zeros_like(m)
+    mirrored[:, ok] = m[:, mx[ok]]
+    inter = float((m & mirrored).sum())
+    union = float((m | mirrored).sum())
+    iou = round(inter / union, 3) if union else 0.0
+    return {"readable": True, "iou": iou}
+
+
+def symmetry(image) -> dict:
+    """左右対称: シルエットの鏡像との重なりと、左右のタイヤの大きさの比。
+    返すのは {"readable", "iou", "tire_ratio", "tire_dy", "small_box"}。
+    タイヤが 2 つ無ければ tire_ratio は None"""
+    import numpy as np
+    got = mirror_symmetry(image)
+    if not got.get("readable"):
+        return {"readable": False}
+    out = {"readable": True, "iou": got["iou"], "tire_ratio": None, "tire_dy": None, "small_box": None}
+    tires = _dark_blobs(image)
+    if len(tires) >= 2:
+        # 一番大きい 2 つのタイヤで比べる（小さいゴミはタイヤにしない）
+        big = sorted(tires, key=lambda t: t["area"], reverse=True)[:2]
+        a1, a2 = big[0]["area"], big[1]["area"]
+        out["tire_ratio"] = round(max(a1, a2) / max(min(a1, a2), 1), 2)
+        cy1 = (big[0]["box"][1] + big[0]["box"][3]) / 2
+        cy2 = (big[1]["box"][1] + big[1]["box"][3]) / 2
+        out["tire_dy"] = round(abs(cy1 - cy2), 1)
+        out["small_box"] = big[1]["box"] if a1 >= a2 else big[0]["box"]
+    return out
+
+
+def mirror_fix(image):
+    """左右対称の直し: シルエットの画素の多い方（より完全な方）を、少ない方に鏡写しする。軸は絵の真ん中
+    （構図は主役を真ん中に置く。検品の mirror_symmetry と同じ軸にする）。
+    鏡像の所は鏡像の色、鏡像に物が無くてこちらに物がある所は紙の色にする（片側だけの出っ張りを消す）。
+    返すのは (絵, 変えた画素の数)"""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(image.convert("RGB")).copy()
+    m = silhouette(image)
+    if m.sum() < 50:
+        return image, 0
+    h, w = m.shape
+    cx = w / 2
+    paper = np.array(paper_color(image), dtype=np.uint8)
+    left_n = int(m[:, :int(cx)].sum())
+    right_n = int(m[:, int(np.ceil(cx)):].sum())
+    cols = np.arange(w)
+    mx = np.round(2 * cx - cols).astype(int)
+    ok = (mx >= 0) & (mx < w)
+    mirrored = np.zeros_like(a)
+    mirrored[:, ok] = a[:, mx[ok]]
+    mirrored_m = np.zeros_like(m)
+    mirrored_m[:, ok] = m[:, mx[ok]]
+    out = a.copy()
+    if left_n >= right_n:
+        target = (cols > cx)[None, :] & (mirrored_m | m)   # 左を右に写す
+    else:
+        target = (cols < cx)[None, :] & (mirrored_m | m)   # 右を左に写す
+    use_mirror = target & mirrored_m
+    use_paper = target & ~mirrored_m
+    out[use_mirror] = mirrored[use_mirror]
+    out[use_paper] = paper
+    return Image.fromarray(out), int(target.sum())
+
+
+def _hough_lines(image, max_lines=8):
+    """ハフ変換で長い直線を拾う。返すのは [(法線の角度(度), 距離, 強さ)]。強い順。
+    勾配の方向から法線を絞って投票する（全部の角度に投票するより速い）"""
+    import numpy as np
+    from scipy import ndimage
+    L = luminance(image)
+    h, w = L.shape
+    gx = ndimage.sobel(L, axis=1)
+    gy = ndimage.sobel(L, axis=0)
+    mag = np.hypot(gx, gy)
+    thr = np.percentile(mag, 90)
+    ys, xs = np.nonzero(mag > thr)
+    if len(xs) < 50:
+        return []
+    thetas = np.deg2rad(np.arange(0, 180, 2))
+    diag = int(np.hypot(h, w))
+    acc = np.zeros((len(thetas), 2 * diag + 1), dtype=np.int32)
+    ang = np.mod(np.rad2deg(np.arctan2(gy[ys, xs], gx[ys, xs])), 180)
+    ti = (np.round(ang / 2).astype(int)) % 90
+    for dt in (-1, 0, 1):
+        t_idx = (ti + dt) % 90
+        th = thetas[t_idx]
+        rho = np.round(xs * np.cos(th) + ys * np.sin(th)).astype(int) + diag
+        np.add.at(acc, (t_idx, rho), 1)
+    flat = acc.ravel()
+    order = np.argsort(flat)[::-1]
+    lines, taken = [], []
+    for i in order:
+        v = int(flat[i])
+        if v < 20:
+            break
+        t, rho = divmod(int(i), acc.shape[1])
+        rho -= diag
+        if any(abs(t - tt) <= 2 and abs(rho - rr) <= 4 for tt, rr in taken):
+            continue
+        taken.append((t, rho))
+        lines.append((float(np.rad2deg(thetas[t])), rho, v))
+        if len(lines) >= max_lines:
+            break
+    return lines
+
+
+def _lines_box(image, lines):
+    """線の所の枠。線の近くの強い縁の画素の枠（直しの囲み）。線が無ければ None"""
+    import math
+    import numpy as np
+    from scipy import ndimage
+    L = luminance(image)
+    h, w = L.shape
+    gx = ndimage.sobel(L, axis=1)
+    gy = ndimage.sobel(L, axis=0)
+    mag = np.hypot(gx, gy)
+    thr = np.percentile(mag, 90)
+    ys, xs = np.nonzero(mag > thr)
+    if len(xs) == 0:
+        return None
+    keep = np.zeros(len(xs), bool)
+    for (t, rho, _v) in lines:
+        a = math.radians(t)
+        d = np.abs(xs * math.cos(a) + ys * math.sin(a) - rho)
+        keep |= d < 3
+    if not keep.any():
+        return None
+    kx, ky = xs[keep], ys[keep]
+    return (int(kx.min()), int(ky.min()), int(kx.max()) + 1, int(ky.max()) + 1)
+
+
+def vanishing(image) -> dict:
+    """遠近の収束: 斜めの強い線を 2 本取り、その角度の差を測る。平行（角度の差が小さい）なら収束が無い。
+    斜めの線が 2 本無ければ読めない（水平な線は地平線、垂直な線は建物の縁で、平行で当たり前なので除く）。
+    返すのは {"readable", "angle", "point", "box"}。point は 2 本の線の交点（消失点）"""
+    import math
+    lines = _hough_lines(image)
+    # 斜めの線だけ。15〜75 度と 105〜165 度（法線の角度）。水平（90 度）と垂直（0/180 度）は除く
+    dg = [l for l in lines if 15 <= l[0] <= 75 or 105 <= l[0] <= 165]
+    if len(dg) < 2:
+        return {"readable": False}
+    (t1, r1, _), (t2, r2, _) = dg[0], dg[1]
+    d = abs(t1 - t2)
+    angle = min(d, 180 - d)
+    a1, a2 = math.radians(t1), math.radians(t2)
+    det = math.cos(a1) * math.sin(a2) - math.cos(a2) * math.sin(a1)
+    point = None
+    if abs(det) > 1e-6:
+        x = (r1 * math.sin(a2) - r2 * math.sin(a1)) / det
+        y = (math.cos(a1) * r2 - math.cos(a2) * r1) / det
+        point = (round(float(x), 1), round(float(y), 1))
+    box = _lines_box(image, dg[:2])
+    return {"readable": True, "angle": round(float(angle), 1), "point": point, "box": box}
