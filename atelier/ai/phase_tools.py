@@ -202,7 +202,17 @@ def weight_lines(image, r=None):
     hit = outer & dark & m
     a[hit] *= OUTER_DARK
     r = outline_radius(image) if r is None else max(1, int(r))
-    thick = _dilate(hit, r) & ~hit   # 線の周り（内側と外側の紙）を太らせる。内側の細い線は太らせない
+    # 既に十分太い線は、これ以上太らせない。太らせる直しを繰り返すたびに太り続けて、
+    # 正常な線画が 10 倍ぐらいの太さになった（利用者の指摘）。今の線の太さは、暗い線の
+    # 中での「線でない所までの距離」から見積もる（細長い線では、平均距離の 4 倍が太さの目安）。
+    # 狙いの太さ（細い線 2 画素 + 両側に r ずつ）に達していたら、膨らませるのは止める
+    thick = np.zeros_like(hit)
+    if hit.any():
+        from scipy import ndimage
+        dist = ndimage.distance_transform_edt(dark & m)
+        width_now = 4.0 * float(dist[hit].mean())
+        if width_now < 2 * r + 3:
+            thick = _dilate(hit, r) & ~hit   # 線の周り（内側と外側の紙）を太らせる。内側の細い線は太らせない
     if thick.any() and hit.any():
         line_col = np.median(a[hit], axis=0)   # 線の色（暗くした外の輪郭の線の色の中央）
         a[thick] = line_col
@@ -635,6 +645,38 @@ HAZE_MOST = 15        # 暗い方から 5% の明るさが、前の絵よりこ�
 FRAME_MOST = 10       # 縁の帯と内側の帯の明るさの差が、前の絵よりこれだけ大きくなったら枠が出ている
 FADE_MOST = 0.75      # 彩度の平均が前の絵のこの割合を下回ったら色が褪せている
 FLAT_MOST = 0.75      # 明るさのばらつきが前の絵のこの割合を下回ったら、ぼやけて平たくなっている
+
+
+def on_subject_regions(image, regions):
+    """検品の枠のうち、主役の絵に重なっている物だけを返す。
+
+    背景の何も無い所を「崩れた手」と読んだ枠をそのまま直すと、直しがそこに
+    手を描いてしまう（関係ない所に手足が量産される）。主役の範囲が取れない・
+    主役が写っていない・範囲が絵の大半を覆っていて切り分けられないときは、
+    判断できないので枠をそのまま返す（判断できない物を止めない）。
+    """
+    seg = parts(image)
+    subj = (seg > 0) if seg is not None else silhouette(image)
+    if subj is None or not subj.any() or subj.mean() > 0.5:
+        return regions
+    kept = []
+    for b, t in regions:
+        x0, y0, x1, y1 = (int(c) for c in b)
+        if subj[max(0, y0):max(0, y1), max(0, x0):max(0, x1)].any():
+            kept.append((b, t))
+    return kept
+
+
+def ink_share(image) -> float:
+    """濃い線の割合（明るさ 80 未満の画素の割合）。
+
+    tone() の dark は暗い方から 5% の明るさを見るので、絵の 2〜3% しかない
+    細い線が薄くなっても数字が動かない（検証 45696035067 の線画で、濃い線が
+    3.2% → 0.5% に落ちたのに tone は異常なしだった）。線の薄れは、この割合で見る。
+    """
+    import numpy as np
+    lum = luminance(image)
+    return float((lum < 80).mean())
 
 
 def tone(image) -> dict:

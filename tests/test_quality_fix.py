@@ -82,7 +82,7 @@ class TwoWayFavoritesTest(unittest.TestCase):
     def test_two_way_uses_favorite_compose_and_finish(self):
         from atelier.ai import two_stage as twostage
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter as P, FakeWords
+        from tests.test_draw import FakePainter as P, FakeWords
         top = model("t/top", family="flux2", score=95)
         mine = model("m/mine", family="flux2", score=10)
         fin = model("f/fin", family="sdxl", score=10)

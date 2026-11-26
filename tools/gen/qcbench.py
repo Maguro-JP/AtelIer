@@ -1,4 +1,4 @@
-"""検品単体（chatdraw/qcmanual.inspect、アプリの「検品する」と同じ経路）の精度の台。
+"""検品単体（atelier/qc/manual_check の inspect、アプリの「検品する」と同じ経路）の精度の台。
 
     PYTHONPATH=.cache/simple/lib:.cache/gen/lib python3 tools/gen/qcbench.py [--limit N] [--json 出力.json]
 

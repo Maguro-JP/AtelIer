@@ -34,6 +34,45 @@ huggingface\\  絵の模型など、Hugging Face の形のままの模型
 """
 
 
+def _known_pictures() -> Path | None:
+    """Windows の既知フォルダーとしてのピクチャの場所。利用者が別のドライブへ
+    移動していたり、OneDrive へ向けていたりしても、Windows の設定どおりの
+    場所を返す。Windows でない・取れないときは None"""
+    if not WINDOWS:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Guid(ctypes.Structure):
+            _fields_ = [("data", ctypes.c_ubyte * 16)]
+        # FOLDERID_Pictures {33E28130-4E1E-4676-835A-98395C3BC3BB}
+        fid = Guid()
+        fid.data = (ctypes.c_ubyte * 16).from_buffer_copy(
+            bytes.fromhex("30281e33334e4676835a98395c3bc3bb"))
+        out = ctypes.c_wchar_p()
+        shell32 = ctypes.windll.shell32
+        if shell32.SHGetKnownFolderPath(ctypes.byref(fid), 0, None, ctypes.byref(out)) != 0 or not out.value:
+            return None
+        try:
+            return Path(out.value)
+        finally:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+    except Exception:   # noqa: BLE001
+        return None
+
+
+def pictures_dir() -> Path:
+    """ピクチャの場所。Windows の既知フォルダー（利用者の設定）を尊重し、
+    取れなければホームの下の Pictures にする。C ドライブやホームの下と決めつけない"""
+    return _known_pictures() or (Path.home() / "Pictures")
+
+
+def default_output_dir() -> Path:
+    """描いた絵の保存先の既定。ピクチャ（利用者の設定の場所）の下の AtelIer"""
+    return pictures_dir() / "AtelIer"
+
+
 def data_home() -> Path:
     """模型以外（設定・部品・記録）の置き場。ATELIER_HOME > Windows の ProgramData > 開発中の .cache の順に決める"""
     if os.environ.get("ATELIER_HOME"):

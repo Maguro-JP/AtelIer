@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords, wait_bg  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords, wait_bg  # noqa: E402
 
 HEAVY = 8.0     # 重い工程の長さ（秒）。止まらなければ、これだけかかる
 LIMIT = 2.0     # 押してから止まるまでの目標（秒）

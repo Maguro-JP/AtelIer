@@ -856,6 +856,8 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, self, self.sweep_old_redpen)   # 窓に結ぶ（先に閉じて消えた窓では呼ばない）
         QTimer.singleShot(0, self, self.sweep_phase_interim)   # 前の版が溜めた精度優先の途中の絵を、1 回だけ聞いてごみ箱へ
+        if studio is None:
+            QTimer.singleShot(0, self, self.sweep_missing_library)   # 登録の道に無い絵を自動で探して付け替える（本番のライブラリーだけ）
         self.library_panel = LibraryPanel(self)
         self.thread_main = QThread.currentThread()
         self._learn_runner()

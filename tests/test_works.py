@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 from tests.test_uifix import app, draw, spin  # noqa: E402
 
 

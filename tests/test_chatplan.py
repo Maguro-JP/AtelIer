@@ -186,7 +186,7 @@ class WordsTest(unittest.TestCase):
 
 class WindowPlanTest(unittest.TestCase):
     def _window(self):
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
         app = QApplication.instance() or QApplication([])
@@ -195,7 +195,7 @@ class WindowPlanTest(unittest.TestCase):
         return app, w
 
     def tearDown(self):
-        from tests.test_chatdraw import sweep_windows
+        from tests.test_draw import sweep_windows
         sweep_windows()
         self.tmp.cleanup()
 

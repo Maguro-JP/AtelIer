@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 from tests.test_editing import app  # noqa: E402
 
 

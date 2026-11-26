@@ -25,7 +25,7 @@ class SentWordsTest(unittest.TestCase):
         from atelier.files import sent
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         from tests.test_editing import app
         a = app()
         sent.clear()

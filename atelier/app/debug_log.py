@@ -48,18 +48,20 @@ def folder() -> Path:
 
 
 def file() -> Path:
-    return folder() / f"chatdraw-{time.strftime('%Y%m%d')}.log"
+    return folder() / f"atelier-{time.strftime('%Y%m%d')}.log"
 
 
 def prune(days: int = KEEP_DAYS, now: float | None = None) -> int:
-    """KEEP_DAYS より古い記録のファイルを消す。消した数"""
+    """KEEP_DAYS より古い記録のファイルを消す。消した数。
+    旧名（chatdraw-*.log）のファイルも同じく消す（名前を atelier- に改めたので、残しておくと掃除されない）"""
     now = time.time() if now is None else now
     n = 0
     try:
-        for p in folder().glob("chatdraw-*.log"):
-            if now - p.stat().st_mtime > days * 86400:
-                p.unlink()
-                n += 1
+        for pat in ("atelier-*.log", "chatdraw-*.log"):
+            for p in folder().glob(pat):
+                if now - p.stat().st_mtime > days * 86400:
+                    p.unlink()
+                    n += 1
     except OSError:
         pass
     return n

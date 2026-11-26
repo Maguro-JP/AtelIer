@@ -227,7 +227,7 @@ class ResumeButtonTest(KeepDir):
         from PySide6.QtWidgets import QApplication
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         a = QApplication.instance() or QApplication([])
         k = pausekeep.key("phases", "雪の騎士")
         pausekeep.save(k, "phases", "工程 5/12「顔・手・足の下描き」で一時停止", {"text": "雪の騎士", "seeds": [3], "style": "", "size": [64, 96]})

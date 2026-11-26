@@ -185,7 +185,7 @@ class AppLoraRowTest(Base):
         from atelier.ai import lora
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         d = self.d / "LLM" / "lora"
         d.mkdir(parents=True)
         for n, fam in (("xl", "sdxl"), ("old", "sd15")):

@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image, ImageChops, ImageDraw  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 
 # 模型を使わず、本物の加工で画素が変わるはずの物
 PIXEL_CHANGES = ("fin:clean", "fin:denoise", "fin:ink", "fin:air_holy", "fin:air_komorebi", "fin:air_haze", "fin:mat_metal", "fin:mat_gem",

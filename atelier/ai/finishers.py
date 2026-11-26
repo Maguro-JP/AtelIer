@@ -363,7 +363,7 @@ def _gen(name: str):
     import sys
     d = str(_gen_dir())
     if d not in sys.path:
-        sys.path.append(d)   # 後ろに足す（chatdraw の同じ名前の部品を隠さないように）
+        sys.path.append(d)   # 後ろに足す（同じ名前の部品を隠さないように）
     import importlib
     return importlib.import_module(name)
 
@@ -1360,7 +1360,7 @@ def run(name: str, image, mask=None, say=None, face=_NO_FACE):
         import numpy as np
         from PIL import Image
         out = Image.fromarray(repair(np.asarray(src), np.asarray(out.convert("RGB"))))
-    # 最後に絵の全体を 1 回だけ測って知らせる（境目・囲みの外・作画監督。chatdraw/seamfix.whole_check）。絵は変えず、繰り返しに繋げない
+    # 最後に絵の全体を 1 回だけ測って知らせる（境目・囲みの外・作画監督。atelier/ai/seam_fix の whole_check）。絵は変えず、繰り返しに繋げない
     # 囲みの無い加工（絵全体）には境目も囲みの外も無いので測らない（832×1216 で 3 秒ほどかかる）
     if mask is not None and getattr(out, "mode", "") == "RGB" and out.size == src.size and not LAST_QC.get("rejected"):
         from atelier.ai import seam_fix as seamfix
@@ -1447,7 +1447,8 @@ def chain_note() -> str:
 
 # ---- 既存の絵をあとから直す部品 ----
 
-KEY = "chatdraw"   # PNG の文字の欄の名前
+KEY = "atelier"   # PNG の文字の欄の名前
+LEGACY_KEY = "chatdraw"   # 改名する前の欄の名前。昔の絵に埋まっているので、読むときだけ使う
 
 
 def embed(path: str | Path, meta: dict):
@@ -1474,7 +1475,7 @@ def embedded(path: str | Path) -> dict:
     from PIL import Image
     try:
         with Image.open(path) as im:   # embed は欄を絵の前に書くので、絵を戻さずに読める info で足りる（im.text は絵を戻し 20 ミリ秒）
-            text = im.info.get(KEY)
+            text = im.info.get(KEY) or im.info.get(LEGACY_KEY)   # 旧名の欄で埋めた昔の絵も読めるように
         data = json.loads(text) if text else {}
     except (OSError, ValueError, TypeError):
         return {}

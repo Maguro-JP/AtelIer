@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 import uuid
@@ -267,6 +268,54 @@ class Library:
 
     def missing(self) -> list[dict]:
         return [i for i in self.items if not exists(i)]
+
+    def find_missing(self, search_roots: list[Path] | None = None) -> int:
+        """登録の道に絵が無い項目を、同名の絵を探して付け替える（起動時の自動探索）。
+
+        探す場所は、ライブラリーの置き場・保存先・ピクチャ（利用者が Windows で
+        設定した場所）・AtelIer のデータの置き場。同名が 1 つだけ見つかったとき
+        だけ付け替える。複数あったら、どれが本物か分からないので付け替えない
+        （当てずっぽうに付け替えると、別の絵をその作品として見せることになる）。
+        探す量には上限を置く（ドライブ全体を歩かない）。付け替えた件数を返す"""
+        if search_roots is None:
+            from atelier.files import paths
+            roots = [self.root, self.root.parent, paths.pictures_dir(),
+                     paths.default_output_dir(), paths.HOME]
+            search_roots = list(dict.fromkeys(r for r in roots if r))
+        missing = self.missing()
+        if not missing:
+            return 0
+        want = {Path(i["path"]).name.lower(): i for i in missing if Path(i["path"]).name}
+        found: dict[str, list[Path]] = {}
+        budget = 20000   # 見るファイル数の上限。これを超えたら、その先は探さない
+        for root in search_roots:
+            if budget <= 0:
+                break
+            try:
+                root = Path(root)
+                if not root.is_dir():
+                    continue
+                for dirpath, _dirs, files in os.walk(root):
+                    for name in files:
+                        budget -= 1
+                        if budget < 0:
+                            break
+                        key = name.lower()
+                        if key in want:
+                            found.setdefault(key, []).append(Path(dirpath) / name)
+                    if budget < 0:
+                        break
+            except OSError:
+                continue
+        fixed = 0
+        for key, item in want.items():
+            hits = found.get(key, [])
+            if len(hits) == 1:
+                item["path"] = str(hits[0])
+                fixed += 1
+        if fixed:
+            self.save()
+        return fixed
 
     def check(self) -> dict:
         """ライブラリーの中身を確かめる。何百件でも一気に見る（絵は読まず、あるかないかだけ見る）。

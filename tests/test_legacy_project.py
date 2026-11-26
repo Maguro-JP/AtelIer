@@ -41,7 +41,7 @@ class LegacyProjectTest(unittest.TestCase):
         自分の作業ファイルを開いたときは、そのファイルに保存する"""
         from atelier.ai.engine import Studio
         from atelier.app.main_window import Window
-        from tests.test_chatdraw import FakePainter, FakeWords, wait_bg
+        from tests.test_draw import FakePainter, FakeWords, wait_bg
         from PySide6.QtWidgets import QApplication
         qapp = QApplication.instance()
         snap = project_file.snapshot(self.canvas)

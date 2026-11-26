@@ -117,7 +117,7 @@ class TimelapseTest(unittest.TestCase):
             w.deleteLater()
 
     def test_ai_draw_from_window_records_timelapse(self):
-        from tests.test_chatdraw import FakePainter
+        from tests.test_draw import FakePainter
 
         class Real(FakePainter):   # 一色の絵では逆算の段がどれも同じになるので、本物の絵を返す
             def paint(self, *a, **k):

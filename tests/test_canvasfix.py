@@ -16,7 +16,7 @@ from PySide6.QtCore import QPointF, Qt  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
 from atelier.panels.layer_panel import ROLE_INDEX  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 from tests.test_editing import app, figure  # noqa: E402
 
 

@@ -20,7 +20,7 @@ from PIL import Image, PngImagePlugin  # noqa: E402
 from atelier.ai import phases  # noqa: E402
 from atelier.ai import phase_tools as pt  # noqa: E402
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakeWords  # noqa: E402
+from tests.test_draw import FakeWords  # noqa: E402
 from tests.test_phases import Painter, checks  # noqa: E402
 
 

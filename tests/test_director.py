@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from tests.test_chatdraw import FakePainter, FakeWords
+from tests.test_draw import FakePainter, FakeWords
 
 ROOT = Path(__file__).resolve().parents[1]
 

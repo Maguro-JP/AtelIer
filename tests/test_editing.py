@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image, ImageChops, ImageDraw  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 
 
 def app():

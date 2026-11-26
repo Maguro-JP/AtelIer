@@ -13,7 +13,7 @@ class NewCanvasUndoTest(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         from tests.test_editing import app
         from tests.test_brushtools import drag
         app()

@@ -61,6 +61,7 @@ THUMB_SCALE = 1.0     # サムネイルの大きさ（描く大きさの割合�
 THUMB_STEPS = 1.0     # サムネイルの描く工程の数の割合。選んだサムネイルをそのままアタリにする（半分の工程で描いてから同じ種でアタリを
                       # 描き直すと、同じ構図を 2 度描いて 214 秒かかり、描き直した絵は別の色になった。0.25 ではぼやけた絵になった）
 LINE_STRENGTH = 0.6   # 下描き: アタリの線に沿う強さ（T2I-Adapter の効き。0.8 では霞みと枠が出た）
+LINE_INK_KEEP = 0.6   # 線画: ペンなぞりのあと、濃い線の割合が土台のこの割合を切ったら線の暗さを戻す（私の推測）
 REFINE = 0.45         # 下描き: アタリの絵に描き重ねる強さ（色と明るさを残す）
 REPAINT = 0.35        # 服・髪・持ち物: 描かれていない物を足すときの描き直しの強さ（形は残す）
 FIX = 0.55            # 顔・手・足の直し: 崩れた枠の中だけを描き直す強さ（1 回目）
@@ -642,6 +643,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         """線画: ラフをペンでなぞって線にする。なぞったあと清書する（線の強弱を付け、ゴミを消す）。
         前は太らせる加工だけで、線を描く工程になっていなかった（利用者の指摘）"""
         img, words = st["image"], []
+        base_line = img   # ペンでなぞる前の線。なぞった絵の線が薄れたら、暗さをここから戻す
         s = st["seed"] + v * 1000
         if can_refine:
             say("ラフをペンでなぞって、線画を描いています")
@@ -655,6 +657,14 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             img = keep_tone(painter.paint(pen_prompt(), s, on_step=on_step, base=img, strength=LINE_STRENGTH, size=(w, h), **pv), img, "線画")
         else:
             say("この模型は描き重ねられないので、ラフのまま線を確かめます")
+        if base_line is not None and img is not None:
+            # 線の濃さの見張り。色と明るさの見張り（keep_tone）は暗い所の下位 5% を見るので、
+            # 細い線が薄くなる崩れを見逃す。濃い線の割合が土台の 6 割を切ったら、土台の線の
+            # 暗さを乗せて戻す（線の無い所は変えない。線が土台に無い絵では何もしない）
+            ink_before, ink_after = pt.ink_share(base_line), pt.ink_share(img)
+            if ink_before > 0 and ink_after < ink_before * LINE_INK_KEEP:
+                say(f"ペンなぞりで線が薄くなったので（濃い線 {ink_before:.1%} → {ink_after:.1%}）、土台の線の暗さを戻します")
+                img = pt.over_lines(img, base_line)
         # 清書: 線の強弱を付け、残ったゴミを塊そのものだけ消して、線を仕上げる
         say("清書しています（線の強弱を付け、ゴミを消す）")
         out, hit = pt.weight_lines(img)
@@ -1105,7 +1115,24 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         kind = how.get("mask")
         mask = None
         if kind == "regions" and how.get("regions"):
-            mask = _mask(img.size, [(tuple(b), t) for b, t in how["regions"]])
+            regs = [(tuple(b), t) for b, t in how["regions"]]
+            # 検品の枠が主役の絵に全く重なっていない物は直さない。背景の何も無い所を
+            # 「崩れた手」と読んだ枠を囲んで消して描き直すと、直しがそこに手を描いて
+            # しまう（関係ない所に手足が量産される）。主役の範囲が絵の大半を覆って
+            # いて切り分けられないときは、今までどおり直す（判断できない物を止めない）
+            subj = _person(img)
+            if subj is not None and subj.mean() <= GROW_MOST:
+                kept = []
+                for b, t in regs:
+                    x0, y0, x1, y1 = (int(c) for c in b)
+                    if subj[max(0, y0):max(0, y1), max(0, x0):max(0, x1)].any():
+                        kept.append((b, t))
+                    else:
+                        say(f"検品の枠 {list(b)} は主役の絵に重なっていないので、誤検出として直しません")
+                if not kept:
+                    return None
+                regs = kept
+            mask = _mask(img.size, regs)
         elif kind == "eyes" and how.get("regions"):
             mask = _mask(img.size, [(tuple(b), t) for b, t in how["regions"]])
         elif kind == "boxes" and how.get("regions"):
@@ -1474,7 +1501,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             changed = (dd["mean"] or 0) >= DIFF_MIN
                         elif op == "thicken":
                             say(f"線を太らせ直しています: " + "、".join(s.get("flaws", [])[:3]))
-                            r = pt.outline_radius(cur) * (k + 1)   # 直し直すたびに太くする
+                            r = pt.outline_radius(cur)   # 太さの狙いは直すたびに同じ。半径を大きくして繰り返すと、正常な線画が 10 倍ぐらいの太さになった
                             tried, _hit = pt.weight_lines(cur, r=r)
                             dd = diff(cur, tried)
                             dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差

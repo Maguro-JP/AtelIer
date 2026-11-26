@@ -20,7 +20,7 @@ from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 from tests.test_editing import app, figure  # noqa: E402
 
 

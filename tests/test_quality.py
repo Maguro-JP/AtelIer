@@ -350,3 +350,25 @@ class FixWordsForRegions(unittest.TestCase):
         for p in seen_prompts:
             self.assertIn("correct hand", p)
             self.assertNotIn("red scarf", p)
+
+
+class PhantomRegionFixTest(unittest.TestCase):
+    """AIモードの直しも、主役の絵に全く重ならない検品の枠は直さない。
+    背景の何も無い所を囲んで描き直すと、直しがそこに手を描いてしまう（精度優先と同じ欠陥）"""
+
+    def test_region_outside_subject_is_not_redrawn(self):
+        from PIL import ImageDraw
+        painter = FakePainter()
+        studio = engine.Studio(painter=painter, out=Path("."))
+        img = Image.new("RGB", (64, 64), (255, 255, 255))
+        d = ImageDraw.Draw(img)
+        d.rectangle([22, 16, 42, 60], fill=(60, 60, 80))   # 主役の体。隅 (0,0)-(8,8) は白い紙
+
+        def check(image, asked=""):
+            return {"readable": True, "bad": ["手 1: 指が 6 本"],
+                    "hands": [{"box": [0, 0, 8, 8], "bad": ["指が 6 本"], "seen": True}],
+                    "feet": [], "faces": []}
+
+        with mock.patch.dict(os.environ, {"ATELIER_CHECK": "on"}), mock.patch.object(handcheck, "check", side_effect=check):
+            studio._fix_hands(img, "1girl", 1, lambda m: None)
+        self.assertEqual(painter.redraws, 0)   # 隅の白い所を囲んだ直しは一度も走らない

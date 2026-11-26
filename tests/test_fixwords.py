@@ -15,7 +15,7 @@ from PIL import Image  # noqa: E402
 
 from atelier.ai import finishers  # noqa: E402
 from atelier.ai.engine import Studio, Words  # noqa: E402
-from tests.test_chatdraw import FakePainter  # noqa: E402
+from tests.test_draw import FakePainter  # noqa: E402
 
 SOURCE = "1girl, solo, black hair, long hair, brown eyes, white dress, holding staff, staff in right hand, smile, outdoors"
 

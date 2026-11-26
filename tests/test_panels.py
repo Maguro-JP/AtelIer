@@ -451,7 +451,7 @@ class CopyImageTest(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         QApplication.instance() or QApplication([])
         with TemporaryDirectory() as d:
             src = Path(d) / "a.png"

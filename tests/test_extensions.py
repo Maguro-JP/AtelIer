@@ -80,7 +80,7 @@ class Base(unittest.TestCase):
     def window(self):
         from atelier.ai.engine import Studio
         from atelier.app.main_window import Window
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         w = Window(Studio(FakeWords(), FakePainter(), self.d / "out"))
         for k in ("mode/current", "mode/ask"):
             w.layout_store.remove(k)

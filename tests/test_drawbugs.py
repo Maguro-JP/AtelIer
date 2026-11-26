@@ -437,7 +437,7 @@ class PopupTest(unittest.TestCase):
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication
         from atelier.app.main_window import Window
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         cls.app = QApplication.instance() or QApplication([])
         cls.tmp = TemporaryDirectory()
         cls.w = Window(engine.Studio(FakeWords(), FakePainter(), Path(cls.tmp.name)))

@@ -18,7 +18,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords, sweep_windows  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords, sweep_windows  # noqa: E402
 
 
 class FlakyPainter(FakePainter):
@@ -204,6 +204,20 @@ class DebugModeTest(Base):
         debuglog.configure(False)
         paths.HOME = self._home
         super().tearDown()
+
+    def test_debug_dock_shows_usage(self):
+        """デバッグモードの記録ドックに使用率（CPU・メモリ）が出る。タスクマネージャーを
+        開かなくても、アプリとシステムの使用率がその場で見える"""
+        w = self.window(FlakyPainter())
+        self.addCleanup(lambda: [w.settings.set(k, 0) for k in ("debug", "debug_budget")])
+        w.settings.set("debug", 1)
+        w.apply_debug_mode()
+        self.assertTrue(hasattr(w, "debug_usage_label"))
+        w._update_usage_label()
+        text = w.debug_usage_label.text()
+        self.assertIn("使用率", text)
+        self.assertIn("アプリのメモリ", text)
+        self.assertIn("システムのメモリ", text)
 
     def test_debug_mode_shows_full_exception(self):
         from atelier.app import debug_log as debuglog

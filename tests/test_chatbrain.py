@@ -13,7 +13,7 @@ os.environ.setdefault("ATELIER_CHECK", "off")
 sys.path.insert(0, str(ROOT / ".cache" / "simple" / "lib"))
 sys.path.insert(0, str(ROOT))
 
-from tests.test_chatdraw import FakeWords  # noqa: E402
+from tests.test_draw import FakeWords  # noqa: E402
 from tests.test_shortcuts import Base  # noqa: E402
 
 

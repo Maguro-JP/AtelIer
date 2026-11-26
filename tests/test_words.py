@@ -237,7 +237,7 @@ class WindowTest(unittest.TestCase):
         from atelier.ai.engine import Studio, Words
         from atelier.words import dictionary as worddict
         from atelier.words import learning as wordlearn
-        from tests.test_chatdraw import FakePainter, wait_bg
+        from tests.test_draw import FakePainter, wait_bg
 
         class TableWords(Words):   # 言葉の模型の無い環境と同じ（表と辞書だけで読む）
             def __init__(self):

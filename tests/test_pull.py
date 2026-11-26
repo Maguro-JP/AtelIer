@@ -106,7 +106,7 @@ class WindowPullTest(unittest.TestCase):
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication
         from atelier.app.main_window import Window
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
 
         class Slow(FakePainter):
             def paint(self, prompt, seed, on_step=None, **kw):

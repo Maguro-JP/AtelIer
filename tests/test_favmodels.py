@@ -137,7 +137,7 @@ class EngineFlowTest(unittest.TestCase):
 
     def studio(self):
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         return Studio(FakeWords(), FakePainter(), Path(self.tmp.name))
 
     def test_single_short_request_is_one_fast_draw_without_two_stage(self):

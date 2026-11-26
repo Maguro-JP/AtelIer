@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords, wait_bg  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords, wait_bg  # noqa: E402
 
 LIMIT_MS = 50
 

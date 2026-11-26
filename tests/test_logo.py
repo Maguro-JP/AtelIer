@@ -163,7 +163,7 @@ class AppTest(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakeWords
+        from tests.test_draw import FakeWords
         app = QApplication.instance() or QApplication([])
         w = Window(Studio(FakeWords(), FakePainter(), Path(d)))
         w._logo_folder = lambda kind: Path(d) / kind

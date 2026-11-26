@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QPoint, QPointF, Qt, QTimer  # noqa: E402
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords, wait_bg, wait_idle  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords, wait_bg, wait_idle  # noqa: E402
 from tests.test_editing import app, figure  # noqa: E402
 
 

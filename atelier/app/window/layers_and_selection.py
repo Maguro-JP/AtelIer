@@ -89,6 +89,22 @@ class LayersAndSelectionMixin:
             self.statusBar().showMessage(f"前の版の赤ペンの直しの絵 {len(found)} 枚を、履歴とライブラリーから外してごみ箱へ移しました", 8000)
         self.run_io(work, done, "前の版の赤ペンの直しを片付け")
 
+    def sweep_missing_library(self):
+        """起動時に、ライブラリーの登録の道に無い絵を自動で探す（利用者の指示）。
+        保存先やピクチャの場所が変わって道だけ古くなった絵を、同名で探して
+        付け替える。複数見つかった物は付け替えない（ライブラリーを確かめるで報告する）"""
+        if getattr(self, "_io_closed", False):
+            return
+        try:
+            fixed = self.library.find_missing()
+        except Exception:   # noqa: BLE001
+            return
+        if fixed:
+            self.statusBar().showMessage(f"ライブラリー: 行方不明だった絵 {fixed} 件を見つけて、道を直しました", 8000)
+            panel = getattr(self, "library_panel", None)
+            if panel is not None:
+                panel.refresh()
+
     INTERIM_KEY = "cleanup/phase_interim_0117"   # 精度優先の途中の絵を聞き終えた印（1 回だけ聞く）
 
     def sweep_phase_interim(self):

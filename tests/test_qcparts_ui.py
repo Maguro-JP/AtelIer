@@ -80,7 +80,7 @@ class WindowTest(unittest.TestCase):
         from atelier.qc import parts as qcparts
         from atelier.models import first_setup as setup
         from atelier.app.main_window import Window
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         with TemporaryDirectory() as d:
             w = Window(engine.Studio(FakeWords(), FakePainter(), Path(d)))
             acts = {a.text(): a for a in w.ai_menu.actions()}

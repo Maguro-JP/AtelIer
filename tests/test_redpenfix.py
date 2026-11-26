@@ -17,7 +17,7 @@ from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords, wait_bg, wait_idle  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords, wait_bg, wait_idle  # noqa: E402
 from tests.test_editing import app, figure  # noqa: E402
 
 

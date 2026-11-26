@@ -72,7 +72,7 @@ class WindowFieldsTest(unittest.TestCase):
         os.environ.setdefault("ATELIER_CHECK", "off")
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         from tests.test_editing import app
         app()
         with TemporaryDirectory() as tmp:
@@ -106,7 +106,7 @@ class MouseSideButtonTest(unittest.TestCase):
         from tempfile import TemporaryDirectory
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         from tests.test_editing import app
         app()
         with TemporaryDirectory() as tmp:
@@ -142,7 +142,7 @@ class IoThreadTest(unittest.TestCase):
         from tempfile import TemporaryDirectory
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         from tests.test_editing import app
         app()
         # 前の試験で閉じずに残った窓の自動保存（2 分ごと）が、この試験の間に糸を作って数がずれた。残った窓の時計を止め、溜まった仕事を先に流す

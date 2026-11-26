@@ -254,7 +254,7 @@ class ReselectTest(unittest.TestCase):
         """窓から 2 回描くと、種を固定していなければ違う種で描く（おまかせが選び直す元）"""
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter as FP, FakeWords as FW
+        from tests.test_draw import FakePainter as FP, FakeWords as FW
         from tests.test_editing import app
         a = app()
         p = FP()

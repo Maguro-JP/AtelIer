@@ -19,7 +19,7 @@ from PIL import Image  # noqa: E402
 from PySide6.QtCore import QPointF  # noqa: E402
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords  # noqa: E402
 from tests.test_editing import app, figure  # noqa: E402
 
 

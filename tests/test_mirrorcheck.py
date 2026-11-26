@@ -106,7 +106,7 @@ class MirrorFromWindowTest(unittest.TestCase):
         from PySide6.QtTest import QTest
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords, wait_bg, wait_idle
+        from tests.test_draw import FakePainter, FakeWords, wait_bg, wait_idle
         from tests.test_editing import app
         qapp = app()
         old = qcmanual.inspect

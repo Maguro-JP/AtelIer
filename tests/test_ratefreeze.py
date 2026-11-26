@@ -18,7 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from atelier.ai.engine import Studio  # noqa: E402
-from tests.test_chatdraw import FakePainter, FakeWords, wait_bg  # noqa: E402
+from tests.test_draw import FakePainter, FakeWords, wait_bg  # noqa: E402
 
 LIMIT = 0.2   # 1 回の操作で画面の糸を止めてよい秒
 N = 40        # 並べる絵の数（832×1216 の PNG。前は一覧を作り直すたびに全部を読み直した）
@@ -212,7 +212,7 @@ class ClosedWindowListenerTest(unittest.TestCase):
         from atelier.models import ratings
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakePainter, FakeWords
+        from tests.test_draw import FakePainter, FakeWords
         QApplication.instance() or QApplication([])
         d = TemporaryDirectory()
         self.addCleanup(d.cleanup)

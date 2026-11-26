@@ -120,7 +120,7 @@ class CheckLibraryPanelTest(unittest.TestCase):
 
     def test_button_opens_check_dialog_with_report(self):
         from PySide6.QtWidgets import QPushButton
-        from tests.test_chatdraw import FakeWords
+        from tests.test_draw import FakeWords
         from tests.test_phases import Painter
         from atelier.ai.engine import Studio
         from atelier.app.main_window import Window
@@ -152,3 +152,67 @@ class CheckLibraryPanelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PicturesPlaceTest(unittest.TestCase):
+    """保存先の既定は、利用者が Windows で設定したピクチャの場所（移動していても追う）。
+    ホームの下の Pictures と決めつけない"""
+
+    def test_default_output_follows_the_known_pictures_folder(self):
+        from atelier.files import paths
+        with mock.patch.object(paths, "_known_pictures", return_value=Path("/mnt/d/Pictures")):
+            self.assertEqual(paths.pictures_dir(), Path("/mnt/d/Pictures"))
+            self.assertEqual(paths.default_output_dir(), Path("/mnt/d/Pictures") / "AtelIer")
+
+    def test_pictures_falls_back_to_home_pictures(self):
+        from atelier.files import paths
+        with mock.patch.object(paths, "_known_pictures", return_value=None):
+            self.assertEqual(paths.pictures_dir(), Path.home() / "Pictures")
+
+
+class FindMissingTest(unittest.TestCase):
+    """起動時の自動探索: 登録の道に絵が無いとき、同名の絵を探して道を付け替える。
+    候補が複数あったら当てずっぽうに付け替えない"""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.lib = self.d / "library"
+        self.lib.mkdir(parents=True)
+        self.pics = self.d / "pictures"
+        self.pics.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, rows):
+        (self.lib / "index.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        return Library(self.lib)
+
+    def test_found_file_repoints_the_registration(self):
+        gone = self.d / "old-drive" / "pic.png"   # 登録の道には無い
+        (self.pics / "sub").mkdir()
+        real = self.pics / "sub" / "pic.png"      # 探す場所の下にある
+        real.write_bytes(b"x")
+        lib = self._write([_row(gone)])
+        self.assertEqual(lib.find_missing(search_roots=[self.pics]), 1)
+        self.assertEqual(lib.items[0]["path"], str(real))
+        again = Library(self.lib)                 # 一覧に保存されている
+        self.assertEqual(again.items[0]["path"], str(real))
+
+    def test_ambiguous_match_is_not_guessed(self):
+        gone = self.d / "old" / "pic.png"
+        other = self.d / "other"
+        other.mkdir()
+        (self.pics / "pic.png").write_bytes(b"x")
+        (other / "pic.png").write_bytes(b"y")
+        lib = self._write([_row(gone)])
+        self.assertEqual(lib.find_missing(search_roots=[self.pics, other]), 0)
+        self.assertEqual(lib.items[0]["path"], str(gone))
+
+    def test_existing_files_are_not_touched(self):
+        real = self.pics / "pic.png"
+        real.write_bytes(b"x")
+        lib = self._write([_row(real)])
+        self.assertEqual(lib.find_missing(search_roots=[self.pics]), 0)
+        self.assertEqual(lib.items[0]["path"], str(real))

@@ -550,7 +550,7 @@ class RestyleTest(unittest.TestCase):
         from atelier.ai import restyle
         from atelier.app.main_window import Window
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakeWords
+        from tests.test_draw import FakeWords
         from tests.test_editing import app
         qapp = app()
         with TemporaryDirectory() as d, \
@@ -595,7 +595,7 @@ class RestyleTest(unittest.TestCase):
         from atelier.ai import restyle
         from atelier.app.main_window import Window, qimage_to_pil
         from atelier.ai.engine import Studio
-        from tests.test_chatdraw import FakeWords
+        from tests.test_draw import FakeWords
         from tests.test_editing import app
         qapp = app()
 

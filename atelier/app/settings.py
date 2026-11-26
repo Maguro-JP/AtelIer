@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 from atelier.app import debug_log as debuglog
 from atelier.ai.engine import IMAGE_MODEL
+from atelier.files.paths import default_output_dir
 
 # 描き方の 2 つのモード。AI モードは今までの速い描き方（おまかせ・1 つの模型・2 段の判定は、この中の ai_way で選ぶ）。
 # 精度優先は工程に分けて描く（atelier/ai/phases.py）。前は 4 つが 1 つの欄に並び、どれが今までの描き方か分からなかった
@@ -59,7 +60,7 @@ FIELDS = [
     ("mem_mode", "メモリの使い方", "描き方", "choice:自動,優先して動かす,控えめに動かす", "自動",
      "自動: 空きの 8 割を目安に、足りなければ軽い設定に落として描く。優先して動かす: 空きをほぼ使い切って描く（ほかのアプリが重くなることがある）。"
      "控えめに動かす: 空きの 6 割までにとどめ、ほかのアプリに余裕を残す。どれでも危なくなったら途中の絵を残して止まり、アプリは落とさない"),
-    ("output_dir", "描いた絵の保存先", "保存", "dir", str(Path.home() / "Pictures" / "AtelIer"), ""),
+    ("output_dir", "描いた絵の保存先", "保存", "dir", str(default_output_dir()), ""),
     ("notify", "知らせ", "操作", "choice:デスクトップにも出す,画面の中だけ", "デスクトップにも出す",
      "ほかのウィンドウを見ている間に描き終わったら、デスクトップの通知とタスクバーの点滅で知らせる"),
     ("first_tool", "起動したときの道具", "操作", "choice:前に使った道具,ペン,手", "前に使った道具", "起動したときに持つ道具。初めはペン（なぞれば線が出る）で、次からは前に使った道具。右ボタンのドラッグでは、どの道具でも絵を動かせる"),

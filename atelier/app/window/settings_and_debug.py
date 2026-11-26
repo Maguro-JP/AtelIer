@@ -122,9 +122,10 @@ class SettingsAndDebugMixin:
             self._dbg_dock.hide()
 
     def _debug_dock(self):
-        from PySide6.QtCore import QObject, Signal
-        from PySide6.QtWidgets import QDockWidget, QPlainTextEdit
+        from PySide6.QtCore import QObject, QTimer, Signal
+        from PySide6.QtWidgets import QDockWidget, QLabel, QPlainTextEdit
         from atelier.app import debug_log as debuglog
+        from atelier.app import usage
         if getattr(self, "_dbg_dock", None) is not None:
             return self._dbg_dock
 
@@ -136,6 +137,16 @@ class SettingsAndDebugMixin:
         box = QWidget()
         lay = QVBoxLayout(box)
         lay.setContentsMargins(4, 4, 4, 4)
+        # 使用率（CPU・メモリ）。デバッグのときタスクマネージャーで見ていた物。
+        # 欄が見えている間だけ、1 秒ごとに測る
+        self.debug_usage_label = QLabel("使用率 計測中")
+        self._usage_meter = usage.CpuMeter()
+        self._usage_timer = QTimer(self)
+        self._usage_timer.setInterval(1000)
+        self._usage_timer.timeout.connect(self._update_usage_label)
+        dock.visibilityChanged.connect(
+            lambda v: self._usage_timer.start() if v else self._usage_timer.stop())
+        lay.addWidget(self.debug_usage_label)
         self.debug_view = QPlainTextEdit()
         self.debug_view.setReadOnly(True)
         self.debug_view.setMaximumBlockCount(debuglog.RING)
@@ -154,6 +165,14 @@ class SettingsAndDebugMixin:
         debuglog.listen(self._dbg_bridge.line.emit)
         self._dbg_dock = dock
         return dock
+
+    def _update_usage_label(self):
+        """使用率の表示を今の値にする。測れなくても記録の欄は壊さない"""
+        try:
+            from atelier.app import usage
+            self.debug_usage_label.setText(usage.format_line(usage.sample(self._usage_meter)))
+        except Exception:   # noqa: BLE001
+            pass
 
     def open_debug_log(self):
         from atelier.app import debug_log as debuglog

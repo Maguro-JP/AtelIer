@@ -748,10 +748,15 @@ class NewChecksFlowTest(unittest.TestCase):
         """ゴミ: 清書（線画の仕上げ）で小さなゴミを塊そのものだけ消す。線画の時点でゴミは無い。
         色の工程に入ってから出たゴミは仕上げで消さない（ゴミ取りは清書だけ、という利用者の規則）"""
         C, _seen = checks(always_bad=False)
-        got = self.run_draw(DustyPainter(), "1girl, red scarf", C)
-        self.assertTrue(got["complete"], got.get("left"))
-        row = [r for r in got["history"] if r["phase"] == "線画"][0]
-        self.assertEqual(row["numbers"].get("dust"), 0)   # 清書で消えたので、線画の時点でゴミは無い
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(DustyPainter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+            self.assertTrue(got["complete"], got.get("left"))
+            row = [r for r in got["history"] if r["phase"] == "線画"][0]
+            # 清書で消えたので、線画の絵そのものにゴミは無い（以前は、太らせる加工が
+            # ゴミを膨らませて「ゴミの大きさ」を超えさせ、消えずに残ったまま数だけ 0 に
+            # なっていた。太らせる上限を入れたら、その誤魔化しが剥がれた）
+            from PIL import Image
+            self.assertEqual(pt.dust(Image.open(row["image"]))["count"], 0)
 
     def test_detached_part_carried_not_redrawn(self):
         """位置ずれ: 体から離れた物を崩れとし、直す工程が回る。偽の模型では消せないので、残った崩れとして次へ進む（全体の描き直しはしない）。残った崩れがあるので complete は偽だが、最後の工程まで進む"""
@@ -2345,6 +2350,34 @@ class LineStagesTest(unittest.TestCase):
         # ペンなぞりは描き重ね（refine）でする。下描きの描き重ねと合わせて 2 回
         self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 2, painter.log)
 
+    def test_pen_pass_must_not_fade_the_lines(self):
+        """ペンなぞりの描き重ねが線を薄くしたら、土台の線の暗さを乗せて戻す。
+        色と明るさの見張り（暗い所の下位 5%）は細い線の薄れを見逃す
+        （検証 45696035067 で、線画の濃い線が 3.2% → 0.5% に落ちても異常なしだった）"""
+        import numpy as np
+        from PIL import Image
+
+        class FadingPainter(Painter):
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.log.append(("refine", seed, strength))
+                if "inked" not in prompt:
+                    return image.copy()
+                a = np.asarray(image.convert("RGB")).astype(int)
+                lum = a.mean(axis=2)
+                a[lum < 80] = (170, 170, 170)   # 線だけを薄い灰色にする（模型の描き重ねで線が霞む崩れ）
+                return Image.fromarray(a.astype("uint8"))
+
+        painter = FadingPainter()
+        C = hand_only_checks(bad_times=0)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+            rows = {r["phase"]: r for r in got["phases"]}
+            # アタリの描き重ねは絵を変えない偽物なので、線の土台はサムネイルの絵で比べる
+            ink_atari = pt.ink_share(Image.open(rows["サムネイル"]["image"]))
+            ink_lines = pt.ink_share(Image.open(rows["線画"]["image"]))
+        self.assertGreater(ink_atari, 0.02)
+        self.assertGreaterEqual(ink_lines, ink_atari * 0.6)
+
 
 class CarriedFlawGuardTest(unittest.TestCase):
     """持ち越した崩れは、その項目を実際に測った工程の確かめでだけ外す。
@@ -2455,3 +2488,52 @@ class UnreadableCheckTest(unittest.TestCase):
         unread = [m for r in got["history"] for m in r.get("mends", []) if "検品できませんでした" in m["found"]]
         self.assertEqual(len(unread), 1)   # 直しは 1 度だけ試し、直しても読めなければ諦めて残す
         self.assertTrue(any("RuntimeError" in x for x in got["left"]))
+
+
+class PhantomRegionTest(unittest.TestCase):
+    """検品が、主役の絵に全く重ならない場所を「崩れた手」と読んだら、その枠は直さない。
+    背景の何も無い所を囲んで描き直すと、直しがそこに手を描いてしまう（手足の量産）"""
+
+    def test_bad_region_outside_the_subject_is_not_mended(self):
+        base = hand_only_checks(bad_times=0)
+
+        class PhantomHands:
+            request = staticmethod(base.request)
+            body = staticmethod(base.body)
+            pose = staticmethod(base.pose)
+            points = staticmethod(base.points)
+
+            @staticmethod
+            def hands(image, prompt):
+                # 絵の隅の白い紙の上 (0,0)-(8,8) を「崩れた手」と言い続ける検品
+                return {"readable": True, "bad": ["手 1: 指が 6 本"],
+                        "hands": [{"box": [0, 0, 8, 8], "bad": ["指が 6 本"], "seen": True}],
+                        "feet": [], "faces": []}
+
+        painter = Painter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=PhantomHands)
+        self.assertFalse(got["complete"])   # 直していない崩れを、直ったことにしない
+        self.assertTrue(any("指が 6 本" in f for f in got["left"]))
+        for m in getattr(painter, "masks", []):
+            self.assertEqual(m.getpixel((4, 4)), 0)   # 隅の白い所を囲んだ直しは一度も無い
+
+
+class WeightLinesConvergeTest(unittest.TestCase):
+    """太らせる加工は、繰り返しても太り続けない。直しのたびに半径を大きくして
+    太らせ直していた行程が、正常な線画を 10 倍ぐらいの太さにしていた（利用者の指摘）。
+    Gペンのような強弱付け自体は仕事として残す"""
+
+    def test_repeated_weight_lines_converges(self):
+        import numpy as np
+        img = sketch((128, 192))
+
+        def dark(im):
+            return int((np.asarray(im.convert("L")) < 80).sum())
+
+        once, _ = pt.weight_lines(img)
+        again = once
+        for _ in range(3):
+            again, _ = pt.weight_lines(again)
+        self.assertGreater(dark(once), dark(img))              # 1 回目は太る（強弱付けの仕事）
+        self.assertLessEqual(dark(again), dark(once) * 1.15)   # 繰り返しても太り続けない

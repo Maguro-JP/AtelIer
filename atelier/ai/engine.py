@@ -1829,7 +1829,10 @@ class Studio:
     def __init__(self, words: Words | None = None, painter: Painter | None = None, out: Path | None = None):
         self.words = words or Words()
         self.painter = painter or Painter()
-        self.out = out or Path(os.environ.get("ATELIER_OUTPUT") or Path.home() / "Pictures" / "AtelIer")
+        if out is None:
+            from atelier.files.paths import default_output_dir
+            out = Path(os.environ.get("ATELIER_OUTPUT") or default_output_dir())
+        self.out = out
         self.image_auto = False   # おまかせ: 頼みごとに、手元の絵の模型から合う物を選ぶ
         self.words_auto = False   # おまかせ: 頼みごとに、手元の言葉の模型から合う物を選ぶ
         # 描き方。"auto" は、構図の模型・SDXL の模型・2 段の部品がそろっていれば 2 段で描く。"one" は 1 つの模型、"two" は必ず 2 段。
@@ -2404,6 +2407,7 @@ class Studio:
             return image
         from PIL import Image, ImageDraw
         from atelier.qc import hand_check as handcheck
+        from atelier.ai import phase_tools as pt
         from atelier.ai.phases import fix_words   # 囲みの中に渡す言葉は、その囲みの直す内容だけ（精度優先の直しと同じ決まり）
         best = None   # (崩れの数, 絵, 崩れ, 検品の結果)。直しで崩れが増えた回の絵は使わない（直すたびに別の所が崩れることがあった）
 
@@ -2428,11 +2432,15 @@ class Studio:
                 say(f"直しで崩れが増えた（{best[0]} → {len(res['bad'])} 件）ので、前の絵に戻して直し直します")
                 image, res = best[1], best[3]
             regions = handcheck.bad_regions(res)   # 手・足・顔のうち、崩れの見つかった所
+            kept = pt.on_subject_regions(image, regions)
+            if len(kept) < len(regions):
+                say(f"主役の絵に重なっていない検品の枠 {len(regions) - len(kept)} 件は、誤検出として直しません")
+            regions = kept
             if not regions and not getattr(self, "_detail_done", False) and not getattr(self.painter, "stop", False):
                 # 検品を通っても終わりにしない。人は細部を必ず見るので、手・足・顔の枠の中だけをもう一度丁寧に描かせ、
                 # 検品し直して崩れが増えなければ使う（検品は、くっついた指や薄く出た指をまだ見逃す）
                 self._detail_done = True
-                detail = handcheck.detail_regions(res)
+                detail = pt.on_subject_regions(image, handcheck.detail_regions(res))
                 if detail:
                     say(f"細部を描き直しています（手・足・顔 {len(detail)} か所）")
                     mask = Image.new("L", image.size, 0)

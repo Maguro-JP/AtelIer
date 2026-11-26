@@ -33,7 +33,7 @@ HAVE = all(importlib.util.find_spec(m) is not None for m in ("PySide6", "numpy",
 def window(d: Path, painter=None):
     from atelier.app.main_window import Window
     from atelier.ai.engine import Studio
-    from tests.test_chatdraw import FakePainter, FakeWords
+    from tests.test_draw import FakePainter, FakeWords
     from tests.test_editing import app
     qapp = app()
     w = Window(Studio(FakeWords(), painter or FakePainter(), d))
