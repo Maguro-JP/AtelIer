@@ -4,8 +4,9 @@ AI の絵がいきなりキャンバスに出ると、描いた過程が何も�
 差のある所だけを 線画 → 大きな塗り → 細かい塗り → 仕上げ の順に、筆の運びで少しずつ描き込む。
 - 線画: timelapse.reconstruct と同じ「周りより暗い所」を線とし、つながった線ごとに端から線に沿って伸ばす
 - 塗り: 色を均した平塗りの塊（同じ色でつながった所）ごとに、真ん中から塗り広げる。大きな塊を先、細かい塊を後にする
-- 仕上げ: 残った細かい差を、出ている所から近い順に描く。最後の 1 枚は AI の絵そのもの。
-  全体を薄く混ぜて出すと、筆と関係ない所に線でも何でもない物が薄く出現するので混ぜない
+- 仕上げ: 残った細かい差を、塊ごとに筆が通る順に 1 か所ずつ描く。最後の 1 枚は AI の絵そのもの。
+  全体を薄く混ぜて出すと、筆と関係ない所に線でも何でもない物が薄く出現するので混ぜない。
+  距離で全体に割り当てて輪のように広げるのも、全体がじわっと変わるフェードと同じなのでしない
 囲みのある直しは、置く前と置いた後の差が囲みの中にしか無いので、筆も囲みの中だけを動く。
 
 見せるのはキャンバスの上の重ね絵（overlay）と筆先の丸だけで、レイヤーの画素には触らない。絵は先にレイヤーへ置き、
@@ -127,6 +128,7 @@ class Plan:
         self._a = a
         self.line = line
         self._finish_t = None   # 仕上げの段で各画素を描く時刻（元の大きさ）。fill() で計算する
+        self._ttimes: list[float] = []   # 筆先の点の時刻だけの表（tip() の二分探索用）。tips と同時に差し替える
         self.ready = False   # 塗りの段を計算し終えたか。終わるまでは線画の段だけを見せる
         # 縮めた大きさの座標を元の大きさへ写す表（最近傍）
         self._ry = np.minimum((np.arange(self.full[1]) * h) // self.full[1], h - 1)
@@ -180,6 +182,7 @@ class Plan:
                 at += span
         tips.sort()
         self.t, self.tips = t, tips
+        self._ttimes = [tp[0] for tp in tips]
         # その場の線の太さ（筆の太さにする）。線の画素から一番近い線でない所までの距離の 2 倍
         from scipy.ndimage import distance_transform_edt
         self._line_width = distance_transform_edt(line) * 2.0
@@ -233,8 +236,10 @@ class Plan:
                     at += span
         t[diff & ~np.isfinite(t)] = SMALL_END
         # 仕上げの段: 縮めた絵では拾えなかった細かい差（元の大きさでだけ違う所）を、
-        # もう出ている所から近い順に描く時刻を付ける。全体を薄く混ぜて出すと、
-        # 筆と関係ない所に線でも何でもない物が薄く出現する（利用者の指摘）
+        # 塊ごとに順番に描く時刻を付ける。前は「もう出ている所からの距離」で全体に割り当て、
+        # 画面全体が輪のように同時に変わって、じわっと出る・消えるフェードに見えた（利用者の指摘）。
+        # 塊は格子でも割って広がりすぎないようにする。順は、出ている所に近い塊から始め、
+        # あとは一番近い塊へつなぐ（線画と同じ）。塊の中は出ている所から近い順
         A = self.A_full.astype(np.float32)
         B = self.B_full.astype(np.float32)
         fd = np.abs(A - B).max(axis=2) > DIFF_MIN
@@ -243,26 +248,61 @@ class Plan:
         ft = np.full(fd.shape, np.inf, np.float32)
         if rest.any():
             from scipy.ndimage import distance_transform_edt
-            dist = distance_transform_edt(~shown0)
-            top = float(dist[rest].max()) or 1.0
-            ft[rest] = SMALL_END + (1.0 - SMALL_END) * np.clip(dist[rest] / top, 0.0, 1.0)
-            for k in range(1, 7):   # 仕上げの筆先: 区切りごとに、これから描く所の真ん中
-                lo = SMALL_END + (1.0 - SMALL_END) * (k - 1) / 6
-                hi = SMALL_END + (1.0 - SMALL_END) * k / 6
-                sel = rest & (ft > lo) & (ft <= hi)
-                if sel.any():
-                    ys, xs = np.nonzero(sel)
-                    tips.append((hi, float(xs.mean()) * self.scale, float(ys.mean()) * self.scale))
+            dshown = distance_transform_edt(~shown0)
+            lab, _n = ndimage.label(rest, ndimage.generate_binary_structure(2, 2))
+            fh, fw = rest.shape
+            block = max(24, min(fh, fw) // 8)
+            bid = (np.arange(fh) // block)[:, None] * (fw // block + 1) + (np.arange(fw) // block)[None, :]
+            cid = np.where(rest, lab.astype(np.int64) * (int(bid.max()) + 1) + bid, 0)
+            ids, counts = np.unique(cid[rest], return_counts=True)
+            cents = ndimage.center_of_mass(rest.astype(np.float32), cid, ids)
+            entry = ndimage.minimum(dshown, cid, ids)
+            order = [int(i) for i in np.argsort(entry, kind="stable")]
+            if len(order) <= 400:   # 一番近い塊へつないでいく（塊が多いときは入口の近さの順のまま）
+                chained, left = [order[0]], set(order[1:])
+                while left:
+                    cy, cx = cents[chained[-1]]
+                    nxt = min(left, key=lambda i: (cents[i][0] - cy) ** 2 + (cents[i][1] - cx) ** 2)
+                    chained.append(nxt)
+                    left.discard(nxt)
+                order = chained
+            pos = np.empty(len(ids), np.int64)
+            pos[order] = np.arange(len(ids))
+            ys, xs = np.nonzero(rest)
+            rank = np.lexsort((xs, ys, dshown[ys, xs], pos[np.searchsorted(ids, cid[ys, xs])]))
+            total = len(ys)
+            seq = np.empty(total, np.float32)
+            seq[rank] = np.arange(total, dtype=np.float32)
+            ft[ys, xs] = SMALL_END + (1.0 - SMALL_END) * (seq + 1.0) / total
+            # 仕上げの筆先: 描く順の区切りごとに、その区切りの真ん中（元の大きさ→計算の大きさへ写す）
+            sy, sx = ys[rank], xs[rank]
+            st = ft[sy, sx]
+            step = max(1, min(24, total // 48))
+            tips.append((float(st[0]), float(sx[0]) * self.scale, float(sy[0]) * self.scale))
+            for end in range(step, total + step, step):
+                lo, hi = max(0, end - step), min(end, total)
+                if hi > lo:
+                    tips.append((float(st[hi - 1]), float(sx[lo:hi].mean()) * self.scale, float(sy[lo:hi].mean()) * self.scale))
+            # 仕上げの長さ: 筆が順にたどる移動距離で決める（線画の段と同じ物差し）。
+            # 固定の割合だと、離れた塊を 1 刻みで何百画素も跳んで描くことになる
+            if total > 1:
+                path = float(np.hypot(np.diff(sx), np.diff(sy)).sum()) * self.scale
+                need = path / LINE_PX_PER_SEC
+                if need > self.seconds * (1.0 - SMALL_END):
+                    self.seconds = min(SECONDS_MAX, need / (1.0 - SMALL_END))
         self._finish_t = ft
         tips.sort()
         self.t, self.tips = t, tips   # 入れ替えは 1 回の代入で（再生の糸が途中の表を見ないように）
+        self._ttimes = [tp[0] for tp in tips]
         self.ready = True
 
     @staticmethod
-    def _lay(t, lab, dist, sl, ident, at: float, span: float, steps: int = 6, hatch=None):
-        """1 つの線・塊に描く時刻を入れ、筆先が通る点（距離の段ごとの真ん中）を返す。
+    def _lay(t, lab, dist, sl, ident, at: float, span: float, hatch=None):
+        """1 つの線・塊に描く時刻を入れ、筆先が通る点を返す。
         塊ごとに絵全体を見ると数千の塊で遅かったので、塊の外枠の中だけを見る。
-        hatch（はらいの線の表）を渡すと、はらいを先に、間を後に描く。どちらも距離の順に描く"""
+        hatch（はらいの線の表）を渡すと、はらいを先に、間を後に描く。どちらも距離の順に描く。
+        筆先の点は、描く順に並べた画素を細かく区切って、各区切りの終わりの時刻と真ん中を出す。
+        前は距離の段 7 点だけだったので、筆先の印が今伸びている所から遠くへ跳んで出た"""
         m = lab[sl] == ident
         d = dist[sl][m].astype(np.float32)
         top = max(1.0, float(d.max()))
@@ -277,10 +317,14 @@ class Plan:
         out = []
         if span * 400 < 1 and len(d) < 30:   # 小さな点は筆先を飛ばさない（ちらつく）
             return out
-        for k in range(steps + 1):
-            sel = np.abs(d - top * k / steps) <= max(1.0, top / steps / 2)
-            if sel.any():
-                out.append((at + span * k / steps, float(xs[sel].mean() + sl[1].start), float(ys[sel].mean() + sl[0].start)))
+        tt = sub[m]
+        o = np.argsort(tt, kind="stable")
+        step = max(1, min(20, len(o) // 24))   # 印の間隔は画素の距離で決める（大きな塊でも 20 画素ごと）
+        out.append((float(tt[o[0]]), float(xs[o[0]] + sl[1].start), float(ys[o[0]] + sl[0].start)))
+        for end in range(step, len(o) + step, step):
+            ch = o[max(0, end - step):end]
+            if len(ch):
+                out.append((float(tt[ch[-1]]), float(xs[ch].mean() + sl[1].start), float(ys[ch].mean() + sl[0].start)))
         return out
 
     def empty(self) -> bool:
@@ -290,7 +334,7 @@ class Plan:
         """時刻 t（0〜1）の途中の絵（計算した大きさ）。t>=1 は次の絵そのもの"""
         if t >= 1.0:
             return Image.fromarray(self.A_full)
-        if t > SMALL_END:   # 仕上げ: 残った差を、出ている所から近い順に描く（全体を薄く混ぜない）
+        if t > SMALL_END:   # 仕上げ: 残った差を、塊ごとに筆の順で描く（全体を薄く混ぜない・輪で広げない）
             shown = (self.t <= t)[self._ry][:, self._rx]
             if self._finish_t is not None:
                 shown = shown | (self._finish_t <= t)
@@ -303,8 +347,12 @@ class Plan:
         太さはその場の線の太さに合わせる。細い線でも見える大きさを保ち、太すぎないようにする"""
         if not self.tips or t >= 1.0:
             return None
-        i = min(range(len(self.tips)), key=lambda j: abs(self.tips[j][0] - t))
-        _, x, y = self.tips[i]
+        import bisect
+        times = self._ttimes if len(self._ttimes) == len(self.tips) else [tp[0] for tp in self.tips]
+        i = bisect.bisect_left(times, t)
+        cand = [j for j in (i - 1, i) if 0 <= j < len(times)]
+        j = min(cand, key=lambda k: (abs(times[k] - t), k))   # 同じ近さなら前の点（今描いている所）
+        _, x, y = self.tips[j]
         wx = min(self.size[0] - 1, max(0, int(x)))
         wy = min(self.size[1] - 1, max(0, int(y)))
         half = float(self._line_width[wy, wx]) / 2.0
@@ -340,6 +388,7 @@ class Player:
         self.plan: Plan | None = None
         self.keep = False
         self.final = None
+        self._dur_done = False   # 運びの計算が終わったら、決まった長さ（仕上げの移動分を含む）を取り直したか
         self.t = 0.0
         self.seconds = self.SECONDS   # 今の移りの長さ（秒）。運びが決まったら Plan.seconds にする
         self.max_seconds: float | None = None   # 移りの長さの上限（show の引き数。途中の絵で短くする）
@@ -413,8 +462,15 @@ class Player:
                 self.finish()
                 return
             self.plan, self.t = plan, 0.0
+            self._dur_done = False
             self.seconds = getattr(plan, "seconds", self.SECONDS)
             if self.max_seconds is not None:   # 途中の絵は短く（次の絵が来る前に筆を動かし終える）
+                self.seconds = min(self.seconds, self.max_seconds)
+        if self.plan is not None and self.plan.ready and not self._dur_done:
+            # 塗りと仕上げの計算が終わって初めて、移りの長さが確定する（仕上げの移動距離で伸びる）
+            self._dur_done = True
+            self.seconds = getattr(self.plan, "seconds", self.seconds)
+            if self.max_seconds is not None:
                 self.seconds = min(self.seconds, self.max_seconds)
         self.t = min(1.0, self.t + self.TICK_MS / 1000.0 / self.seconds)
         if not self.plan.ready and self.t > LINE_END:   # 塗りの計算が終わるまで線画の終わりで待つ

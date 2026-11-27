@@ -137,7 +137,8 @@ RECON_LINE, RECON_FLAT, RECON_FINISH = 6, 6, 6   # 逆算の各段の枚数
 def reconstruct(final: Image.Image, before: Image.Image | None = None) -> list[Image.Image]:
     """仕上がった絵から、描いた順（線画 → 塗り → 仕上げ）を逆算した工程の絵を作る。
     線画は明るさの輪郭（暗く細い所）を、上から下へ描き進める形で出す。塗りは色を大きく均した平塗りを線画の下に広げ、
-    仕上げは平塗りから仕上がった絵へ少しずつ移す。最後の 1 枚は仕上がった絵そのもの。before（描く前の絵）があれば下地にする"""
+    仕上げは平塗りから仕上がった絵へ筆の運びで 1 段ずつ出す（全体を薄く混ぜるとフェードになるので混ぜない）。
+    最後の 1 枚は仕上がった絵そのもの。before（描く前の絵）があれば下地にする"""
     from PIL import ImageChops, ImageFilter
     im = final.convert("RGB")
     im.thumbnail((MAX_SIDE, MAX_SIDE))
@@ -164,8 +165,24 @@ def reconstruct(final: Image.Image, before: Image.Image | None = None) -> list[I
         f = ink.copy()
         f.paste(flat.crop((0, 0, w, cut)), (0, 0))
         out.append(f)
-    for i in range(1, RECON_FINISH + 1):   # 平塗りから仕上がった絵へ
-        out.append(Image.blend(flat, im, i / RECON_FINISH))
+    # 仕上げ: 平塗りから仕上がった絵へ、筆の運び（brush_reveal）で 1 段ずつ出す。
+    # 前は Image.blend で全体を少しずつ混ぜていて、フェードになっていた（利用者の指摘）
+    seg = []
+    try:
+        from atelier.paint import brush_reveal
+        seg = brush_reveal.strokes(flat, im, n=RECON_FINISH)
+    except Exception:   # noqa: BLE001  運びを作れなければ下の帯ごとの出し方にする（それでも混ぜない）
+        seg = []
+    if len(seg) != RECON_FINISH:
+        import numpy as np
+        d = np.abs(np.asarray(im, np.int16) - np.asarray(flat, np.int16)).max(axis=2) > 10
+        seg = []
+        for i in range(1, RECON_FINISH + 1):   # 差のある所を帯ごとに 1 段で出す
+            m = d & (np.arange(h)[:, None] < int(h * i / RECON_FINISH))
+            f = flat.copy()
+            f.paste(im, (0, 0), Image.fromarray((m * 255).astype(np.uint8)))
+            seg.append(f)
+    out.extend(seg)
     out[-1] = im
     return out
 
