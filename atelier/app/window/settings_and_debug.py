@@ -161,6 +161,12 @@ class SettingsAndDebugMixin:
         lay.addLayout(row)
         dock.setWidget(box)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
+        talk = getattr(self, "panels", {}).get("talk")
+        if talk is not None:
+            # 既定は下の「チャット」の欄とタブで重ねる（利用者の希望。記録はシステムの知らせの
+            # 置き場なので、会話の欄と一緒が合う）。保存した並びがあるときは、このあとの
+            # 復元（restoreState）がそちらを当てるので、ここは初めの置き場でしかない
+            self.tabifyDockWidget(talk[0], dock)
         self._dbg_bridge.line.connect(self.debug_view.appendPlainText)
         debuglog.listen(self._dbg_bridge.line.emit)
         self._dbg_dock = dock

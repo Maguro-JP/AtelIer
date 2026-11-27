@@ -219,6 +219,57 @@ class DebugModeTest(Base):
         self.assertIn("アプリのメモリ", text)
         self.assertIn("システムのメモリ", text)
 
+    def _clear_layout(self):
+        from PySide6.QtCore import QSettings
+        s = QSettings("AtelIer", "atelier")
+        for k in ("state9", "geometry9", "debug_tab_v1"):
+            s.remove(k)
+        s.sync()
+
+    def test_debug_dock_tabbed_with_talk_by_default(self):
+        """「記録」の欄は、初めから下の「チャット」の欄とタブで重なっている（利用者の希望。
+        記録はシステムの知らせの置き場なので、会話の欄と一緒）。デバッグがオフでも欄は
+        作ってある（あとで作ると、並びの復元で場所が捨てられる）。オフなら隠れている"""
+        self._clear_layout()
+        w = self.window(FlakyPainter())
+        dbg = getattr(w, "_dbg_dock", None)
+        self.assertIsNotNone(dbg)   # 起動の時点で作ってある
+        self.assertTrue(dbg.isHidden())   # デバッグはオフなので隠れている
+        talk = w.panels["talk"][0]
+        self.assertEqual(w.dockWidgetArea(dbg), w.dockWidgetArea(talk))   # チャットと同じ欄の場所にいる
+        # デバッグを入れると、チャットとタブで重なって出る（別ウィンドウにはならない）
+        self.addCleanup(lambda: [w.settings.set(k, 0) for k in ("debug", "debug_budget")])
+        w.settings.set("debug", 1)
+        w.apply_debug_mode()
+        self.assertIn(dbg, w.tabifiedDockWidgets(talk))
+        self.assertFalse(dbg.isFloating())
+
+    def test_debug_dock_keeps_user_placement(self):
+        """利用者が「記録」の欄を動かしたら、その並びが次の起動でも守られる。
+        前は、デバッグがオフで起動すると欄が無く、復元で場所が捨てられて、タブが毎回ほどけた"""
+        self._clear_layout()
+        w = self.window(FlakyPainter())
+        dbg = w._dbg_dock
+        w.addDockWidget(Qt.RightDockWidgetArea, dbg)   # 利用者が右へ動かした
+        w.layout_store.setValue("state9", w.saveState())
+        w.layout_store.setValue("geometry9", w.saveGeometry())
+        w.layout_store.sync()
+        w.close()
+        w2 = self.window(FlakyPainter())
+        dbg2 = w2._dbg_dock
+        talk2 = w2.panels["talk"][0]
+        self.assertNotIn(dbg2, w2.tabifiedDockWidgets(talk2))
+        self.assertEqual(w2.dockWidgetArea(dbg2), Qt.RightDockWidgetArea)
+
+    def test_debug_log_starts_with_version(self):
+        """記録の先頭には今の版が入る。記録を見れば、どの版で描いたか分かる"""
+        from atelier.app import debug_log as debuglog, updater
+        debuglog.configure(True)
+        try:
+            self.assertTrue(any(updater.current() in line for line in debuglog.lines()), debuglog.lines())
+        finally:
+            debuglog.configure(False)
+
     def test_debug_mode_shows_full_exception(self):
         from atelier.app import debug_log as debuglog
         from atelier.files import sent

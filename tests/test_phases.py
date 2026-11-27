@@ -2796,3 +2796,115 @@ class DetailPhaseTest(PhasesTest):
         out2, n2 = pt.restore_missing_lines(src, moved)
         self.assertEqual(n2, 0)   # 移った線は二重に描かない
         self.assertEqual(int(np.asarray(out2)[60, 60][0]), 255)
+
+
+class DetachedErasureMaskTest(unittest.TestCase):
+    """位置ずれの欠片消し: 小さい離れた欠片だけを消し、大きい離れた物（部位かもしれない）は消さない"""
+
+    def test_only_small_detached_fragments_are_masked(self):
+        from PIL import Image, ImageDraw
+        import numpy as np
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        dr = ImageDraw.Draw(img)
+        dr.rectangle([60, 40, 120, 160], fill=(40, 40, 40))     # 主役
+        dr.rectangle([130, 60, 140, 70], fill=(30, 30, 30))     # 小さい欠片（11x11。主役の近く）
+        dr.rectangle([130, 100, 159, 129], fill=(30, 30, 30))   # 大きい離れた物（30x30。消さない）
+        mask = pt.detached_erasure_mask(img)
+        self.assertIsNotNone(mask)
+        a = np.asarray(mask)
+        self.assertEqual(int(a[65, 135]), 255)    # 欠片は消す対象
+        self.assertEqual(int(a[114, 144]), 0)     # 大きい物は対象外
+        self.assertEqual(int(a[100, 90]), 0)      # 主役は対象外
+
+
+class TonePatternWiringTest(unittest.TestCase):
+    """道具の配線: 頼みに網点があれば、ディテール工程で影の側に網点の柄が道具で入る"""
+
+    def run_with_prompt(self, prompt):
+        painter = Painter()
+        C, _seen = checks(False)
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", say=said.append, checks=C, confirm=None)
+        return got, said
+
+    def test_tone_request_gets_halftone_at_detail(self):
+        _got, said = self.run_with_prompt("1girl, red scarf, 網点")
+        self.assertTrue(any("網点" in s and "道具" in s for s in said))
+
+    def test_no_tone_without_the_word(self):
+        _got, said = self.run_with_prompt("1girl, red scarf")
+        self.assertFalse(any("網点" in s for s in said))
+
+
+class CompositionMendScopeTest(unittest.TestCase):
+    """構成の直しの範囲: アタリで手を尽くした頼んだ物を、線画以降で振り直さない。
+    振り直すと清書した線まで壊れ、崩れの顔ぶれが変わり続けて直しが終わらない
+    （検証 #27 の監査: その直しは正しくない）。残った崩れとして正直に残す。
+    アタリで直していない（初めて見つかった）欠けは、この限りではない"""
+
+    def test_item_mended_at_atari_is_not_rerolled_at_line_phase(self):
+        calls = {"request": 0, "hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                calls["request"] += 1
+                # アタリの確かめ（3 回目）から、ずっと欠けている（直しの描き直しでも直らない）
+                missing = ["red scarf"] if calls["request"] >= 3 else []
+                return {"readable": True, "missing": missing, "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * 0.45, h * 0.15), "right_eye": (w * 0.55, h * 0.15),
+                                                     "nose": (w * 0.5, h * 0.18), "left_ear": (w * 0.4, h * 0.15),
+                                                     "left_shoulder": (w * 0.4, h * 0.27), "right_shoulder": (w * 0.6, h * 0.27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                calls["hands"] += 1
+                return dict(HAND) if calls["hands"] <= 2 else dict(CLEAN_HAND)
+
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(Painter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C, confirm=None)
+        atari_mends = [m for r in got["history"] if r["phase"] == "アタリ"
+                       for m in r.get("mends", []) if m.get("item") == "頼んだ物"]
+        line_mends = [m for r in got["history"] if r["phase"] == "線画"
+                      for m in r.get("mends", []) if m.get("item") == "頼んだ物"]
+        self.assertTrue(atari_mends)          # アタリでは直しをかけた
+        self.assertEqual(line_mends, [])      # 線画では振り直さない
+        self.assertTrue(any("描かれていない" in f for f in got["left"]), got["left"])   # 残った崩れとして正直に残る
+        self.assertEqual(got["history"][-1]["phase"], "仕上げ")   # 最後まで進む
+
+class LineArtModeTest(unittest.TestCase):
+    """線画の頼み: 線画で終わると指定されたときだけ、色の工程を置かず線の仕上げで完成にする。
+    指定が無ければ線画はスタートラインで、色の工程まで進む（利用者の規則）"""
+
+    def run_with_prompt(self, prompt):
+        painter = Painter()
+        C, _seen = checks(False)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", checks=C, confirm=None)
+        return got
+
+    def test_line_art_request_ends_at_line_finish(self):
+        got = self.run_with_prompt("1girl, red scarf, 線画")
+        names = [r["phase"] for r in got["history"]]
+        self.assertEqual(names, ["目的", "サムネイル", "アタリ", "線画", "線の仕上げ"])
+        self.assertTrue(got["complete"], got["left"])
+
+    def test_no_line_art_word_goes_to_color(self):
+        got = self.run_with_prompt("1girl, red scarf")
+        names = [r["phase"] for r in got["history"]]
+        self.assertIn("下塗り", names)
+        self.assertEqual(names[-1], "仕上げ")
+

@@ -23,6 +23,11 @@ def current() -> str:
         return "0"
 
 
+def app_title() -> str:
+    """窓の題名。今使っている版がひと目で分かるように、版の番号を入れる（利用者の指示）"""
+    return f"AtelIer {current()}"
+
+
 def _tuple(v: str) -> tuple:
     out = []
     for part in v.lstrip("vV").split("."):

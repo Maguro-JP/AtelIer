@@ -417,7 +417,8 @@ class ResultsAndProgressMixin:
 
     def show_progress(self, text: str, pct: int):
         """進みをウィンドウの外にも出す。タイトル（タスクバーに出る）、通知の領域のアイコン、終わったときの知らせ"""
-        base = "AtelIer"
+        from atelier.app import updater
+        base = updater.app_title()   # 進みを出している間も、今の版が題名で分かるように
         if pct == -2:
             self.setWindowTitle(base)
         else:

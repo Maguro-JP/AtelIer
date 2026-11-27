@@ -139,7 +139,8 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         self.studio_hooks: list = []          # 描く仕組みを作り直すたびに呼ぶ関数（引数は Studio）
         self.expression_sources: list = []    # 表情差分の絵を返す関数。返すのは (書き出すときの名前, 絵の道の並び)
         self.studio = studio or self._studio_from_settings()
-        self.setWindowTitle("AtelIer")
+        from atelier.app import updater
+        self.setWindowTitle(updater.app_title())   # 今の版が題名で分かるように
         self.resize(1400, 900)
         self.images: list[str] = []
         self.thread: QThread | None = None
@@ -1054,10 +1055,11 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
         from atelier.ui.tab_dock import TabDocks
         self.ai_tabs = TabDocks(self, self.ai_panel, self.layout_store)
         self.ai_tabs.restore()
-        # 「記録」の欄も、並びを戻すより先に作る。あとで作ると、並びに残っている「記録」の場所が
-        # 戻らず、最大化で閉じたときの並びでは欄の並びに入らないまま別ウィンドウで出た
-        if self.settings.get("debug"):
-            self._debug_dock()
+        # 「記録」の欄は、デバッグがオフでも並びを戻すより先に作る。あとで作ると、並びに残っている
+        # 「記録」の場所が戻らない（restoreState は、その時点で無い欄の分を捨てる）。デバッグを切って
+        # 起動するたびに場所が捨てられ、タブで重ねても毎回ほどけて別ウィンドウで出た。
+        # 作っておいて、オフなら最後に apply_debug_mode が隠す
+        self._debug_dock()
         state = self.layout_store.value("state9")   # 欄の並びを変えたら名前を変え、古い並びを読まない
         if state is not None:
             self.restoreGeometry(self.layout_store.value("geometry9"))
@@ -1068,6 +1070,14 @@ class Window(FilesMixin, AiDrawingMixin, AiResultsMixin, ChatMixin, PromptsMixin
                     self._as_window(d, True)   # 戻した並びで外に出ている欄も、ふつうの窓の枠にする
         else:
             self.arrange()
+        # 初回だけ: 前の版の不具合で「記録」がタブから外れたまま残っている並びを、チャットの欄と
+        # タブで重ね直す（利用者はタブで重ねるのが希望で、外れたのは不具合の残り）。この印が付いたら
+        # 二度と触らない。以後は利用者の並びをそのまま守る
+        if not self.layout_store.value("debug_tab_v1"):
+            _talk = self.panels.get("talk", (None,))[0]
+            if _talk is not None and self._dbg_dock not in self.tabifiedDockWidgets(_talk):
+                self.tabifyDockWidget(_talk, self._dbg_dock)
+            self.layout_store.setValue("debug_tab_v1", 1)
         for old in ("state8", "geometry"):   # 前の版の並び。読むと欄が画面の外や縦長のまま戻った
             self.layout_store.remove(old)
         from atelier.app import key_bindings as keys

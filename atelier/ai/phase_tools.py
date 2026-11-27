@@ -23,6 +23,7 @@ DUST_PATTERN_MIN = 8       # ゴミ: 同じくらいの大きさの小さい塊�
 DUST_PATTERN_SPAN = 0.25   # ゴミ: 模様とみなすには、塊の集まりが絵の幅・高さのこの割合以上に広がっていること（私の推測）。一か所に固まった欠片は模様ではない
 DETAIL_RANGE = 24          # ディテール: 局所の明暗の変化がこれを超えた画素をディテールとする（私の推測）
 DETACH_MOST = 0.08         # 位置ずれ: 主役から離れた塊が、短い辺のこの割合より近くにあれば体から離れた部位（私の推測）
+DETACH_ERASE_MOST = 0.06   # 位置ずれ: 枠の長い辺が短い辺のこの割合以下なら、部位ではなく欠片とみなして線画で消して扱う（私の推測）
 HORIZON_TILT_MOST = 2.0    # 画角: 地平線の傾きがこれ（度）を超えたら傾いている（私の推測）
 BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこれ以上なら色がはみ出している（私の推測）
 BLEED_MOST = 0.005         # 色のにじみ: はみ出した色の画素が絵全体のこの割合を超えたらにじんでいる（私の推測）
@@ -532,6 +533,49 @@ def detached(image) -> dict:
         if max(dx, dy) <= near:
             boxes.append(box)
     return {"readable": True, "boxes": boxes, "count": len(boxes)}
+
+
+def detached_erasure_mask(image):
+    """位置ずれのうち、小さい欠片だけの囲み（L の絵）。線画の段階では、部位とは言えない
+    小さい離れた欠片は模型で描き直さず消して扱う（清書までの直しは「消して描き直す」
+    レベル、という利用者の規則。模型の描き直しは 1 回に何分かかり、欠片の数だけ
+    繰り返すと検証が制限時間に終わらない）。大きい離れた物は部位かもしれないので
+    消さない。ゴミの大きさの物はゴミの方で扱う。欠片が無ければ None"""
+    import numpy as np
+    got = _components(image)
+    if got is None:
+        return None
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return None
+    h, w = lab.shape
+    from scipy import ndimage
+    objs = ndimage.find_objects(lab)
+    big_sl = objs[big - 1]
+    bx0, bx1 = big_sl[1].start, big_sl[1].stop
+    by0, by1 = big_sl[0].start, big_sl[0].stop
+    near = min(h, w) * DETACH_MOST
+    dust_limit = max(3, min(h, w) * DUST_SIZE_MOST)
+    small_most = min(h, w) * DETACH_ERASE_MOST
+    keep = []
+    for k, sl in enumerate(objs, 1):
+        if k == big or sl is None:
+            continue
+        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
+        long_side = max(box[3] - box[1], box[2] - box[0])
+        if sizes[k - 1] <= DUST_MAX_PIXELS and long_side <= dust_limit:
+            continue   # ゴミの大きさの物は、ゴミの方で扱う
+        dx = max(bx0 - box[2], box[0] - bx1, 0)
+        dy = max(by0 - box[3], box[1] - by1, 0)
+        if max(dx, dy) > near:
+            continue   # 主役から遠い物は別の物
+        if long_side > small_most:
+            continue   # 大きい物は部位かもしれない。消さずに描き直す方へ回す
+        keep.append(k)
+    if not keep:
+        return None
+    from PIL import Image
+    return Image.fromarray((np.isin(lab, keep) * 255).astype("uint8"))
 
 
 def horizon(image) -> dict:

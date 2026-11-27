@@ -43,6 +43,14 @@ SHOW_FROM = "サムネイル"   # ラフ（サムネイル）から先の絵は�
 ROUGH_WORDS = "rough pencil sketch, light sketchy lines, construction lines, monochrome, greyscale, white background, no color"   # ラフ画の言葉（鉛筆や色鉛筆でさっと描く）。サムネイル・アタリで頼みの訳に足す
 PEN_WORDS = "lineart, clean inked lines, monochrome, greyscale, white background, no color"   # 線画の言葉（ペンでなぞって描く）。線画で頼みの訳に足す
 DETAIL_WORDS = "detailed texture, fine details, intricate details, delicate details"   # ディテールの言葉（質感の足し方だけ。新しく描く物の言葉は入れない）。ディテールで頼みの訳に足す
+LINE_ART_WORDS = ("線画", "モノクロ", "白黒", "線だけ", "monochrome", "greyscale", "grayscale", "line art", "lineart")   # 線画で終わる頼みの言葉
+
+
+def wants_line_art(prompt) -> bool:
+    """線画で終わる頼みか。線画・清書はスタートラインで、指定が無いのに線画で終わることは
+    しない。指定があれば、色の工程の代わりに線の質を上げて線画で完成にする（利用者の規則）"""
+    p = (prompt or "").lower()
+    return any(w in p for w in LINE_ART_WORDS)
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
 
@@ -79,6 +87,8 @@ GROW = 12            # 囲みを広げる画素の数（1 段ごと）
 RESTART, GO_ON, REDPEN = "restart", "go", "redpen"   # REDPEN の答えは ("redpen", 囲みの白黒の絵の道)
 MENDS = 3            # 同じ工程で手を替えて囲みを直す回数。消えなければ絵を前のまま残し、残った崩れとして次の工程へ進む
 NO_PROGRESS = MENDS  # 直しても崩れの重さが下がらない直しがこの回数続いた項目は、後の工程で同じ直しを繰り返さない
+# 直しの回数は精度のために削らない（利用者の指摘: 問題は回数ではなく速度）。
+# 序盤で時間をかけないのは、回数ではなく 1 回の直しを速くすることで守る
 FIX_WORDS = {"hand": "correct hand, five fingers, anatomically correct fingers",
              "foot": "correct foot, five toes, anatomically correct toes",
              "face": "correct face, anatomically correct face",
@@ -425,6 +435,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     from atelier.ai.engine import Stopped, emphasize
     from atelier.qc import hand_check as handcheck
     from atelier.ai import phase_tools as pt
+    from atelier.ai import draw_tools as dt
     from atelier.ai import phase_items as items
     from atelier.ai.phase_plan import Plan, step
     from atelier.files import pause_keep as pausekeep
@@ -433,8 +444,20 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     can_line, can_fix = abilities(painter)
     can_refine = hasattr(painter, "refine")
     checks = _Safe(checks)
+    # 線画の頼みなら、工程は線画までの 4 つ＋「線の仕上げ」。色の工程は置かず、
+    # その分の手間を線の質上げに回す。指定が無ければ通常の 10 工程
+    line_art = wants_line_art(prompt)
+    names = list(NAMES)
+    phase_info = list(PHASES)
+    items_by_phase = None
+    if line_art:
+        names = NAMES[:4] + ["線の仕上げ"]
+        phase_info = list(PHASES[:4]) + [("線の仕上げ", "線の質（清書の続き。色には進まない）",
+                                          "線の途切れ、線の強弱、ゴミ、手・足・顔、頼んだ物",
+                                          "外の輪郭の途切れ（gap）、線の明るさの差（contrast）、ゴミの数")]
+        items_by_phase = {4: list(items.PHASE_ITEMS[3])}
     w, h = (size or (832, 1216))
-    n = len(PHASES)
+    n = len(phase_info)
     st = {"image": None, "prompt": prompt, "thumb": None, "points": {}, "light": {}, "height": 0, "seed": seed,
           "layers": {}}   # レイヤー: 線画・清書・下塗りを別々に残す。表示と検品は合成した st["image"] で行う
     memo = {"thumbs": {}, "measured": {}, "check": False}   # 描いた絵と測った結果を使い回す（同じ絵を 2 度描かない・測らない）
@@ -649,6 +672,41 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         tried = _inside(keep_tone(painter.redraw(words2, st["seed"] + 131 + v * 1000, img, mask, strength=REPAINT), img, "服・髪・持ち物", mask), img, mask)
         return {"image": tried, "words": words, "numbers": {"by_parts": by_parts}}
 
+    def clean_lines(img):
+        """清書の実務: 線の強弱を付け、ゴミを塊そのものだけ消す。
+        返すのは (絵, 太らせた画素の数, 消す前のゴミの数。読めなければ None)"""
+        out, hit = pt.weight_lines(img)
+        d = pt.dust(out)
+        cleaned = out
+        if d.get("readable") and d["count"]:
+            mask = pt.dust_mask(out)
+            if mask is not None and mask.getextrema()[1] != 0:
+                cleaned = pt.erase_fill(out, mask)
+        return cleaned, hit, (d.get("count") if d.get("readable") else None)
+
+    def d_line_finish(v):
+        """線の仕上げ: 線画の頼みのときだけ置く工程。色の工程の代わりに、線の質を上げる
+        （弱い描き重ねで線を整え直し、清書をもう一度かける）。線が薄くなる描き重ねは
+        採用しない。線画はスタートラインだが、線画の頼みではここが完成の質を決める"""
+        img = st["image"]
+        if img is None:
+            return {"image": img}
+        words = []
+        if can_refine:
+            say("線の仕上げをしています（色には進まず、線の質を上げます）")
+            tell(pen_prompt())
+            words.append(pen_prompt())
+            raw = keep_tone(painter.refine(pen_prompt(), st["seed"] + v * 1000, img, strength=SHINE, on_step=on_step, **pv), img, "線の仕上げ")
+            ink_before, ink_after = pt.ink_share(img), pt.ink_share(raw)
+            if ink_before > 0 and ink_after < ink_before * LINE_INK_KEEP:
+                say("仕上げの描き重ねで線が薄くなるので、元の線のまま清書だけします")
+            else:
+                img = raw
+        say("清書しています（線の強弱を付け、ゴミを消す）")
+        cleaned, hit, dust_count = clean_lines(img)
+        return {"image": cleaned, "words": words,
+                "numbers": {"pixels": hit, "dust": dust_count}}
+
     def d_lines(v):
         """線画: ラフをペンでなぞって線にする。なぞったあと清書する（線の強弱を付け、ゴミを消す）。
         前は太らせる加工だけで、線を描く工程になっていなかった（利用者の指摘）"""
@@ -677,13 +735,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 img = pt.over_lines(img, base_line)
         # 清書: 線の強弱を付け、残ったゴミを塊そのものだけ消して、線を仕上げる
         say("清書しています（線の強弱を付け、ゴミを消す）")
-        out, hit = pt.weight_lines(img)
-        d = pt.dust(out)
-        cleaned = out
-        if d.get("readable") and d["count"]:
-            mask = pt.dust_mask(out)
-            if mask is not None and mask.getextrema()[1] != 0:
-                cleaned = pt.erase_fill(out, mask)
+        cleaned, hit, dust_count = clean_lines(img)
         # 表示用の合成: ラフのレイヤーがあれば、薄くして線の下に敷く。返す絵（検品と
         # 次の工程の土台）は線のレイヤーそのもの。工程の絵だけが合成になる。
         # 下に敷くラフは、ゴミだけ消した写しを使う。清書まで終わった工程の絵に
@@ -697,7 +749,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 under = pt.erase_fill(rough, rmask)
             display = pt.underlay(cleaned, under)
         return {"image": cleaned, "display": display, "words": words,
-                "numbers": {"pixels": hit, "dust": d.get("count") if d.get("readable") else None}}
+                "numbers": {"pixels": hit, "dust": dust_count}}
 
     def d_base(v):
         """下塗り。線の工程までは色を付けないので、ここで初めて色をのせる。
@@ -766,6 +818,21 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             return None   # 質感が潰れている（ぼやけ等）。採用しない
         return out
 
+    TONE_WORDS = ("網点", "トーン", "screentone", "halftone")
+
+    def tone_pattern(img):
+        """頼みに網点・トーンがあれば、影の側に網点の柄を道具で入れる（漫画のトーン）。
+        頼みに無い柄は入れない。光の向きが読めなければ入れない。返すのは (絵, 入れたか)"""
+        if not any(w in st["prompt"] for w in TONE_WORDS):
+            return img, False
+        lit = st.get("light") or {}
+        mask = pt.shadow_side_mask(img, lit) if lit.get("readable") else None
+        if mask is None:
+            return img, False
+        out = dt.pattern_fill(img, mask, kind="halftone", fg=(40, 40, 40), scale=10)
+        say("頼みの網点を、影の側に道具で入れています")
+        return out, True
+
     def d_detail(v):
         """ディテール: 仕上げの直前に、質感と小さい印を足して整える。消す直しはしない
         （清書より後に消すと、足した表現まで消える）。足すことで影や汚しなどの表現が
@@ -778,15 +845,19 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             out = detail_pass(img, SHINE / 2, st["seed"] + v * 1000 + 1)
         if out is None:
             say("ディテールを足すと影や細部が潰れるので、元の絵のまま進みます")
+            img, _toned = tone_pattern(img)
             return {"image": img, "numbers": {"detail": pt.detail_density(img).get("density")}}
         say("ディテールを足しています（質感・小さい印。消す直しはしません）")
+        out, _toned = tone_pattern(out)
         return {"image": out, "words": [detail_prompt()],
                 "numbers": {"detail": pt.detail_density(out).get("density")}}
 
     def draws(i):
-        return i in DRAWS
+        return i in DRAWS or (line_art and i == 4)   # 線の仕上げも描く工程
 
     drawer = {1: d_thumbs, 2: d_atari, 3: d_lines, 4: d_base, 6: d_shadow, 8: d_detail}
+    if line_art:
+        drawer[4] = d_line_finish   # 下塗りの代わりに線の仕上げ
 
     # 測る。どれも {"flaws", "numbers", "readable", "regions", "eyes", "missing", "show", "note"} を返す。描かない
     def m_purpose(img):
@@ -1069,7 +1140,6 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 "readable": bool(sv.get("readable")) and face_ok}
 
     measurer = [m_purpose, m_thumbs, m_atari, m_lines, m_base, m_light, m_shadow, m_shine, m_detail, m_finish]
-    assert len(measurer) == n
     # 工程ごとの検品が実際に測っている項目。測っていない項目の崩れを、その工程の確かめで
     # 「消えた」ことにしない（持ち越した崩れが黙って外れる事故の再発防止）
     atari_covers = ["人数", "頼んだ物", "画角", "背景", "位置ずれ", "画面の重さ", "重心と等身", "骨組みの比", "手", "足", "顔"]
@@ -1083,6 +1153,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
               ["目の光", "水の光", "葉のつや"],
               ["ディテール", "影の締まり"],
               ["手", "足", "顔", "骨組みの比", "反転して見る", "縮めて見る", "タイヤの丸み", "左右対称", "遠近の収束"]]
+    if line_art:
+        # 線の仕上げ（工程 4）は、線画と同じ物差しで測り、同じ項目を扱う
+        measurer = measurer[:4] + [m_lines]
+        covers = covers[:4] + [covers[3]]
+    assert len(measurer) == n and len(covers) == n
 
     def measure(i, fresh=False):
         """工程 i の見る物を今の絵で測る。同じ絵・同じ言葉なら測り直さない（確かめる工程が項目ごとに同じ結果を読む）"""
@@ -1113,7 +1188,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     # 計画と記録
     saved = pausekeep.state(pause_key) if pause_key else None
     if saved and "plan" in saved:   # 一時停止した工程から続ける。済んだ工程の絵と記録はそのまま使う
-        plan = Plan.load(NAMES, HIDDEN, saved["plan"])
+        plan = Plan.load(names, HIDDEN, saved["plan"])
         final, history, entry, visits = saved["final"], saved["history"], saved["entry"], saved["visits"]
         backs, total, fixes = saved["backs"], saved["total"], saved["fixes"]
         tries, passed_over, phase_left = saved["tries"], saved["passed_over"], saved["phase_left"]
@@ -1127,7 +1202,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         say(f"一時停止した工程 {j}/{nn}「{plan.label(plan.current())}」から続けます（累計 {total} 工程まで描いてあります）")
     else:
         saved = None
-        plan = Plan.initial(NAMES, draws, HIDDEN)
+        plan = Plan.initial(names, draws, HIDDEN, items_by_phase=items_by_phase)
         final, history, entry, visits = {}, [], {}, [0] * n
         backs, total, fixes = 0, 0, 0
         tries: dict = {}          # (工程, 項目) ごとの、直しの強さの段（手を替えた回数）
@@ -1141,6 +1216,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     unreadable_hopeless: set = set()
     # 項目ごとに、直しても崩れの重さが下がらなかった直しの回数。重さが下がれば数え直す
     no_progress: dict = {}
+    # アタリで実際に直しをかけた構成の項目。アタリで手を尽くした構成を、線画以降で
+    # 振り直すと清書した線まで壊れ、崩れの顔ぶれが変わり続けて直しが終わらない
+    # （検証 #27 の監査）。アタリで直していない（初めて見つかった）欠けはこの限りではない
+    composition_mended: set = set()
 
     def tkey(i, item):
         return f"{i}:{item}"
@@ -1152,7 +1231,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         j, nn = plan.number()
         try:
             (keep / "progress.json").write_text(json.dumps(
-                {"state": state, "phase": NAMES[cur["phase"]] if cur else NAMES[-1], "step": plan.label(cur) if cur else "",
+                {"state": state, "phase": names[cur["phase"]] if cur else names[-1], "step": plan.label(cur) if cur else "",
                  "no": j, "total": total, "need": nn, "left": list(left),
                  "images": [r["image"] for r in rows if r.get("image")], "names": [r["phase"] for r in rows if r.get("image")],
                  "image": next((r["image"] for r in reversed(history) if r.get("image")), None)},
@@ -1165,11 +1244,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         total += 1
         path = keep / f"{total:03d}-{i + 1:02d}-{name_tail}.png"   # 累計の順の名前。絵が変わった工程だけ保存する
         img.save(path)
-        if on_preview is not None and i >= NAMES.index(SHOW_FROM):   # ラフ（サムネイル）から先の絵は、描けたら筆で見せる
+        if on_preview is not None and i >= names.index(SHOW_FROM):   # ラフ（サムネイル）から先の絵は、描けたら筆で見せる
             try:
                 shown = img.copy()
                 j, nn = plan.number()
-                shown.info[PHASE_TAG] = {"phase": NAMES[i], "no": j, "need": nn, "total": total}
+                shown.info[PHASE_TAG] = {"phase": names[i], "no": j, "need": nn, "total": total}
                 on_preview(shown)
             except Exception:   # noqa: BLE001  見せるだけ。描く流れは止めない
                 pass
@@ -1185,7 +1264,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         """今の工程（9 の工程の 1 つ）の記録。工程に入るたびに 1 つ作り、その中の確かめ・直しの結果を積む"""
         row = final.get(i)
         if row is None or row.get("visit") != visits[i] or row.get("closed"):
-            row = {"phase": NAMES[i], "decides": PHASES[i][1], "checks": PHASES[i][2], "numbers_of": PHASES[i][3],
+            row = {"phase": names[i], "decides": phase_info[i][1], "checks": phase_info[i][2], "numbers_of": phase_info[i][3],
                    "image": None, "found": [], "fixed": False, "after": [], "words": [], "numbers": {}, "readable": True,
                    "seconds": 0.0, "mem_mb": 0.0, "visit": visits[i], "total": total, "need": plan.need(), "diff": None,
                    "changed": False, "mends": [], "steps": [], "recheck": False}
@@ -1333,6 +1412,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs, "op": "erase", "what": kind})]
         if item == "位置ずれ":
             regs = [[list(b), t] for b, t in res.get("regions", []) if t == "part"]
+            if i == 3 and k == 0:
+                # 線画の最初の一手だけ: 部位とは言えない小さい離れた欠片は、模型で
+                # 描き直さず消して扱う。消せる欠片が無ければ、直しの側で囲みの
+                # 描き直しに切り替わる（regions を一緒に渡すのは、そのため）
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "erase_detached", "regions": regs})]
             if regs:
                 return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "boxes", "regions": regs})]
         if item == "画角":
@@ -1390,11 +1474,16 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         old = plan.need()
         if why is None and not can_fix:
             why = "この模型は囲みの中だけを直せません"
+        if why is None and item in composition_mended and i > 2:
+            # アタリで手を尽くした構成は、線画以降では振り直さない（監査の結論）
+            why = "構成の直しはアタリで終えているので、ここでは描き直しません"
         if why is None and no_progress.get(item, 0) >= NO_PROGRESS:
             why = "直しても崩れの重さが変わりませんでした"
         if why is None and k >= MENDS:
             why = f"{MENDS} 回手を替えて囲みの中を直しても消えませんでした"
         if why is None:
+            if i == 2 and item in ("頼んだ物", "人数"):
+                composition_mended.add(item)
             new = mends_for(i, item, flaws, res, k)
             at = plan.last_pending(("mend",), i, item)
             at = plan.pos + 1 if at is None else at + 1
@@ -1403,9 +1492,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             for x in list(plan.steps[plan.pos + 1:]):
                 if x["phase"] == i and x.get("item") == item and x["kind"] in ("mend", "recheck") and x["status"] == "todo":
                     plan.steps.remove(x)
-            remaining[item] = [f"{NAMES[i]}: {f}" for f in flaws]
+            remaining[item] = [f"{names[i]}: {f}" for f in flaws]
             tries.pop(tkey(i, item), None)
-            say(f"「{NAMES[i]}」の「{item}」は直りませんでした（{why}）。絵は前のまま残し、残った崩れとして次の工程へ進みます: "
+            say(f"「{names[i]}」の「{item}」は直りませんでした（{why}）。絵は前のまま残し、残った崩れとして次の工程へ進みます: "
                 + "、".join(flaws[:3]))
         grew(old)
 
@@ -1418,12 +1507,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         row["mem_mb"] = release()
         row["total"], row["need"] = total, plan.need()
         row["tone"] = pt.tone(st["image"]) if st.get("image") is not None else None
-        row["tone_guard"] = [t for t in tones if t.get("phase") == NAMES[i]]
-        say(f"「{NAMES[i]}」の検品: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:4])))
+        row["tone_guard"] = [t for t in tones if t.get("phase") == names[i]]
+        say(f"「{names[i]}」の検品: " + ("崩れは見つかりませんでした" if not left else "残った崩れ " + "、".join(left[:4])))
         progress("drawing", left)
         if confirm is None:
             return False
-        ans = confirm(i, NAMES[i], st.get("image"), row)
+        ans = confirm(i, names[i], st.get("image"), row)
         kind = ans[0] if isinstance(ans, (tuple, list)) else ans
         if kind not in (REDO, WORDS):
             return False
@@ -1439,7 +1528,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             entry[target] = dict(entry.get(target) or entry[i])
             entry[target]["prompt"] = entry[i]["prompt"]
             entry[target]["image"] = st["image"]   # 戻っても、今の絵を土台にする（前の工程の絵に巻き戻さない）
-        say(f"描き直しを頼まれたので「{NAMES[target]}」から順に進めます")
+        say(f"描き直しを頼まれたので「{names[target]}」から順に進めます")
         row["closed"] = True
         st.clear()
         st.update(entry[target])
@@ -1464,7 +1553,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             j, nn = plan.number()
             label = plan.label(s)
             say(f"工程 {j}/{nn}「{label}」（直し {fixes} 回、累計 {total} 工程）: "
-                + (PHASES[i][1] if kind == "draw" else f"見る物: {PHASES[i][2]}" if kind in ("check", "recheck") else "、".join(s.get("flaws", [])[:3])))
+                + (phase_info[i][1] if kind == "draw" else f"見る物: {phase_info[i][2]}" if kind in ("check", "recheck") else "、".join(s.get("flaws", [])[:3])))
             progress("drawing", left_now)
             tones.clear()
             t0 = time.time()
@@ -1495,10 +1584,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     if s["changed"]:
                         # 工程の絵は表示用の合成があればそちら（線画は薄いラフの上に線）。
                         # 検品・次の工程・前後比較は、レイヤーそのもの（img）で進める
-                        s["image"] = save_img(got.get("display") or img, i, NAMES[i])
+                        s["image"] = save_img(got.get("display") or img, i, names[i])
                         row.update({"image": s["image"], "changed": True, "diff": s["diff"]})
                     elif before is not None and img is not None:
-                        say(f"「{NAMES[i]}」は絵を変えなかったので、工程として数えません")
+                        say(f"「{names[i]}」は絵を変えなかったので、工程として数えません")
                     s["status"] = "done"
                 elif kind in ("check", "recheck"):
                     res = measure(i, fresh=(kind == "recheck"))
@@ -1518,7 +1607,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         row["found"] = list(res["flaws"])   # 工程で初めに見つけた崩れ（全部の項目）
                         row["measured"] = True
                     if res.get("show") is not None and not row.get("show") and kind == "check":   # 骨組みを重ねた確かめの絵。数えずに残す
-                        p_show = keep / f"{i + 1:02d}-{NAMES[i]}-確かめ.png"
+                        p_show = keep / f"{i + 1:02d}-{names[i]}-確かめ.png"
                         res["show"].save(p_show)
                         row["show"] = str(p_show)
                     if kind == "check":   # 初めの並びに無い項目に崩れが出たら、その工程の確かめの最後に確かめる工程を足す
@@ -1553,7 +1642,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         if i <= 1:
                             # 目的とサムネイルは直さずに次へ進む（サムネイルを描き直し続けて先へ進まなかった）。
                             # サムネイルの崩れは、そのあとの工程の確かめがもう一度見つけ、そこで囲んで直す
-                            say(f"「{NAMES[i]}」の崩れは、次の工程から囲んで直します")
+                            say(f"「{names[i]}」の崩れは、次の工程から囲んで直します")
                             s["status"] = "carried"
                             row["carried"] = row.get("carried", []) + got_flaws
                             phase_left[str(i)][item] = []
@@ -1570,8 +1659,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 reasons = [r for _n, r in (res.get("unreadable") or [])]
                                 if reasons and (any("がありません" in r for r in reasons)
                                                 or any(r in unreadable_hopeless for r in reasons)):
-                                    remaining[item] = [f"{NAMES[i]}: 検品できませんでした（{r}）" for r in reasons]
-                                    say(f"「{NAMES[i]}」の検品ができませんでした（{'、'.join(reasons)}）。"
+                                    remaining[item] = [f"{names[i]}: 検品できませんでした（{r}）" for r in reasons]
+                                    say(f"「{names[i]}」の検品ができませんでした（{'、'.join(reasons)}）。"
                                         "検品の故障は絵を直しても直らないので、絵は直さず、未検品として残します")
                                 else:
                                     if reasons:
@@ -1588,14 +1677,21 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     how = s.get("how") or {}
                     op = how.get("op")
                     k = int(s.get("k", 0))
-                    if op in ("rotate", "thicken", "erase", "shine", "mirror", "detail", "detail_retry"):
+                    if op == "erase_detached" and how.get("regions") and pt.detached_erasure_mask(cur) is None:
+                        # 消せる欠片が無い（離れた物は全部、部位かもしれない大きさ）。
+                        # 同じ消す直しを繰り返さず、囲みの描き直しに切り替える
+                        say("消せる欠片は無いので、離れた物の囲みを描き直します")
+                        how = {"mask": "boxes", "regions": how["regions"]}
+                        op = None
+                    if op in ("rotate", "thicken", "erase", "shine", "mirror", "detail", "detail_retry", "erase_detached"):
                         # 模型で描き直さない直し（純粋な操作）。直す工程には、必ず対応する検品がある
                         tried = None
                         dd = None
                         changed = False
                         mend_name = {"rotate": "回す", "thicken": "太らせる", "erase": "消す",
                                      "shine": "光を付ける", "mirror": "鏡写し",
-                                     "detail": "質感を締める", "detail_retry": "弱く描き直す"}[op]
+                                     "detail": "質感を締める", "detail_retry": "弱く描き直す",
+                                     "erase_detached": "欠片を消す"}[op]
                         if cur is None:
                             s["status"] = "skipped"
                             queue_fix(i, item, s.get("flaws", []), {}, k, why="絵がありません")
@@ -1627,6 +1723,18 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             dd = diff(cur, tried)
                             dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
                             changed = (dd["mean"] or 0) >= DIFF_MIN
+                        elif op == "erase_detached":
+                            say(f"部位とは言えない小さい離れた欠片を消しています: " + "、".join(s.get("flaws", [])[:3]))
+                            mask = pt.detached_erasure_mask(cur)
+                            if mask is None:
+                                tried = cur
+                                dd = diff(cur, tried)
+                                dd["outside"], dd["inside"] = dd["mean"], dd["mean"]
+                                changed = False
+                            else:
+                                tried = pt.erase_fill(cur, mask)
+                                dd = diff(cur, tried, mask)
+                                changed = (dd["inside"] or 0) >= 10
                         elif op == "detail":
                             say(f"質感を締め直しています: " + "、".join(s.get("flaws", [])[:3]))
                             tried = pt.enhance_detail(cur)
@@ -1661,7 +1769,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         if tried is not None and dd is not None:
                             s.update({"strength": 1.0, "diff": dd["mean"], "outside": dd.get("outside"), "inside": dd.get("inside"),
                                       "words": [], "changed": changed})
-                            mrow = {"phase": NAMES[i], "mend": mend_name, "item": item,
+                            mrow = {"phase": names[i], "mend": mend_name, "item": item,
                                     "strength": 1.0, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd.get("outside"),
                                     "inside": dd.get("inside"), "words": [], "readable": True, "image": None, "changed": changed,
                                     "visit": visits[i]}
@@ -1670,7 +1778,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 fixes += 1
                                 memo.setdefault(("before", i, item), cur)
                                 st["image"] = tried
-                                s["image"] = mrow["image"] = save_img(tried, i, f"{NAMES[i]}-直し")
+                                s["image"] = mrow["image"] = save_img(tried, i, f"{names[i]}-直し")
                                 s["status"] = "done"
                             else:
                                 say(f"直しで絵がほとんど変わらなかったので（差 {dd['mean']}）、数えずに直し直します")
@@ -1753,7 +1861,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         if attempted:
                             s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
                                       "words": [words], "changed": (dd["mean"] or 0) >= DIFF_MIN})
-                            mrow = {"phase": NAMES[i], "mend": "赤ペン" if how.get("mask") == "pen" else k + 1, "item": item,
+                            mrow = {"phase": names[i], "mend": "赤ペン" if how.get("mask") == "pen" else k + 1, "item": item,
                                     "strength": strength, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd["outside"],
                                     "inside": dd["inside"], "words": [words], "readable": True, "image": None, "changed": s["changed"],
                                     "visit": visits[i], **({"pen": True} if how.get("mask") == "pen" else {}),
@@ -1763,7 +1871,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 fixes += 1
                                 memo.setdefault(("before", i, item), cur)
                                 st["image"] = tried
-                                s["image"] = mrow["image"] = save_img(tried, i, f"{NAMES[i]}-{'赤ペンの' if how.get('mask') == 'pen' else ''}直し")
+                                s["image"] = mrow["image"] = save_img(tried, i, f"{names[i]}-{'赤ペンの' if how.get('mask') == 'pen' else ''}直し")
                                 s["status"] = "done"
                             else:
                                 # 絵がほとんど変わらなかった直しは工程として数えず、囲みを広げ、強さを上げて直し直す（同じ入力を繰り返さない）
@@ -1781,8 +1889,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     why = s.get("why", "")
                     flaws = list(s.get("flaws", []))
                     choices = ["赤ペンで囲んで直す", "言葉を足して直す", "構図から描き直す", "このまま進む"]
-                    say(f"「{NAMES[i]}」で崩れが残りました（{why}）: " + "、".join(flaws[:4]) + "。直し方を選んでください: " + "、".join(choices))
-                    ans = ask(i, NAMES[i], flaws, choices) if ask is not None else None
+                    say(f"「{names[i]}」で崩れが残りました（{why}）: " + "、".join(flaws[:4]) + "。直し方を選んでください: " + "、".join(choices))
+                    ans = ask(i, names[i], flaws, choices) if ask is not None else None
                     akind = ans[0] if isinstance(ans, (tuple, list)) else ans
                     s["answer"] = akind
                     if akind == RESTART:
@@ -1817,17 +1925,17 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         grew(old)
                     elif akind == GO_ON:
                         s["status"] = "done"
-                        passed_over += [f"{NAMES[i]}: {x}" for x in flaws]
+                        passed_over += [f"{names[i]}: {x}" for x in flaws]
                         phase_left.setdefault(str(i), {})[item] = []
                         tries.pop(tkey(i, item), None)
                     else:
-                        asked = {"phase": NAMES[i], "index": i, "item": item, "left": flaws, "why": why, "choices": choices,
+                        asked = {"phase": names[i], "index": i, "item": item, "left": flaws, "why": why, "choices": choices,
                                  "step": plan.number()[0]}
                         s["status"] = "asked"
                         if pause_key:   # 窓のボタンで選んだ答えを持って、この聞く工程から続けられるように残す
                             s["status"] = "todo"
                             entry_step = dict(st)
-                            keep_pause(f"「{NAMES[i]}」で崩れが残って止まり、直し方を待っています", {"asked": asked})
+                            keep_pause(f"「{names[i]}」で崩れが残って止まり、直し方を待っています", {"asked": asked})
                             asked["key"] = pause_key
                         break
             except Exception as e:   # noqa: BLE001  止めて捨てずに、この工程に入ったときの計画と土台を残す
@@ -1843,7 +1951,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             row["seconds"] = round(row["seconds"] + s["seconds"], 2)
             row["steps"].append(plan.number()[0])
             for t in tones:
-                t.setdefault("phase", NAMES[i])
+                t.setdefault("phase", names[i])
             nxt = plan.next_phase()
             if s["status"] in ("done", "carried", "skipped", "unchanged") and nxt != i and not row.get("closed"):
                 finish_phase(i, row)   # 描き直しを頼まれたら、計画は今の位置のあとに積み直してある

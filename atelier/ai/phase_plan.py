@@ -41,11 +41,11 @@ class Plan:
         self.pos = pos
 
     @classmethod
-    def initial(cls, names, draws, hidden=(), start: int = 0):
-        """draws(phase) は、その工程が描くか"""
+    def initial(cls, names, draws, hidden=(), start: int = 0, items_by_phase=None):
+        """draws(phase) は、その工程が描くか。items_by_phase は工程ごとの確かめる項目の差し替え（線画の頼みの線の仕上げなど）"""
         p = cls(names, hidden)
         for i in range(start, len(names)):
-            p.steps += phase_steps(i, draws(i))
+            p.steps += phase_steps(i, draws(i), (items_by_phase or {}).get(i))
         return p
 
     # 位置

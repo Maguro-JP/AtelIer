@@ -31,6 +31,8 @@ def configure(on: bool, lifts=()) -> None:
         _state["lifts"] = {k for k in lifts if k in {x[0] for x in LIFTS}} if on else set()
     if on:
         prune()
+        from atelier.app import updater
+        log("起動", f"{updater.app_title()} の記録を始めます")   # 記録を見れば、今の版が分かる
 
 
 def on() -> bool:
