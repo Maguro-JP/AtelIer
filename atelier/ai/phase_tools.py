@@ -214,7 +214,10 @@ def weight_lines(image, r=None):
     if hit.any():
         from scipy import ndimage
         dist = ndimage.distance_transform_edt(dark & m)
-        width_now = 4.0 * float(dist[hit].mean())
+        # 太さの見積もりは、暗い画素ぜんぶで見る。輪郭の帯の画素だけで見ると、線の
+        # 縁の浅い所ばかり拾って太さを浅く見積もり、太らせる処理を何度も重ねて
+        # 線が極太になった（利用者の指摘）
+        width_now = 4.0 * float(dist[dark & m].mean())
         if width_now < 2 * r + 3:
             thick = _dilate(hit, r) & ~hit   # 線の周り（内側と外側の紙）を太らせる。内側の細い線は太らせない
     if thick.any() and hit.any():
@@ -376,6 +379,78 @@ def dust_mask(image):
     lab, keep = got
     m = np.isin(lab, keep) if keep else np.zeros(lab.shape, bool)
     return Image.fromarray((m * 255).astype("uint8"))
+
+
+def local_texture(image, mask) -> float:
+    """囲みの中の明るさのばらつき（標準偏差）。線や質感がある所は大きく、
+    塗りつぶされた所は 0 に近くなる。直しが形を塗りつぶしていないかを見る"""
+    import numpy as np
+    lum = luminance(image).astype(np.float32)
+    m = np.asarray(mask.convert("L")) > 127 if mask is not None else None
+    if m is None or m.shape != lum.shape or not m.any():
+        return 0.0
+    return float(lum[m].std())
+
+
+def new_specks(before, after) -> int:
+    """前には無かった、暗い小さな塊（点・短い線）の数。仕上げ系の描き重ねが
+    ゴミの線を散らかしていないかを見る（利用者の指摘: ゴミの線をばらまいて、
+    壊すことを仕上げだと思ってる）。既にある暗さに重なる・つながる物は数えない"""
+    import numpy as np
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ数えられない（0 を返し、止めない）
+        return 0
+    lb = luminance(before) < 80
+    la = luminance(after) < 80
+    new = la & ~ndimage.binary_dilation(lb, iterations=1)
+    lab, n = ndimage.label(new)
+    if not n:
+        return 0
+    sizes = ndimage.sum(new, lab, range(1, n + 1))
+    return int((sizes <= DUST_MAX_PIXELS).sum())
+
+
+def new_bumps(before, after) -> int:
+    """滑らかだった所に新しくできた、小さな強い変化の塊の数。ディテールの
+    描き重ねが、肌などの滑らかな面にブツブツ（でき物）を足していないかを見る。
+    滑らかな所への強い小さな変化は、質感ではなく汚れ・でき物（利用者の指摘）"""
+    import numpy as np
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ数えられない（0 を返し、止めない）
+        return 0
+    a = np.asarray(before.convert("RGB"), np.int16)
+    b = np.asarray(after.convert("RGB"), np.int16)
+    diff = np.abs(a - b).max(axis=2) > 36
+    lum = luminance(before).astype(np.float32)
+    mean = ndimage.uniform_filter(lum, size=5)
+    var = ndimage.uniform_filter(lum * lum, size=5) - mean * mean
+    smooth = var < 36.0   # 前の絵で滑らかだった所（ばらつき 6 未満）
+    mask = diff & smooth
+    lab, n = ndimage.label(mask)
+    if not n:
+        return 0
+    sizes = ndimage.sum(mask, lab, range(1, n + 1))
+    return int(((sizes >= 2) & (sizes <= DUST_MAX_PIXELS)).sum())
+
+
+def grain(image) -> float:
+    """色の粒（ブツブツ）の割合。3x3 の中央値と大きく違う画素の割合で測る。
+    下塗りで色をのせたはずが粒だらけになっていないかを見る（利用者の指摘）"""
+    import numpy as np
+    from PIL import ImageFilter
+    im = image.convert("RGB")
+    a = np.asarray(im, np.int16)
+    med = np.asarray(im.filter(ImageFilter.MedianFilter(3)), np.int16)
+    return float((np.abs(a - med).max(axis=2) > 24).mean())
+
+
+def flatten_base(image):
+    """下塗りの色を平らにする。面の中で一番多い色に寄せるので、1〜2 画素の粒は消え、
+    面の色と境目は残る。下塗りはベタ塗りが正しい（粒は影や質感の工程で付ける）"""
+    from PIL import ImageFilter
+    return image.convert("RGB").filter(ImageFilter.ModeFilter(5))
 
 
 def detail_density(image) -> dict:
@@ -683,6 +758,9 @@ def erase_fill(image, mask):
     混ぜない（混ぜると、消したはずの線や塊がにじんで残る）。
     1 色で塗ると、色や影や階調のある所では塗りつぶした塊に見える
     （利用者の指摘: 「消すが上から塗りつぶす動きをしてる」）。
+    広げ方は、平均を取らずに一番近い外の画素の色をそのまま写す。平均で広げると
+    色同士が混ざって滲み、消しゴムでこすった汚れに見える（利用者の指摘:
+    「滲ませてる」「下手な消しゴム」）。写すだけなら、色は混ざらない。
     囲みの外は変えない。返すのは消したあとの絵"""
     import numpy as np
     from PIL import Image
@@ -690,6 +768,20 @@ def erase_fill(image, mask):
     m = np.asarray(mask.convert("L").resize(im.size)) > 0
     if not m.any():
         return im
+    if not (~m).any():   # 囲みが絵全体（写す種が無い）なら紙の色で埋める
+        out = im.copy()
+        out.paste(paper_color(im), (0, 0) + im.size)
+        return out
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ、下の平均で広げる方へ
+        ndimage = None
+    if ndimage is not None:
+        _dist, inds = ndimage.distance_transform_edt(m, return_indices=True)
+        src = np.asarray(im)
+        out = src.copy()
+        out[m] = src[inds[0][m], inds[1][m]]
+        return Image.fromarray(out)
     h, w = m.shape
     work = np.asarray(im).astype(np.float32)
     known = ~m

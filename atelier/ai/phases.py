@@ -52,6 +52,7 @@ def wants_line_art(prompt) -> bool:
     p = (prompt or "").lower()
     return any(w in p for w in LINE_ART_WORDS)
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
+BASE_GRAIN_MOST = 0.02   # 下塗り: 色の粒（ブツブツ）の割合がこれを超えたら、面の色に寄せて平らにする
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
 
 PHASES = [
@@ -68,22 +69,33 @@ PHASES = [
 ]
 NAMES = [p[0] for p in PHASES]
 THUMB_SCALE = 1.0     # サムネイルの大きさ（描く大きさの割合）。同じ種・同じ大きさならアタリが同じ構図になるので縮めない
-THUMB_STEPS = 1.0     # サムネイルの描く工程の数の割合。選んだサムネイルをそのままアタリにする（半分の工程で描いてから同じ種でアタリを
-                      # 描き直すと、同じ構図を 2 度描いて 214 秒かかり、描き直した絵は別の色になった。0.25 ではぼやけた絵になった）
+THUMB_STEPS = 0.5     # サムネイルの描く工程の数の割合。サムネイルはラフ（20 点で十分）なので軽く描く。
+                      # 昔は半分にすると、アタリが同じ種で描き直して同じ構図を 2 度描き（214 秒）、色も変わった。
+                      # 今のアタリはサムネイルの絵そのものに描き重ねるので、2 度描きにはならない。
+                      # 0.25 ではぼやけたので 0.5（利用者の指示: 序盤に時間をかけない。かけるのは線画以降、特に清書以降）
+EARLY_STEPS = 0.5     # アタリの描く速さ（工程の数の割合）。アタリはラフで、線画や清書と同じレベルまで仕上げない
+LINE_STEPS = 0.8      # 線画の描く速さ。清書以降（下塗り・光源・影・ディテール・仕上げ）は割合 1.0 で時間をかける
 LINE_STRENGTH = 0.6   # 下描き: アタリの線に沿う強さ（T2I-Adapter の効き。0.8 では霞みと枠が出た）
 LINE_INK_KEEP = 0.6   # 線画: ペンなぞりのあと、濃い線の割合が土台のこの割合を切ったら線の暗さを戻す（私の推測）
 REFINE = 0.45         # 下描き: アタリの絵に描き重ねる強さ（色と明るさを残す）
 REPAINT = 0.35        # 服・髪・持ち物: 描かれていない物を足すときの描き直しの強さ（形は残す）
 FIX = 0.55            # 顔・手・足の直し: 崩れた枠の中だけを描き直す強さ（1 回目）
-FIXES = (0.55, 0.7, 0.85, 0.95)   # 直しを重ねるたびに強くする。同じ強さで戻って直すと崩れた指の形をなぞり、下描きから最後まで同じ崩れが残った
+FIXES = (0.45, 0.5, 0.55, 0.6)   # 直しの強さは少しずつだけ上げる。同じ強さでは崩れた指の形をなぞって同じ崩れが残った（昔の記録）が、
+                      # 一気に強くすると囲みの中を丸ごと描き直す形になり、変化が大きくて崩れる。小さい変化を繰り返すと
+                      # 崩れずに整っていく（利用者の指摘: 一気に消して一気に描くと崩れやすい）
 SHINE = 0.35          # 目の光の直し: 目の囲みの中だけを描き直す強さ
 DETAIL_LEAST = 0.03   # ディテール: 主役の内側の質感の密度がこれ未満なら、ディテールが薄い（私の推測）
+SPECKS_MOST = 8       # ディテール: 描き重ねで増えた新しい暗い塊（ゴミの線・点）がこれを超えたら採用しない
+FLAT_KEEP = 0.35      # 直し: 囲みの中の質感（明るさのばらつき）が直す前のこれ未満になったら、塗りつぶしとみて採用しない
+FORM_CRUSH = 0.5      # 完成の判定: 最後の絵の質感の密度と鋭さが、両方とも土台のこれ未満なら、形が潰れたとみる
 TONE_CRUSH = 0.85     # ディテール: 描き重ねでコントラストが元のこの割合を切ったら、影や濃い細部が潰れたとみて採用しない（私の推測）
 DETAIL_CRUSH = 0.7    # ディテール: 描き重ねで質感の密度が元のこの割合を切ったら、細部が潰れたとみて採用しない（私の推測）
 COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれより多ければ、色が散っている（私の推測）
 DIFF_MIN = 0.5       # 前の絵との画素の差の平均（0〜255）がこれ未満なら「変わらなかった」として数えない（私の推測）
-MEND = (0.45, 0.55, 0.65, 0.75, 0.85, 0.95)   # 囲みの直しの強さ。変わらなかった・同じ崩れが続いた回ごとに 1 段上げる
-GROW = 12            # 囲みを広げる画素の数（1 段ごと）
+MEND = (0.45, 0.5, 0.55, 0.6, 0.65, 0.7)   # 囲みの直しの強さ。上げる幅は小さくする（FIXES と同じ理由。一気に変えない）
+GROW = 12            # 囲みを広げる画素の数（1 段ごと）。直しの縁で切れた線や接合部は、広げた囲みで
+                      # 描き直して初めてつながる（囲みの中だけでは、縁の切り口が残る）。変化を小さくするのは
+                      # 強さの上げ幅と「1 枠ずつ」で行う（利用者の指摘: 一気に消して一気に描くと崩れる）
 RESTART, GO_ON, REDPEN = "restart", "go", "redpen"   # REDPEN の答えは ("redpen", 囲みの白黒の絵の道)
 MENDS = 3            # 同じ工程で手を替えて囲みを直す回数。消えなければ絵を前のまま残し、残った崩れとして次の工程へ進む
 NO_PROGRESS = MENDS  # 直しても崩れの重さが下がらない直しがこの回数続いた項目は、後の工程で同じ直しを繰り返さない
@@ -455,7 +467,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         phase_info = list(PHASES[:4]) + [("線の仕上げ", "線の質（清書の続き。色には進まない）",
                                           "線の途切れ、線の強弱、ゴミ、手・足・顔、頼んだ物",
                                           "外の輪郭の途切れ（gap）、線の明るさの差（contrast）、ゴミの数")]
-        items_by_phase = {4: list(items.PHASE_ITEMS[3]) + ["線の強弱"]}   # 線の仕上げは線の質を上げる工程なので、線の強弱も扱う（通常の線画では扱わない）
+        items_by_phase = {4: ["ゴミ", "線の強弱", "線の途切れ"]}   # 線の仕上げは線の質を上げる工程なので、線の強弱も扱う（通常の線画では扱わない）。線の途切れはここでも最後に見る
     w, h = (size or (832, 1216))
     n = len(phase_info)
     st = {"image": None, "prompt": prompt, "thumb": None, "points": {}, "light": {}, "height": 0, "seed": seed,
@@ -573,6 +585,16 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         if isinstance(s0, int):
             painter.steps = s0
 
+    def stage_steps(i):
+        """工程ごとの描く速さ（工程の数の割合）。序盤（サムネイル・アタリ）はラフで十分なので
+        軽くし、線画は少し軽く、清書以降（下塗り・光源・影・ディテール・仕上げ）は 1.0。
+        時間をかけるべきは線画以降、特に清書以降（利用者の指示、2026-11-27）"""
+        if i <= 2:
+            return EARLY_STEPS
+        if i == 3 or (line_art and i == 4):
+            return LINE_STEPS
+        return 1.0
+
     def points(img):
         got = checks.points(img)
         return dict(got.get("points") or {}) if got.get("readable") else {}
@@ -591,8 +613,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             tell(rough_prompt())
             words.append(rough_prompt())
             img = painter.paint(rough_prompt(), s, on_step=on_step, size=(tw, th))   # サムネイルは途中の絵もキャンバスに出さない（NO_PREVIEW）
-            if THUMB_SCALE >= 1 and THUMB_STEPS >= 1:
-                memo["thumbs"][(st["prompt"], s)] = img
+            if THUMB_SCALE >= 1:
+                memo["thumbs"][(st["prompt"], s)] = img   # アタリはこの絵に描き重ねる（描き直さない）。軽く描いたラフでも構図は同じ種で同じ
             req = checks.request(img, st["prompt"])   # 構図を測る。崩れは確かめる工程が項目ごとに出す
             wt = pt.thumb_weight(img)
             flaws = _people(req) + _missing(req) + (["画面の重さが片寄っている"] if wt["weight_x"] > pt.WEIGHT_MOST else [])
@@ -619,7 +641,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             say(f"サムネイル（種 {s}）をそのままアタリにします")
             img = got
         else:
-            s0 = steps(1.0)
+            s0 = steps(EARLY_STEPS)
             try:
                 tell(rough_prompt())
                 words.append(rough_prompt())
@@ -627,16 +649,27 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             finally:
                 unsteps(s0)
         st["image"] = img
-        d = d_draft(v)
-        img = d["image"]
-        words += d["words"]
-        if st["prompt"] != prompt:   # 利用者が言葉を足したときだけ、服・髪・持ち物を描き足す
-            st["image"] = img
-            w2 = d_wear(v)
-            img = w2["image"]
-            words += w2["words"]
+        s0 = steps(EARLY_STEPS)   # アタリはラフ。下描きの描き重ねも軽く描く（線画や清書と同じレベルまで仕上げない）
+        try:
+            d = d_draft(v)
+            img = d["image"]
+            words += d["words"]
+            if st["prompt"] != prompt:   # 利用者が言葉を足したときだけ、服・髪・持ち物を描き足す
+                st["image"] = img
+                w2 = d_wear(v)
+                img = w2["image"]
+                words += w2["words"]
+        finally:
+            unsteps(s0)
         st["image"] = base
-        return {"image": img, "words": words}
+        # 見せ方: アタリはラフの上に描く物。ラフを薄く下に敷いた合成を表示に使うと、
+        # 筆の見せ方でラフの線が消えず、新しい線だけが足されていく。敷かないと、
+        # ずれた線が二重に見えてチラつき、後から元の線を消す汚い見え方になる
+        display = None
+        rough = st["layers"].get("ラフ")
+        if rough is not None and rough.size == img.size:
+            display = pt.underlay(img, rough)
+        return {"image": img, "display": display, "words": words}
 
     def d_draft(v):
         img, words, note = st["image"], [], ""
@@ -647,6 +680,26 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             tell(rough_prompt())
             words.append(rough_prompt())
             img = keep_tone(painter.refine(rough_prompt(), s, img, strength=REFINE, on_step=on_step, **pv), base, "下描き")
+            if v == 0 and img is not None:
+                # 最初のアタリは、複数枚描いて一番良い物を採る。枚数を惜しむ話ではない:
+                # 裏で何枚描いても良いから、一番崩れの少ないアタリで工程を終わらせる
+                # （悪いアタリを検品と直しで何度もいじるより速く、見栄えも良い。利用者の指示）
+                first = measure_base(img)
+                if first is not None:
+                    best, best_sev, drawn = img, first["severity"], 1
+                    for extra in (500, 501, 502):   # 合わせて最大 4 枚。崩れの無い物が描けたら、そこで止める
+                        if best_sev <= 0:
+                            break
+                        alt = keep_tone(painter.refine(rough_prompt(), s + extra, base, strength=REFINE, on_step=on_step, **pv), base, "下描き")
+                        drawn += 1
+                        if alt is None or alt.size != img.size:
+                            continue
+                        got = measure_base(alt)
+                        if got is not None and got["severity"] < best_sev:
+                            best, best_sev = alt, got["severity"]
+                    if drawn > 1:
+                        say(f"アタリを {drawn} 枚描いて、一番崩れの少ない物を選びました（崩れの重さ {best_sev}）")
+                        img = best
         elif can_line:
             say("アタリの線に沿って、顔・手・足を描き込んでいます")
             tell(rough_prompt())
@@ -713,18 +766,22 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         img, words = st["image"], []
         base_line = img   # ペンでなぞる前の線。なぞった絵の線が薄れたら、暗さをここから戻す
         s = st["seed"] + v * 1000
-        if can_refine:
-            say("ラフをペンでなぞって、線画を描いています")
-            tell(pen_prompt())
-            words.append(pen_prompt())
-            img = keep_tone(painter.refine(pen_prompt(), s, img, strength=REFINE, on_step=on_step, **pv), img, "線画")
-        elif can_line:
-            say("ラフをペンでなぞって、線画を描いています")
-            tell(pen_prompt())
-            words.append(pen_prompt())
-            img = keep_tone(painter.paint(pen_prompt(), s, on_step=on_step, base=img, strength=LINE_STRENGTH, size=(w, h), **pv), img, "線画")
-        else:
-            say("この模型は描き重ねられないので、ラフのまま線を確かめます")
+        s0 = steps(LINE_STEPS)   # 線画は少し軽く描く。時間をかけるのは清書以降
+        try:
+            if can_refine:
+                say("ラフをペンでなぞって、線画を描いています")
+                tell(pen_prompt())
+                words.append(pen_prompt())
+                img = keep_tone(painter.refine(pen_prompt(), s, img, strength=REFINE, on_step=on_step, **pv), img, "線画")
+            elif can_line:
+                say("ラフをペンでなぞって、線画を描いています")
+                tell(pen_prompt())
+                words.append(pen_prompt())
+                img = keep_tone(painter.paint(pen_prompt(), s, on_step=on_step, base=img, strength=LINE_STRENGTH, size=(w, h), **pv), img, "線画")
+            else:
+                say("この模型は描き重ねられないので、ラフのまま線を確かめます")
+        finally:
+            unsteps(s0)
         if base_line is not None and img is not None:
             # 線の濃さの見張り。色と明るさの見張り（keep_tone）は暗い所の下位 5% を見るので、
             # 細い線が薄くなる崩れを見逃す。濃い線の割合が土台の 6 割を切ったら、土台の線の
@@ -773,6 +830,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             color = painter.paint(st["prompt"], s, on_step=on_step, base=img, strength=BASE_COLOR, size=(w, h))
         if color is None:
             return {"image": img, "words": words, "note": "この模型は描き重ねられないので、線画のまま色を確かめます"}
+        if pt.grain(color) > BASE_GRAIN_MOST:   # 色をのせたはずが粒（ブツブツ）だらけのときだけ、面の色に寄せて平らにする（きれいな色は触らない）
+            flat = pt.flatten_base(color)
+            if pt.grain(flat) < pt.grain(color):
+                say("下塗りの色に粒が出たので、面の色に寄せて平らにします（下塗りはベタ塗り）")
+                color = flat
         line = st["layers"].get("清書") or img
         st["layers"]["下塗り"] = color
         for lname, limg in st["layers"].items():   # レイヤーはファイルにも残す（表示には出さない。あとで線画が残っているか確かめられる）
@@ -816,6 +878,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 and (da["density"] < db["density"] * DETAIL_CRUSH
                      or da["sharp"] < db["sharp"] * DETAIL_CRUSH)):
             return None   # 質感が潰れている（ぼやけ等）。採用しない
+        if pt.new_specks(img, out) > SPECKS_MOST:
+            return None   # 新しいゴミ（暗い点・短い線の塊）が増えている。足すはずが散らかしている。採用しない
+        if pt.new_bumps(img, out) > SPECKS_MOST:
+            return None   # 滑らかだった所にブツブツ（でき物）が増えている。質感ではなく汚れ。採用しない
         return out
 
     TONE_WORDS = ("網点", "トーン", "screentone", "halftone")
@@ -1146,11 +1212,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     covers = [["頼み"],
               ["人数", "頼んだ物", "画面の重さ"],
               atari_covers,
-              # 線画が扱うのは、線とパーツとゴミだけ。構図の項目（画角・背景・位置ずれ・
-              # 等身・骨組み・画面の重さ・人数）はアタリの仕事で、線画で直しの対象にしない
-              # （線画で構図を描き直すと清書した線が壊れるし、直しが膨らんで終わらない。
-              # 測ること自体は状態の把握に使うが、直すのは適所でだけにする）
-              ["線の途切れ", "ゴミ", "手", "足", "顔", "頼んだ物"],
+              # 線画が扱うのは、線の事だけ（途切れとゴミ）。構図の項目（画角・背景・位置ずれ・
+              # 等身・骨組み・画面の重さ・人数）はアタリの仕事、パーツ（手・足・顔・頼んだ物）の
+              # 直しはアタリと仕上げの仕事。線画はただのスタートラインで、ここで完成にしようと
+              # しない（利用者の指摘）。測ること自体は状態の把握に使うが、直すのは適所でだけにする
+              ["線の途切れ", "ゴミ"],
               ["色の差", "色のにじみ"],
               ["光の向き"],
               ["影"],
@@ -1203,7 +1269,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             given = [answer]
             ask = lambda *_a: given.pop() if given else None   # noqa: E731
         j, nn = plan.number()
-        say(f"一時停止した工程 {j}/{nn}「{plan.label(plan.current())}」から続けます（累計 {total} 工程まで描いてあります）")
+        say(f"一時停止した工程 {j}/{nn}「{plan.label(plan.current())}」から続けます")
     else:
         saved = None
         plan = Plan.initial(names, draws, HIDDEN, items_by_phase=items_by_phase)
@@ -1401,9 +1467,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         if item in items.REGION_ITEMS and res.get("regions"):
             regs = [[list(b), t] for b, t in res["regions"] if t in ("hand", "foot", "face")]
             if regs:
-                if len(regs) == len(flaws) and len(flaws) > 1:
+                # 枠ごとに 1 つずつ直す。全部の枠を一度に消して描くと変化が大きくて崩れる。
+                # 1 枠ずつ小さく消して描いてを繰り返すと、変化が小さいので崩れずに整っていく（利用者の指摘）
+                if len(regs) == len(flaws):
                     return [step("mend", i, item, flaws=[f], k=k, how={"mask": "regions", "regions": [r]}) for f, r in zip(flaws, regs)]
-                return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs})]
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": [r]}) for r in regs]
         if item == "頼んだ物" and i == 2:
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "wear", "missing": list(res.get("missing", []))})]
         if item == "目の光" and res.get("eyes"):
@@ -1556,7 +1624,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             resumed = False
             j, nn = plan.number()
             label = plan.label(s)
-            say(f"工程 {j}/{nn}「{label}」（直し {fixes} 回、累計 {total} 工程）: "
+            say(f"工程 {j}/{nn}「{label}」（直し {fixes} 回）: "
                 + (phase_info[i][1] if kind == "draw" else f"見る物: {phase_info[i][2]}" if kind in ("check", "recheck") else "、".join(s.get("flaws", [])[:3])))
             progress("drawing", left_now)
             tones.clear()
@@ -1628,6 +1696,21 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             grew(old)
                     if kind == "recheck":
                         prev = phase_left.get(str(i), {}).get(item, [])
+                        # 責任の判定: この直しで別の項目の崩れが増えていたら、それは新しい
+                        # 仕事ではなく、この直しが壊した物。直す前の絵に戻し、この直しの
+                        # 失敗として数える（壊した分を別の直しに回して「直った」ことに
+                        # しない。塗りつぶして見えなくするのも同じで、そもそも壊さない）
+                        beforeby = memo.get(("beforeby", i, item))
+                        if beforeby is not None and memo.get(("before", i, item)) is not None:
+                            afterby = res.get("by_item") or {}
+                            others_worse = [k2 for k2, fl in afterby.items()
+                                            if k2 != item and _severity(fl) > _severity(beforeby.get(k2, [])) + 0.5]
+                            if others_worse:
+                                say(f"「{item}」の直しで「{'、'.join(others_worse)}」が壊れたので、直す前の絵に戻します（壊した分は、この直しの失敗として数えます）")
+                                st["image"] = memo[("before", i, item)]
+                                got_flaws = prev
+                                s["reverted"] = True
+                                no_progress[item] = no_progress.get(item, 0) + 1
                         if prev and got_flaws:
                             # 直したのに崩れの重さが下がらなかった（同じか増えた）ら数える。
                             # 重さが下がれば、直しが効いているので数え直す
@@ -1644,6 +1727,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     if covered:
                         phase_left.setdefault(str(i), {})[item] = got_flaws
                     memo.pop(("before", i, item), None)
+                    memo.pop(("beforeby", i, item), None)
                     left_now = got_flaws
                     say(f"「{label}」: " + ("崩れは見つかりませんでした" if not got_flaws else "崩れ " + "、".join(got_flaws[:4])))
                     if got_flaws:
@@ -1785,6 +1869,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             if changed:
                                 fixes += 1
                                 memo.setdefault(("before", i, item), cur)
+                                memo.setdefault(("beforeby", i, item), measure(i)["by_item"])   # 責任の判定用: 直す前の項目別の崩れ
                                 st["image"] = tried
                                 s["image"] = mrow["image"] = save_img(tried, i, f"{names[i]}-直し")
                                 s["status"] = "done"
@@ -1815,7 +1900,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 words = f"{', '.join(str(x) for x in missing)}, {words}"
                             say(f"アタリ全体を描き直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                             tell(words)
-                            raw = painter.refine(words, seed, cur, strength=strength)
+                            s0 = steps(stage_steps(i))
+                            try:
+                                raw = painter.refine(words, seed, cur, strength=strength, on_step=on_step)
+                            finally:
+                                unsteps(s0)
                             # 下描きの描き重ねと同じ守りを掛ける。守りが無いと、直しのたびに霞んで色が薄くなり、
                             # 汚れが広がって良いアタリが壊れる（検証 45696035067: アタリの直しのあとで対比 35.9 → 12.8）
                             tried = keep_tone(raw, cur, "構図の直し")
@@ -1855,9 +1944,15 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 tell(words)
                                 # 線の段階（〜線画。線画モードの「線の仕上げ」も）の直しは、絵を広げずに
                                 # 描く。線だけの絵に細部の画素数を稼ぐ広げは要らず、広げた分だけ
-                                # 1 回の直しが重くなる（画素数 2.25 倍）。色の段階の直しは今までどおり広げる
-                                raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean,
-                                                     max_scale=1.0 if (i <= 3 or (line_art and i == 4)) else None)
+                                # 1 回の直しが重くなる（画素数 2.25 倍）。色の段階の直しは今までどおり広げる。
+                                # 速さも工程ごとに分ける（序盤は軽く、清書以降はそのまま）。
+                                # 途中の絵も出す（on_step）。出さないと、直しの間ずっと筆が止まって見える
+                                s0 = steps(stage_steps(i))
+                                try:
+                                    raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean, on_step=on_step,
+                                                         max_scale=1.0 if (i <= 3 or (line_art and i == 4)) else None)
+                                finally:
+                                    unsteps(s0)
                                 if how.get("mask") == "wear":
                                     raw = keep_tone(raw, cur, "服・髪・持ち物", m)
                                 tried = _inside(raw, cur, m)
@@ -1869,6 +1964,14 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                         say("消した物の欠片が囲みの縁に残っていたので、後始末で消します")
                                         tried = pt.erase_fill(tried, left)
                                 dd = diff(cur, tried, m)
+                                # 塗りつぶしの見張り: 囲みの中に線や質感があったのに、描き直しで
+                                # 平らになっていたら、それは直しではなく塗りつぶして誤魔化した物。
+                                # 採用せず元の絵のままにする（形を無くして、判定だけ良く見せない）
+                                tex_b = pt.local_texture(cur, m)
+                                if tex_b >= 10 and pt.local_texture(tried, m) < tex_b * FLAT_KEEP:
+                                    say(f"「{item}」の描き直しが囲みの中を塗りつぶしたので、採用しません（形を無くして良く見せる直しはしません）")
+                                    tried = cur
+                                    dd = diff(cur, tried, m)
                                 attempted = True
                         if attempted:
                             s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
@@ -1882,6 +1985,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             if s["changed"]:
                                 fixes += 1
                                 memo.setdefault(("before", i, item), cur)
+                                memo.setdefault(("beforeby", i, item), measure(i)["by_item"])   # 責任の判定用: 直す前の項目別の崩れ
                                 st["image"] = tried
                                 s["image"] = mrow["image"] = save_img(tried, i, f"{names[i]}-{'赤ペンの' if how.get('mask') == 'pen' else ''}直し")
                                 s["status"] = "done"
@@ -1955,7 +2059,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     raise
                 st.clear()
                 st.update(entry_step)
-                keep_pause(f"「{label}」（累計 {total} 工程）で一時停止")
+                keep_pause(f"「{label}」で一時停止")
                 progress("paused")
                 raise pausekeep.Paused(f"「{label}」で一時停止しました（{type(e).__name__}: {e}）。"
                                        "途中まで保存したので、「再開」でこの工程から続けます", pause_key) from e
@@ -2008,6 +2112,18 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     if base_sev is not None and final_sev is not None and final_sev >= base_sev and (base_sev > 0 or final_sev > 0):
         not_better = f"最初の絵より良くなっていない（崩れの重さ {base_sev} → {final_sev}）"
         say(f"最後の絵の崩れの重さは {final_sev} で、土台の {base_sev} より小さくなっていません")
+    if not_better is None and base_rec.get("image") is not None and st.get("image") is not None:
+        # 形の見張り: 崩れの数が減っていても、塗りつぶされて原型が無くなっていたら
+        # 良くなったことにはならない（利用者の指摘: 殆ど塗りつぶされて原型が無くなった。
+        # でも判定は良くなってるの？）。数だけでなく、形が残っているかも見る
+        db, da = pt.detail_density(base_rec["image"]), pt.detail_density(st["image"])
+        # 潰れたと言えるのは、密度と鋭さの両方が半分以下になったときだけ（片方だけの
+        # 低下は、柔らかい画風や単純な色面でも起きる。両方いっぺんに無くなるのが
+        # 「塗りつぶされて原型が無い」状態）
+        if (db.get("readable") and da.get("readable")
+                and da["sharp"] < db["sharp"] * FORM_CRUSH and da["density"] < db["density"] * FORM_CRUSH):
+            not_better = "最初の絵より形が潰れている（塗りつぶされて原型が残っていない）"
+            say("最後の絵は最初の絵より形が潰れています（塗りつぶされて原型が残っていない）。崩れの数が減っても、完成にはしません")
     unresolved = (list(asked["left"]) if asked else []) + passed_over + [f for fl in remaining.values() for f in fl] + ([not_better] if not_better else [])
     unresolved += [f for f in final_check["flaws"] if f not in unresolved]
     complete = not unresolved

@@ -116,6 +116,14 @@ class Plan:
         gray = a.convert("L")
         dark = np.asarray(ImageChops.subtract(gray.filter(ImageFilter.MaxFilter(5)), gray)) > 28   # reconstruct と同じ線の取り方
         line = dark & diff
+        # 消えた所（前の絵で暗かった所が明るくなった）も線の段で見せる。消えた所を
+        # 仕上げの段に回すと、絵全体の中でじわっと薄れて、フェードアウトに見える
+        # （利用者の指摘: 「消すのがフェードアウトしてる」）。消しゴムも筆と同じで、
+        # 通った所から順に消えていく見え方にする。線の濃さではなく明るさの変化で見る
+        # （ベタの塊は内側に線の濃淡が無いので、線として拾うと縁しか消えない）
+        lum_b = np.asarray(b.convert("L"), np.float32)
+        lum_a = np.asarray(gray, np.float32)
+        line = line | (diff & (lum_b < 128) & (lum_a - lum_b > 40))
         self._a = a
         self.line = line
         self._finish_t = None   # 仕上げの段で各画素を描く時刻（元の大きさ）。fill() で計算する

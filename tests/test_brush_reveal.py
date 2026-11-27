@@ -202,3 +202,29 @@ class FinishStageTest(unittest.TestCase):
     def test_tip_stays_during_finish(self):
         br, plan = self._plan()
         self.assertIsNotNone(plan.tip(0.95))
+
+
+class ErasedLineStageTest(unittest.TestCase):
+    """消えた線は、仕上げの段でじわっと薄れる（フェードアウト）のではなく、線の段で
+    筆（消しゴム）が通った所から順に消える（利用者の指摘: まだ消すのがフェードアウトしてる）"""
+
+    def _plan(self):
+        from atelier.paint import brush_reveal as br
+        before = Image.new("RGB", (200, 200), "white")
+        d = ImageDraw.Draw(before)
+        d.rectangle((80, 80, 120, 120), fill="black")     # 消える塊
+        after = Image.new("RGB", (200, 200), "white")     # 消えたあと（真っ白）
+        plan = br.Plan(before, after, work_side=100)
+        plan.fill()
+        return br, plan
+
+    def test_erasure_happens_in_line_stage_not_finish(self):
+        import numpy as np
+        br, plan = self._plan()
+        # 線の段（〜0.30。仕上げの段は 0.84 から）の終わりには、ほぼ消えている
+        a = np.asarray(plan.frame(0.29).convert("L"))[80:121, 80:121]
+        self.assertGreater((a == 255).mean(), 0.9)
+        # 線の段の途中では、通った所から順に消えかけている（一斉に薄れるのではない）
+        mid = np.asarray(plan.frame(0.15).convert("L"))[80:121, 80:121]
+        self.assertTrue((mid == 255).any() and (mid == 0).any())
+        self.assertIsNotNone(plan.tip(0.15))   # 消している間も筆先がある

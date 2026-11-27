@@ -371,7 +371,7 @@ class PhasesTest(unittest.TestCase):
         self.assertTrue(all(r["readable"] and not (r["after"] if r["fixed"] else r["found"]) for r in got["phases"]))
         self.assertEqual(painter.steps, 20)
         self.assertTrue(any(s.startswith("工程 1/") for s in said))
-        self.assertTrue(any(f"累計 {got['total']} 工程）" in s for s in said))
+        self.assertTrue(all("累計" not in s for s in said))   # 累計の表記は出さない（利用者の指示）
 
     def test_thumbnail_direct_and_reused(self):
         got, painter, *_ = self.run_phases(always_bad=False)
@@ -379,7 +379,8 @@ class PhasesTest(unittest.TestCase):
         # サムネイルは工程の数を減らさずに 1 枚を直接描き、そのままアタリにする（同じ構図を 2 度描かない）。
         # もう 1 枚は土台の一発の絵（画面には出さない。アタリはサムネイルを使い回すので、土台のために描き直しはしない）
         self.assertEqual(len(paints), 2, painter.log)
-        self.assertTrue(all(x[2] == 20 for x in paints))
+        # 土台の一発の絵は今までどおり 20、サムネイル（ラフ）は序盤なので半分の 10 で軽く描く
+        self.assertEqual(sorted(x[2] for x in paints), [10, 20])
         self.assertIn("picked", got["phases"][1]["numbers"])
 
     def test_back_to_draft_fixes_regions_only_and_stronger(self):
@@ -390,10 +391,11 @@ class PhasesTest(unittest.TestCase):
                 return image.copy()
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             painter = P()
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks())
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=5))
         self.assertTrue(got["complete"])
-        # 下描き（アタリの中）と線画のペンなぞりは refine で描き重ねる。下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗り BASE_COLOR）
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 2, painter.log)
+        # 下描き（アタリの中。最初は最大 4 枚描いて一番良い物を選ぶ）と線画のペンなぞりは refine で描き重ねる。
+        # 下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗り BASE_COLOR）
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 5, painter.log)
         self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 1, painter.log)
         fixes = [m["strength"] for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", [])]
         self.assertGreaterEqual(len(fixes), 1, got["history"])
@@ -1565,7 +1567,7 @@ class PhaseWorkShownTest(unittest.TestCase):
         self.assertTrue(nos)   # 「工程 i/N」が出ないと落ちる
         self.assertEqual(nos[0], 1)
         self.assertTrue(all(b - a in (0, 1) for a, b in zip(nos, nos[1:])), nos)   # 番号が飛ばない
-        self.assertTrue(all("累計" in x for x in said if re.match(r"工程 \d+/\d+「", x)))
+        self.assertTrue(all("累計" not in x for x in said if re.match(r"工程 \d+/\d+「", x)))   # 累計の表記は出さない（利用者の指示）
 
 
 class WorkLayerTest(unittest.TestCase):
@@ -1955,7 +1957,7 @@ class MendFixTest(unittest.TestCase):
         囲みの中に渡すのは、その囲みの直す内容の言葉だけ。依頼の文（場面の説明）は渡さない"""
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             painter = RecordingPainter()
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=1))
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=5))
         self.assertTrue(got["complete"])
         hand_redraws = [(p, c, s) for (p, c, s) in painter.redraw_calls if "five fingers" in p]
         self.assertTrue(hand_redraws, painter.redraw_calls)
@@ -2323,6 +2325,24 @@ class EraseFillTest(unittest.TestCase):
         self.assertLess(abs(center - 150), 20, f"消した所がその場所の色合いになっていない: {center}")
         self.assertEqual(out.getpixel((5, 5)), im.getpixel((5, 5)))   # 囲みの外は変えない
 
+    def test_fill_does_not_blend_colors(self):
+        """左が赤・右が青の境目を消しても、紫（混ざった色）はできない。一番近い外の色を
+        そのまま写すから。平均で広げると色が混ざって滲む（利用者の指摘: 滲ませてる・下手な消しゴム）"""
+        import numpy as np
+        from PIL import Image
+        w, h = 64, 64
+        arr = np.zeros((h, w, 3), np.uint8)
+        arr[:, :32] = (200, 30, 30)
+        arr[:, 32:] = (30, 30, 200)
+        im = Image.fromarray(arr)
+        ma = np.zeros((h, w), np.uint8)
+        ma[28:36, 28:36] = 255   # 境目にかかる囲み
+        out = np.asarray(pt.erase_fill(im, Image.fromarray(ma)))
+        hole = out[28:36, 28:36].reshape(-1, 3)
+        blended = ((hole[:, 0] > 80) & (hole[:, 2] > 80)).sum()
+        self.assertEqual(int(blended), 0, "消した所に、混ざった色（紫）ができている")
+        self.assertTrue((hole[:, 0] == 200).any() and (hole[:, 2] == 200).any())   # 両側の色が写っている
+
     def test_layer_files_are_saved(self):
         """レイヤーはファイルにも残る（線画レイヤーには線だけ、下塗りレイヤーには色だけ）。
         あとから見て、線画が残っていることを確かめられるようにする"""
@@ -2402,6 +2422,229 @@ class CarriedFlawGuardTest(unittest.TestCase):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
         self.assertFalse(got["complete"])
         self.assertTrue(any("離れている" in f for f in got["left"]), got["left"])
+
+
+class FlatMendTest(unittest.TestCase):
+    """直しの描き直しが囲みの中を平らに塗りつぶしたら、採用しない。
+    形を無くせば検品の崩れは消えるが、それは直したのではない（利用者の指摘）"""
+
+    def test_flat_redraw_is_not_adopted(self):
+        from PIL import Image
+
+        class FlatPainter(Painter):
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.log.append(("redraw", seed, kw.get("strength")))
+                return Image.new("RGB", image.size, (200, 200, 200))   # 平らな塗りつぶしを返す
+
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(FlatPainter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              say=said.append, checks=hand_only_checks(bad_times=10 ** 6))
+        self.assertTrue(any("塗りつぶしたので、採用しません" in s for s in said), said[-8:])
+        self.assertFalse(got["complete"])
+        self.assertTrue(any("手" in l for l in got["left"]), got["left"])   # 塗りつぶして「直った」ことにはならない
+
+
+class WeightLinesConvergeTest(unittest.TestCase):
+    """線の強弱（太らせる）を何度重ねても、線が際限なく太くならない。
+    太さの見積もりが浅いと、処理のたびに太り続けて極太になる（利用者の指摘）"""
+
+    def test_repeated_weight_lines_converge(self):
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (64, 96), "white")
+        dr = ImageDraw.Draw(im)
+        dr.ellipse([24, 5, 40, 24], outline="black", width=2)      # 頭の輪郭
+        dr.rectangle([22, 24, 42, 91], outline="black", width=2)   # 体の輪郭
+
+        def ink(img):
+            return int((np.asarray(img.convert("L")) < 100).sum())
+
+        base = ink(im)
+        out1, _ = pt.weight_lines(im)
+        out2, _ = pt.weight_lines(out1)
+        out3, _ = pt.weight_lines(out2)
+        self.assertGreater(ink(out1), base)                 # 強弱は付く
+        self.assertLessEqual(ink(out3), ink(out1) * 1.3)    # 重ねても太り続けない
+
+
+class MendResponsibilityTest(unittest.TestCase):
+    """直しが別の所を壊したら、それは新しい仕事ではなく、その直しの失敗。
+    直す前の絵に戻し、壊した項目の崩れは残りに出さない（利用者の指摘:
+    塗りつぶして見えなくすることで修正箇所を減らそうとするな。そもそも壊すな）"""
+
+    def test_mend_that_breaks_another_item_is_reverted(self):
+        from PIL import Image, ImageDraw
+
+        class FragmentPainter(Painter):
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.log.append(("redraw", seed, kw.get("strength")))
+                self.masks = getattr(self, "masks", []) + [mask]
+                fixed = Image.new("RGB", image.size, "white")
+                ImageDraw.Draw(fixed).rectangle([22, 16, 30, 24], fill=(200, 30, 30))
+                return fixed   # 手の囲みの中に、体から離れた欠片ができる絵を返す
+
+        seen = {"hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                return dict(HAND) if seen["hands"] >= 2 else dict(CLEAN_HAND)   # アタリの確かめ以降ずっと手が崩れている（直しは別の所を壊すので直らない）
+
+        said = []
+        with TemporaryDirectory() as d:
+            got = phases.draw(FragmentPainter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
+        self.assertTrue(any("が壊れたので、直す前の絵に戻します" in s for s in said), said[-8:])   # 責任の判定で戻した
+        self.assertFalse(any("位置ずれ" in l for l in got["left"]), got["left"])   # 壊した分は、新しい修正箇所として残らない
+        self.assertTrue(any("手" in l for l in got["left"]), got["left"])          # 直せなかった手は、正直に残る
+
+
+class AtariBestOfTest(unittest.TestCase):
+    """最初のアタリは 2 枚描いて、崩れの少ない方を採る。悪いアタリを直しで
+    何度もいじるより、最初から良いアタリを描く（利用者の指摘）"""
+
+    def test_better_atari_candidate_is_picked(self):
+        from PIL import ImageDraw
+
+        class TwoDrafts(Painter):
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.refine_seeds = getattr(self, "refine_seeds", []) + [seed]
+                out = image.copy()
+                if seed == 5:   # 1 枚目のアタリだけ、手の所に濃い印（崩れ）を付ける
+                    ImageDraw.Draw(out).rectangle([13, 13, 20, 20], fill=(0, 0, 0))
+                return out
+
+        seen = {"hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                # 呼び出し順: 1=土台の計測, 2=アタリ候補 1 の計測（崩れている）, 3=候補 2 の計測（崩れていない）
+                return dict(HAND) if seen["hands"] == 2 else dict(CLEAN_HAND)
+
+        painter = TwoDrafts()
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
+        self.assertIn(5, painter.refine_seeds)      # 1 枚目
+        self.assertIn(505, painter.refine_seeds)    # 2 枚目（種 +500）
+        self.assertTrue(any("アタリを 2 枚描いて" in s for s in said), said[-6:])   # 崩れの少ない方が選ばれた
+
+
+class FinishGuardsTest(unittest.TestCase):
+    """仕上げ系の見張り: 足すはずの描き重ねがゴミを散らかしたら採用しない。
+    下塗りの色が粒だらけなら、面の色に寄せて平らにする"""
+
+    def test_new_specks_counts_only_new_small_dark_blobs(self):
+        from PIL import Image, ImageDraw
+        before = Image.new("RGB", (64, 64), "white")
+        after = before.copy()
+        d = ImageDraw.Draw(after)
+        for x in range(4, 60, 8):
+            d.rectangle((x, 30, x + 2, 32), fill="black")   # 新しい点が 7 個
+        self.assertEqual(pt.new_specks(before, after), 7)
+        self.assertEqual(pt.new_specks(before, before), 0)
+
+    def test_new_bumps_counts_blotches_on_smooth_areas(self):
+        from PIL import Image, ImageDraw
+        before = Image.new("RGB", (64, 64), (210, 180, 160))   # 滑らかな肌色
+        after = before.copy()
+        d = ImageDraw.Draw(after)
+        for x in range(6, 60, 10):
+            d.ellipse((x, 30, x + 4, 34), fill=(150, 60, 50))   # でき物のような塊が 6 個
+        self.assertEqual(pt.new_bumps(before, after), 6)
+        self.assertEqual(pt.new_bumps(before, before), 0)
+
+    def test_flatten_base_removes_grain_keeps_faces(self):
+        import numpy as np
+        from PIL import Image
+        rng = np.random.default_rng(3)
+        arr = np.zeros((64, 64, 3), np.uint8)
+        arr[:, :32] = (200, 80, 80)
+        arr[:, 32:] = (80, 80, 200)
+        noisy = arr.copy()
+        noisy[rng.random((64, 64)) < 0.2] = (30, 30, 30)   # 粒（ブツブツ）
+        im = Image.fromarray(noisy)
+        self.assertGreater(pt.grain(im), 0.02)
+        flat = pt.flatten_base(im)
+        self.assertLess(pt.grain(flat), pt.grain(im) * 0.3)
+        self.assertEqual(flat.getpixel((8, 8)), (200, 80, 80))   # 面の色は残る
+        self.assertEqual(flat.getpixel((56, 8)), (80, 80, 200))
+
+    def test_detail_refine_that_scatters_specks_is_not_adopted(self):
+        """ディテールの描き重ねがゴミの線を散らかしたら、その結果は採用せず元の絵で進む"""
+        from PIL import Image, ImageDraw
+
+        class SpecklePainter(Painter):
+            speckled = 0
+
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                if "detailed texture" not in prompt:
+                    return image.copy()
+                self.speckled += 1
+                out = image.copy()
+                d = ImageDraw.Draw(out)
+                for x in range(4, 60, 5):
+                    for y in range(4, 92, 7):
+                        d.rectangle((x, y, x + 2, y + 2), fill="black")
+                return out
+
+        painter = SpecklePainter()
+        C, _seen = checks(always_bad=False)
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C, say=said.append)
+            keep = Path(d) / "k"
+
+            def phase_img(name):
+                hits = sorted(keep.glob(f"*-{name}.png"))
+                return Image.open(hits[-1]).convert("RGB") if hits else None
+
+            before = phase_img("影 2 段")   # ディテールの直前の、描く工程の絵
+            after = phase_img("ディテール")
+        self.assertGreater(painter.speckled, 0)   # ディテールの描き重ね自体は呼ばれた
+        self.assertTrue(any("元の絵のまま" in s or "前の絵を使います" in s for s in said), said)   # 散らかした結果は採用されず、元の絵で進んだ
+        if after is not None and before is not None:
+            self.assertEqual(pt.new_specks(before, after), 0)   # ゴミは増えていない
 
 
 class DustPrecisionTest(unittest.TestCase):
@@ -2644,9 +2887,11 @@ class NoProgressMendTest(unittest.TestCase):
 
 class PhaseScopeTest(unittest.TestCase):
     """工程ごとに、直しの対象にする項目はその工程の仕事だけ。線画は状態の把握のために
-    アタリの検品一式でも測るが、構図の項目（位置ずれ・背景・画角・等身・骨組みなど）を
-    線画で直しの対象にしない。線画で構図を描き直すと清書した線が壊れるし、直しが
-    膨らんで終わらない（検証 #27・#28）。パーツ（手・足・顔）と頼んだ物は線画でも扱う"""
+    アタリの検品一式でも測るが、構図の項目（位置ずれ・背景・画角・等身・骨組みなど）も
+    パーツ（手・足・顔・頼んだ物）も、線画で直しの対象にしない。線画はただのスタート
+    ラインで、ここで完成にしようとしない（利用者の指摘）。構図はアタリで、パーツは
+    アタリと仕上げで直す。線画で構図を描き直すと清書した線が壊れるし、直しが膨らんで
+    終わらない（検証 #27・#28）"""
 
     def run_draw(self, painter, prompt, checks):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
@@ -2655,6 +2900,40 @@ class PhaseScopeTest(unittest.TestCase):
     @staticmethod
     def mend_phases(got, item):
         return [r["phase"] for r in got["history"] for m in r.get("mends", []) if m.get("item") == item]
+
+    def test_parts_are_mended_at_finish_not_at_line_phase(self):
+        """パーツ（手）は線画では直さない。線画はスタートラインで、ここで完成にしようと
+        しない（利用者の指摘）。手の直しは仕上げでやる"""
+        seen = {"hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                return dict(HAND) if seen["hands"] >= 3 else dict(CLEAN_HAND)   # 線画の確かめから手が崩れる
+
+        got = self.run_draw(Painter(), "1girl, red scarf", C)
+        self.assertNotIn("線画", self.mend_phases(got, "手"))   # 線画では直さない
+        self.assertIn("仕上げ", self.mend_phases(got, "手"))     # 仕上げで直す
 
     def test_detached_is_mended_at_atari_not_at_line_phase(self):
         seen = {"hands": 0}
@@ -2688,7 +2967,8 @@ class PhaseScopeTest(unittest.TestCase):
         self.assertEqual(len(got["phases"]), N)
         self.assertTrue(self.mend_phases(got, "位置ずれ"))                     # アタリでは直す
         self.assertNotIn("線画", self.mend_phases(got, "位置ずれ"))             # 線画では構図を直さない
-        self.assertIn("線画", self.mend_phases(got, "手"))                      # パーツは線画でも直す
+        self.assertNotIn("線画", self.mend_phases(got, "手"))                   # パーツも線画では直さない
+        self.assertIn("仕上げ", self.mend_phases(got, "手"))                     # パーツの直しは仕上げでやる
 
 
 class LineStageRedrawScaleTest(unittest.TestCase):
@@ -2736,13 +3016,158 @@ class LineStageRedrawScaleTest(unittest.TestCase):
                         say=lambda _s: None, checks=C)
         return painter.scales
 
+    def run_with_gap(self):
+        """線画で線の途切れが見つかる場合。直しは線画の囲み描き直し（shape）になる"""
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                return dict(CLEAN_HAND)
+
+        class ScalePainter(Painter):
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.scales = getattr(self, "scales", []) + [kw.get("max_scale")]
+                return super().redraw(prompt, seed, image, mask, on_step=on_step, **kw)
+
+        painter = ScalePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", _counting_lines(max_gaps=[0.8, 0.0])):
+            phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                        say=lambda _s: None, checks=C)
+        return painter.scales
+
     def test_line_stage_mends_do_not_upscale(self):
         # hands の呼び出し順: 1=土台の計測, 2=アタリの確かめ, 3=線画の確かめ, 4=仕上げの確かめ
         self.assertEqual(self.run_with(2), [1.0, 1.0, 1.0])   # アタリで初めて崩れた直しは広げない
-        self.assertEqual(self.run_with(3), [1.0, 1.0, 1.0])   # 線画で初めて崩れた直しも広げない
+        self.assertEqual(self.run_with_gap(), [1.0])           # 線画の線の直しも広げない（パーツは線画で直さない）
 
     def test_finish_stage_mends_keep_the_upscale(self):
         self.assertEqual(self.run_with(4), [None, None, None])   # 仕上げの直しは今までどおり広げる
+
+
+class StageStepsTest(unittest.TestCase):
+    """描く速さは工程で分ける。序盤（サムネイル・アタリ）はラフで十分なので軽くし、
+    線画は少し軽く、清書以降（仕上げなど）はそのまま。時間をかけるべきは線画以降、
+    特に清書以降で、序盤のアタリを線画や清書と同じレベルまで仕上げようとしない
+    （利用者の指示、2026-11-27）。直しの間も途中の絵を出す（出さないと筆が止まって見える）"""
+
+    def run_with(self, bad_from, on_step=None):
+        seen = {"hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                return dict(HAND) if seen["hands"] >= bad_from else dict(CLEAN_HAND)
+
+        class StepPainter(Painter):
+            steps = 20
+
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.seen_steps = getattr(self, "seen_steps", []) + [self.steps]
+                self.seen_preview = getattr(self, "seen_preview", []) + [on_step is not None]
+                return super().redraw(prompt, seed, image, mask, on_step=on_step, **kw)
+
+        painter = StepPainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                        say=lambda _s: None, checks=C, on_step=on_step)
+        return painter
+
+    def test_atari_mends_are_light_and_previewed(self):
+        painter = self.run_with(2, on_step=lambda *_a: None)
+        self.assertTrue(painter.seen_steps)
+        self.assertTrue(all(s == 10 for s in painter.seen_steps), painter.seen_steps)   # アタリの直しは半分の速さ
+        self.assertTrue(all(painter.seen_preview))   # 直しの間も途中の絵が出る（筆が止まらない）
+
+    def test_finish_mends_use_full_steps(self):
+        painter = self.run_with(4)
+        self.assertTrue(painter.seen_steps)
+        self.assertTrue(all(s == 20 for s in painter.seen_steps), painter.seen_steps)   # 仕上げの直しはそのままの速さで時間をかける
+
+
+class SmallMendCycleTest(unittest.TestCase):
+    """直しは枠ごとに 1 つずつ。全部の枠を一度に消して描くと変化が大きくて崩れる。
+    1 枠ずつ小さく消して描いてを繰り返すと、変化が小さいので崩れずに整っていく（利用者の指摘）"""
+
+    def test_two_bad_hands_are_mended_one_region_at_a_time(self):
+        import numpy as np
+        two = {"readable": True, "bad": ["手 1: 指が 6 本"],
+               "hands": [{"box": [10, 10, 30, 30], "seen": True, "bad": True},
+                         {"box": [40, 60, 55, 80], "seen": True, "bad": True}],
+               "feet": [], "faces": []}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                return dict(two)
+
+        painter = Painter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                        say=lambda _s: None, checks=C)
+        masks = [np.asarray(m.convert("L")) > 0 for m in painter.masks]
+        # 枠ごとに直すので、直しの回数は枠の数だけ増える（まとめて直す作りなら半分以下）。
+        # どの囲みも、2 つの枠（y 8〜44 と y 46〜94）をまたがない = 1 枠ずつ
+        self.assertGreaterEqual(len(masks), 4)
+        for m in masks:
+            ys, _xs = np.nonzero(m)
+            self.assertTrue(ys.max() < 45 or ys.min() > 45, "2 つの枠をまとめて直している")
 
 
 class RoughLayerTest(unittest.TestCase):

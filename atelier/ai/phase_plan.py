@@ -74,9 +74,12 @@ class Plan:
         return self.names[s["phase"]] not in self.hidden
 
     def number(self, pos: int | None = None) -> tuple[int, int]:
-        """(見せる番号, 見せる工程の数)。見せない工程の番号は 0"""
+        """(見せる番号, 見せる工程の数)。見せない工程の番号は 0。
+        飛ばした工程（skipped）と捨てた工程（dropped）は数に入れない。やっていない
+        工程まで分母に含めると、工程数が実態より膨らんで見える（利用者の指摘）"""
         pos = self.pos if pos is None else pos
-        shown = [k for k, s in enumerate(self.steps) if self.shown(s)]
+        shown = [k for k, s in enumerate(self.steps)
+                 if self.shown(s) and s.get("status") not in ("skipped", "dropped")]
         j = shown.index(pos) + 1 if pos in shown else 0
         return j, len(shown)
 
