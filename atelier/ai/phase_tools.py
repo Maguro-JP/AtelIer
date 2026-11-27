@@ -192,9 +192,22 @@ def weight_lines(image, r=None):
     """線の強弱: 外の輪郭に掛かっている線だけを暗くし、外の輪郭の線を太らせる（手前・外側を太く濃く、内側の細い線はそのまま）。
     太らせるのは線の周り（内側と外側の紙）。線画は細い線だけなので、内側だけでは太らせる所が無い。
     太らせた所は線の色にする。遠くの紙は変えない。r は太らせる幅（画素）。無ければ絵の大きさから決める。
-    返すのは (絵, 変えた画素の数)"""
+    返すのは (絵, 変えた画素の数)。
+    対応する検品（lines の weight）が通っている線には掛けない。太らせるのは「線の強弱が無い」と
+    検品で出たときだけの直しで、清書（clean_lines）が検品を見ずに毎回掛けると、正常な線画まで
+    狙いの太さ（2r+3）に膨らまされて壊れる（利用者の指摘、2026-11-27）"""
     import numpy as np
     from PIL import Image
+    # 対応する検品（lines の weight）と同じ物差しを、ここで直接測る。lines() を呼ぶと
+    # 検品の数え直しになり、流れの中で測る回数が変わってしまうので呼ばない
+    _lum = luminance(image)
+    _m = silhouette(image)
+    if _m.sum() >= 50:
+        _filled = _filled_silhouette(image)
+        _band = _dilate(_filled, 1) & ~_erode(_filled, 2)
+        _dark = _lum <= np.percentile(_lum[_m], 20)
+        if _band.sum() and float((_band & _dark).sum()) / max(int(_band.sum()), 1) >= LINE_WEIGHT_LEAST:
+            return image, 0   # 外の輪郭に強弱がもうある。正常な線は触らない
     a = _np(image).astype(np.float32)
     lum = luminance(image)
     m = silhouette(image)
@@ -239,6 +252,57 @@ def line_like(image) -> bool:
     mid = float(((lum > 40) & (lum < 200)).mean())
     sat = float((a.max(axis=2) - a.min(axis=2)).mean())
     return mid <= 0.10 and sat <= 15.0
+
+
+def strip_own_lines(color, line):
+    """色の絵が自分で描いた線を消し、周りの色で埋めた絵を返す。
+
+    下塗りの描き重ね（img2img）は色だけでなく線も描き直す。その線は清書の線より
+    太く・ずれていることが多く、線レイヤーを乗算で乗せる合成（over_lines）は色の
+    暗さを消せないので、結果の線は色の線と清書の線が合わさった太さになって壊れる
+    （利用者の目撃、2026-11-27: 下塗りの描く工程で線が太くなる）。
+    消すのは、線レイヤーに無い暗い細い線だけ。線レイヤーにもある暗さ（清書の線の
+    位置）と、太い暗い塊（髪の束のような色の面）は、色の一部として残す"""
+    import numpy as np
+    from PIL import Image
+    if color.size != line.size:
+        line = line.convert("RGB").resize(color.size)
+    dark_c = luminance(color) < 128
+    if not dark_c.any():
+        return color
+    dark_l = luminance(line) < 128
+    near = _dilate(dark_l, 2)   # 清書の線と、その周りの滲み・わずかなずれは残す
+    stray = dark_c & ~near
+    if not stray.any():
+        return color
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ、線の切り分けができないのでそのまま返す
+        return color
+    lab, n = ndimage.label(stray)
+    if not n:
+        return color
+    dist = ndimage.distance_transform_edt(stray)
+    maxd = ndimage.maximum(dist, lab, range(1, n + 1))
+    filled_l = _filled_silhouette(line)
+    near2 = _dilate(near, 2)
+    thin = []
+    for k in range(n):
+        if maxd[k] > 3:
+            continue   # 一番太い所でも線らしい細さの塊だけ
+        comp = lab == k + 1
+        # 消すのは、描き直された線らしい物だけ: 清書の線に接しているか、主役の輪郭の
+        # 内側にある物。背景に離れてある暗い点はゴミで、清書よりあとでは消さない
+        # （ゴミ取りは清書だけ、という利用者の規則）。数えるだけにする
+        if (comp & near2).any() or (comp & filled_l).sum() > comp.sum() / 2:
+            thin.append(k + 1)
+    if not thin:
+        return color
+    # 埋めるのは、はみ出した線に、清書の線の周りにある色自身の暗部も加えた範囲。
+    # 周りの暗部を種に残すと、その暗い色が横に写って線が残る。清書の線の位置の
+    # 色は、線レイヤーを乗せれば黒くなるので要らない
+    keep = np.isin(lab, thin) | (dark_c & near)
+    return erase_fill(color, Image.fromarray((keep * 255).astype("uint8")))
 
 
 def over_lines(color, line):

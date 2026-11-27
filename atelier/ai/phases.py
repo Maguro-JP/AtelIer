@@ -54,6 +54,7 @@ def wants_line_art(prompt) -> bool:
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
 BASE_GRAIN_MOST = 0.02   # 下塗り: 色の粒（ブツブツ）の割合がこれを超えたら、面の色に寄せて平らにする
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
+BASE_TAG = "atelier_base"     # 土台の絵に付ける印。通常の見せ方では出さず、デバッグモードで薄く重ねて見るためだけに窓へ渡す
 
 PHASES = [
     ("目的", "何を一番見せるか（主役）", "頼み", "頼みの言葉の数、主役の言葉"),
@@ -529,10 +530,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             say(f"{where}: 描き重ねで " + "、".join(rec["raw_flaws"]) + (" ので、前の絵を使います" if rec["kept_ref"] else " のを、色合わせで直しました"))
         return out
 
-    def measure_base(img):
+    def measure_base(img, full=True):
         """1 枚の絵を、土台と比べるための検品一式で測る。bench の final_check と同じ組（頼んだ物・手足顔・体）に、
         画素の物差し（ゴミ）を足す。返すのは {"flaws", "severity", "kind"}。頼んだ物の検品が読めなければ None
-        （比べられない物を比べたことにしない）。物・風景では手足顔・体を見る模型は使わない（工程の検品と同じ分け方）"""
+        （比べられない物を比べたことにしない）。物・風景では手足顔・体を見る模型は使わない（工程の検品と同じ分け方）。
+        full=False は候補のふるい用: 一番重い体の検品（部位分け・人数の模型）だけを省き、アタリの物差し
+        （頼んだ物・手足顔・ゴミ）で測る。体の検品には、頼んだ物の検品が読んだタグを使い回す
+        （同じ絵のタグを 2 度読まない）"""
         req = checks.request(img, st["prompt"])
         if not req.get("readable"):
             return None
@@ -542,9 +546,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             res = checks.hands(img, st["prompt"])
             if res.get("readable"):
                 flaws += list(res.get("bad", []))
-            bd = checks.body(img, st["prompt"])
-            if bd.get("readable"):
-                flaws += list(bd.get("bad", []))
+            if full:
+                bd = checks.body(img, st["prompt"], tags=req.get("read"))
+                if bd.get("readable"):
+                    flaws += list(bd.get("bad", []))
         elif kind == "face":
             res = checks.hands(img, st["prompt"])
             if res.get("readable"):
@@ -565,6 +570,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         got = measure_base(img)
         st["base"] = {"image": img, "flaws": [] if got is None else got["flaws"],
                       "severity": None if got is None else got["severity"], "kind": None if got is None else got["kind"]}
+        if on_preview is not None:
+            # 土台の絵は画面に出さないのが決まり。ただしデバッグモードで「何を直そうとして
+            # いるのか」を見るため、印を付けて窓にだけ渡す（窓は印を見て、重ね表示が
+            # オンな時だけ薄く出す。通常の見せ方・工程の絵には混ぜない）
+            tagged = img.copy()
+            tagged.info[BASE_TAG] = {"kind": st["base"]["kind"]}
+            on_preview(tagged)
         if got is None:
             say("土台の絵を検品できませんでした（良くなったかを比べる基準は無しで進めます）")
         else:
@@ -684,7 +696,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 # 最初のアタリは、複数枚描いて一番良い物を採る。枚数を惜しむ話ではない:
                 # 裏で何枚描いても良いから、一番崩れの少ないアタリで工程を終わらせる
                 # （悪いアタリを検品と直しで何度もいじるより速く、見栄えも良い。利用者の指示）
-                first = measure_base(img)
+                # 候補の順位付けはふるい（full=False）で測る。検品一式は一番重い体の検品
+                # （部位分け・人数の模型）まで入っていて、候補 4 枚に全部回すと、それだけで
+                # アタリの大半を食う。ラフの順位付けはアタリの物差し（頼んだ物・手足顔・ゴミ）
+                # で足り、採った 1 枚は直後の工程の確かめ（m_atari）が一式で測る
+                first = measure_base(img, full=False)
                 if first is not None:
                     best, best_sev, drawn = img, first["severity"], 1
                     for extra in (500, 501, 502):   # 合わせて最大 4 枚。崩れの無い物が描けたら、そこで止める
@@ -694,7 +710,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         drawn += 1
                         if alt is None or alt.size != img.size:
                             continue
-                        got = measure_base(alt)
+                        got = measure_base(alt, full=False)
                         if got is not None and got["severity"] < best_sev:
                             best, best_sev = alt, got["severity"]
                     if drawn > 1:
@@ -836,14 +852,18 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 say("下塗りの色に粒が出たので、面の色に寄せて平らにします（下塗りはベタ塗り）")
                 color = flat
         line = st["layers"].get("清書") or img
-        st["layers"]["下塗り"] = color
-        for lname, limg in st["layers"].items():   # レイヤーはファイルにも残す（表示には出さない。あとで線画が残っているか確かめられる）
-            limg.save(keep / f"layer-{4 + 1:02d}-{lname}.png")
         if pt.line_like(line):
+            # 色の絵が自分で描いた線は消してから乗せる。乗算の合成は色の暗さを消せず、
+            # 色の線が残ると清書の線と合わさった太さになって、下塗りで線が太く壊れる。
+            # 線は清書レイヤーだけが持ち、下塗りレイヤーは色だけにする
+            color = pt.strip_own_lines(color, line)
             out = pt.over_lines(color, line)
         else:
             say("線の土台が線画らしくないため、色の絵をそのまま使います（線レイヤーは残してあります）")
             out = color
+        st["layers"]["下塗り"] = color
+        for lname, limg in st["layers"].items():   # レイヤーはファイルにも残す（表示には出さない。あとで線画が残っているか確かめられる）
+            limg.save(keep / f"layer-{4 + 1:02d}-{lname}.png")
         return {"image": out, "words": words,
                 "numbers": {"layers": list(st["layers"])}}
 
@@ -987,7 +1007,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             hd = pt.heads(pts, bal.get("height", 0)) if bal.get("readable") and full else None
             if hd is not None and not (pt.HEADS[0] <= hd <= pt.HEADS[1]):
                 flaws.append(f"等身が外れている（{hd}）")
-            pz, bd = checks.pose(img), checks.body(img, st["prompt"])
+            pz, bd = checks.pose(img), checks.body(img, st["prompt"], tags=req.get("read"))   # タグは頼んだ物の検品が読んだ物を使い回す（同じ絵を 2 度読まない）
             flaws += (list(pz.get("bad", [])) if pz.get("readable") else []) + (list(bd.get("bad", [])) if bd.get("readable") else [])
             flaws += list(res.get("bad", []))
             regions += list(handcheck.bad_regions(res))

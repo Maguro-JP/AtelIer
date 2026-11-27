@@ -2284,6 +2284,73 @@ class LayerTest(unittest.TestCase):
         self.assertFalse(pt.line_like(car_side_scene((64, 96))))
 
 
+class ThickColorPainter(Painter):
+    """線画は細い線（5px の帯）。下塗りの描き重ねは、色と一緒に太い線（15px、2px ずれ）も
+    描き直す画家。実モデルの描き重ね（img2img）は線も描き直すので、色の絵に線が入って
+    いない前提（LayerBasePainter）は現実には崩れる"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+        from PIL import Image, ImageDraw
+        size = kw.get("size") or (64, 96)
+        im = Image.new("RGB", size, "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))   # 5px の線
+        return im
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        self.log.append(("refine", seed, strength))
+        if strength == phases.BASE_COLOR:
+            import numpy as np
+            from PIL import Image, ImageDraw
+            w, h = image.size
+            grad = np.tile(np.linspace(195, 230, w, dtype=np.uint8), (h, 1))   # 薄い色（右が明るい）
+            im = Image.fromarray(np.stack([grad, grad, grad], axis=2))
+            ImageDraw.Draw(im).rectangle([w // 2 - 5, 0, w // 2 + 9, h], fill=(30, 30, 30))   # 15px の太い線（2px ずれ）
+            return im
+        return image.copy()
+
+
+class BaseLineRestoreTest(unittest.TestCase):
+    """下塗りの描き重ねが線を描き直しても、結果の線は清書レイヤーの太さのまま。
+    線レイヤーを乗算で乗せる合成は、色の絵自身の暗さを消せない。色の線が残ると
+    線レイヤーの線と合わさった太さになり、下塗りの描く工程で線が太くなって
+    壊れる（利用者の目撃、2026-11-27）"""
+
+    def _dark_runs(self, img, y=48):
+        import numpy as np
+        row = np.asarray(img.convert("L"))[y]
+        runs, start = [], None
+        for x, v in enumerate(row < 100):
+            if v and start is None:
+                start = x
+            if not v and start is not None:
+                runs.append((start, x - start))
+                start = None
+        return runs
+
+    def test_base_result_keeps_line_layer_width(self):
+        painter = ThickColorPainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+            rows = {r["phase"]: r for r in got["phases"]}
+            from PIL import Image
+            img = Image.open(rows["下塗り"]["image"]).convert("RGB")
+            line_img = Image.open(Path(d) / "k" / "layer-05-清書.png").convert("L")
+            runs = self._dark_runs(img)
+        self.assertEqual(runs, [(30, 5)], f"下塗りの結果の線が清書の太さ（5px）でない: {runs}")
+        self.assertLess(img.getpixel((32, 48))[0], 60)      # 線の所は線画の黒が残る
+        self.assertGreater(img.getpixel((8, 48))[0], 180)   # 線の無い所は塗った色が出る
+        # 線の完全性: 結果の暗い所は、清書レイヤーの線と画素単位で一致する
+        # （線が埋もれる・ずれる・欠ける・余分に太る、のどれも無い）
+        import numpy as np
+        out_dark = np.asarray(img.convert("L")) < 100
+        line_dark = np.asarray(line_img) < 100
+        self.assertTrue((out_dark == line_dark).all(),
+                        "下塗りの結果の線が清書レイヤーの線と一致していない（埋もれ・ずれ・欠け・太り）")
+
+
 class CompareSeverityTest(unittest.TestCase):
     """土台と比べる重さ: ゴミの個数で完成が決まらないこと"""
 
@@ -2424,6 +2491,21 @@ class CarriedFlawGuardTest(unittest.TestCase):
         self.assertTrue(any("離れている" in f for f in got["left"]), got["left"])
 
 
+class BaseThumbTest(unittest.TestCase):
+    """土台の絵は通常の見せ方では出さない。デバッグモードで薄く重ねて見るためだけに、
+    印（BASE_TAG）を付けて窓へ渡す。工程の絵には混ぜない"""
+
+    def test_base_is_handed_to_the_window_with_its_tag_only(self):
+        shown = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            phases.draw(Painter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                        checks=hand_only_checks(bad_times=0), on_preview=shown.append)
+        tagged = [im for im in shown if phases.BASE_TAG in getattr(im, "info", {})]
+        self.assertEqual(len(tagged), 1, [sorted(getattr(im, "info", {})) for im in shown])
+        self.assertEqual(tagged[0].size, (64, 96))
+        self.assertNotIn(phases.PHASE_TAG, tagged[0].info)   # 工程の絵として扱わせない
+
+
 class FlatMendTest(unittest.TestCase):
     """直しの描き直しが囲みの中を平らに塗りつぶしたら、採用しない。
     形を無くせば検品の崩れは消えるが、それは直したのではない（利用者の指摘）"""
@@ -2445,16 +2527,43 @@ class FlatMendTest(unittest.TestCase):
         self.assertTrue(any("手" in l for l in got["left"]), got["left"])   # 塗りつぶして「直った」ことにはならない
 
 
-class WeightLinesConvergeTest(unittest.TestCase):
-    """線の強弱（太らせる）を何度重ねても、線が際限なく太くならない。
-    太さの見積もりが浅いと、処理のたびに太り続けて極太になる（利用者の指摘）"""
+class WeightLinesScopeTest(unittest.TestCase):
+    """線の強弱の検品を通る線（正常な線画）は、太らせる加工を掛けない。
+    太らせるのは「線の強弱が無い」と検品で出たときだけの直し。清書（clean_lines）は
+    検品を見ずに毎回掛けていたので、検品を通る線まで狙いの太さ（2r+3）に
+    膨らまされ、正常な線画が太くなって壊れた（利用者の指摘、2026-11-27）"""
 
-    def test_repeated_weight_lines_converge(self):
+    def _passing_lines(self):
         from PIL import Image, ImageDraw
         im = Image.new("RGB", (64, 96), "white")
         dr = ImageDraw.Draw(im)
         dr.ellipse([24, 5, 40, 24], outline="black", width=2)      # 頭の輪郭
         dr.rectangle([22, 24, 42, 91], outline="black", width=2)   # 体の輪郭
+        return im
+
+    def test_passing_lines_are_left_alone(self):
+        import numpy as np
+        im = self._passing_lines()
+        self.assertGreaterEqual(pt.lines(im)["weight"], pt.LINE_WEIGHT_LEAST)   # 検品を通る線
+        out, hit = pt.weight_lines(im)
+        self.assertEqual(hit, 0)
+        self.assertTrue((np.asarray(im) == np.asarray(out)).all())   # 1 画素も変えない
+
+    def test_weak_lines_still_get_strength(self):
+        sk = sketch((128, 192))
+        self.assertLess(pt.lines(sk)["weight"], pt.LINE_WEIGHT_LEAST)   # 検品で「線の強弱が無い」側
+        out, hit = pt.weight_lines(sk)
+        self.assertGreater(hit, 0)
+        self.assertGreater(pt.lines(out)["weight"], pt.lines(sk)["weight"])
+
+
+class WeightLinesWidthEstimateTest(unittest.TestCase):
+    """線の強弱（太らせる）を何度重ねても、線が際限なく太くならない。
+    太さの見積もりが浅いと、処理のたびに太り続けて極太になる（利用者の指摘）"""
+
+    def test_repeated_weight_lines_converge(self):
+        import numpy as np
+        im = sketch((64, 96))   # 線の強弱が無い側の線（weight < LINE_WEIGHT_LEAST）。太らせる対象はこちら
 
         def ink(img):
             return int((np.asarray(img.convert("L")) < 100).sum())
@@ -2568,6 +2677,78 @@ class AtariBestOfTest(unittest.TestCase):
         self.assertIn(5, painter.refine_seeds)      # 1 枚目
         self.assertIn(505, painter.refine_seeds)    # 2 枚目（種 +500）
         self.assertTrue(any("アタリを 2 枚描いて" in s for s in said), said[-6:])   # 崩れの少ない方が選ばれた
+
+
+class AtariScreenCostTest(unittest.TestCase):
+    """アタリの候補選びに、一番重い体の検品（部位分け・人数の模型）まで回さない。
+    候補の順位付けはアタリの物差し（頼んだ物・手足顔・ゴミ）で足りる。採った 1 枚は
+    直後の工程の確かめ（m_atari）が全部測る。候補ごとに検品一式を回すと、候補 4 枚で
+    検品一式 4 回分が乗り、アタリが全体の大半を食う（利用者の指摘、2026-11-27）。
+    あわせて、体の検品には頼んだ物の検品が読んだタグを使い回す（同じ絵のタグを
+    2 度読まない）"""
+
+    def _run(self, body_bad):
+        from PIL import ImageDraw
+
+        class TwoDrafts(Painter):
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.refine_seeds = getattr(self, "refine_seeds", []) + [seed]
+                out = image.copy()
+                if seed == 5:   # 1 枚目のアタリだけ印を付ける（AtariBestOfTest と同じ絵）
+                    ImageDraw.Draw(out).rectangle([13, 13, 20, 20], fill=(0, 0, 0))
+                return out
+
+        seen = {"hands": 0, "body_tags": []}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": [],
+                        "read": {"1girl": 0.9}}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                seen["body_tags"].append(tags)
+                return {"readable": True, "bad": list(body_bad), "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                # 呼び出し順: 1=土台の計測, 2=アタリ候補 1 の計測（崩れている）, 3=候補 2 の計測（崩れていない）
+                return dict(HAND) if seen["hands"] == 2 else dict(CLEAN_HAND)
+
+        painter = TwoDrafts()
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", say=said.append, checks=C)
+        return painter, said, seen
+
+    def test_candidates_are_screened_without_body(self):
+        # 体の検品は全候補に重い崩れ（重さ 10）を返す。候補選びが体の検品まで
+        # 使っていたら、良い候補（手の崩れ無し）でも重さ 10 になり、そこで止まらず
+        # 4 枚まで描き、知らせの重さも 10 になる。ふるいに掛ければ候補 2 の重さは 0 で、
+        # 2 枚で止まる
+        painter, said, _seen = self._run(["体の崩れ（9）"])
+        self.assertIn(5, painter.refine_seeds)
+        self.assertIn(505, painter.refine_seeds)
+        self.assertTrue(any("アタリを 2 枚描いて" in s and "崩れの重さ 0" in s for s in said), said[-6:])
+
+    def test_body_reuses_request_tags(self):
+        # 体の検品は、頼んだ物の検品が読んだタグ（read）を受け取って使い回す。
+        # 受け取らずに読み直すと、同じ絵でタガーの推論が 2 回走る
+        _painter, _said, seen = self._run([])
+        self.assertTrue(any(t == {"1girl": 0.9} for t in seen["body_tags"]), seen["body_tags"])
 
 
 class FinishGuardsTest(unittest.TestCase):
