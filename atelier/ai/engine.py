@@ -1607,16 +1607,19 @@ class Painter:
         return out
 
     def redraw(self, prompt: str, seed: int, image, mask, strength: float = 0.45, on_step=None, reference=None,
-               ref_scale: float = 0.6, clean: bool = False):
-        return memory_retry(self, lambda: self._redraw(prompt, seed, image, mask, strength, on_step, reference, ref_scale, clean),
+               ref_scale: float = 0.6, clean: bool = False, max_scale=None):
+        return memory_retry(self, lambda: self._redraw(prompt, seed, image, mask, strength, on_step, reference, ref_scale, clean, max_scale),
                             self._note)
 
     def _redraw(self, prompt: str, seed: int, image, mask, strength: float = 0.45, on_step=None, reference=None,
-                ref_scale: float = 0.6, clean: bool = False):
+                ref_scale: float = 0.6, clean: bool = False, max_scale=None):
         """image（PIL）の mask（PIL の L、白が直す所）の中だけを、元の絵を土台に少しだけ直して返す（微調整）。
 
         絵全体を upscale 倍（既定 1.5 倍）に広げて描かせ、元の大きさに戻して直す所だけを重ねる（hires_inpaint）。直す所の外の画素は 1 つも変えない。
         直す所を切り出して別に描いて貼る形も、絵全体を描き直す形もとらない（どちらも元の絵が崩れた）。
+        max_scale は広げる倍率の上限。線の段階（ラフ・線画）の直しでは 1.0（広げない）で呼ばれる:
+        線だけの絵に細部の画素数は要らず、広げた分だけ 1 回の直しが重くなる（知識の記録でも、
+        広げたときの出来の差は実際の模型で測られていない）。
         strength が小さいほど元の絵に近いまま直す。足りなければ同じ所をもう一度直す。
         clean なら、描く前に直す所を消しゴムで消す（元の線が薄く残って二重になるのを防ぐ。開いた目を閉じるなど形を変えるとき）。
         """
@@ -1667,6 +1670,10 @@ class Painter:
         nw, nh = native_size(image.size, info.family, trained_area_of(self.model, pipe))
         fit = ((nw * nh) / (image.size[0] * image.size[1])) ** 0.5
         scale = self.redraw_scale(image.size) * min(1.0, fit)
+        if max_scale is not None:
+            # 広げる倍率の上限の指定（線の段階の直しは 1.0 = 広げない。線だけの絵に細部の
+            # 画素数は要らず、広げると画素数 2.25 倍の時間がそのまま掛かる）
+            scale = min(scale, max_scale)
         self.lighten(self._inpaint, getattr(self, "redraw_plan", None))
         return hires_inpaint(image, mask, run, scale)
 

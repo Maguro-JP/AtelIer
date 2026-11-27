@@ -244,19 +244,6 @@ def _compare_severity(flaws) -> float:
     return total
 
 
-def _progressed(prev, got) -> bool:
-    """直しで崩れが「はっきり」減ったか。重さが少しでも下がれば進歩とする作りだと、
-    ゴミ 83 個 → 82 個、離れた物 13 個 → 11 個のような誤差レベルの減りでも数え直し
-    （進んでいない直しの数）が消えて、直しが際限なく続く（検証 #27・#28 で、減りの
-    小さい直しが工程ごとに繰り返され、総工程が 83 → 100 と膨らんだ）。
-    進歩と数えるのは、重さが 1 以上、かつ前の重さの 2 割以上減ったときだけにする。
-    回数の上限を下げるのとは違う: はっきり効いている直しは、今までどおり続く"""
-    if not prev or not got:
-        return False
-    before, after = _severity(prev), _severity(got)
-    return after <= before - max(1.0, before * 0.2)
-
-
 def _mask(size, regions):
     from PIL import Image, ImageDraw
     mask = Image.new("L", size, 0)
@@ -468,7 +455,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         phase_info = list(PHASES[:4]) + [("線の仕上げ", "線の質（清書の続き。色には進まない）",
                                           "線の途切れ、線の強弱、ゴミ、手・足・顔、頼んだ物",
                                           "外の輪郭の途切れ（gap）、線の明るさの差（contrast）、ゴミの数")]
-        items_by_phase = {4: list(items.PHASE_ITEMS[3])}
+        items_by_phase = {4: list(items.PHASE_ITEMS[3]) + ["線の強弱"]}   # 線の仕上げは線の質を上げる工程なので、線の強弱も扱う（通常の線画では扱わない）
     w, h = (size or (832, 1216))
     n = len(phase_info)
     st = {"image": None, "prompt": prompt, "thumb": None, "points": {}, "light": {}, "height": 0, "seed": seed,
@@ -682,7 +669,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         words.append(words2)
         protect = [b for b in [pt.face_box(st.get("points") or {})] if b]
         mask, by_parts = pt.wear_mask(img, protect)
-        tried = _inside(keep_tone(painter.redraw(words2, st["seed"] + 131 + v * 1000, img, mask, strength=REPAINT), img, "服・髪・持ち物", mask), img, mask)
+        tried = _inside(keep_tone(painter.redraw(words2, st["seed"] + 131 + v * 1000, img, mask, strength=REPAINT, max_scale=1.0), img, "服・髪・持ち物", mask), img, mask)
         return {"image": tried, "words": words, "numbers": {"by_parts": by_parts}}
 
     def clean_lines(img):
@@ -1159,7 +1146,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     covers = [["頼み"],
               ["人数", "頼んだ物", "画面の重さ"],
               atari_covers,
-              ["線の途切れ", "線の強弱", "ゴミ"] + atari_covers,
+              # 線画が扱うのは、線とパーツとゴミだけ。構図の項目（画角・背景・位置ずれ・
+              # 等身・骨組み・画面の重さ・人数）はアタリの仕事で、線画で直しの対象にしない
+              # （線画で構図を描き直すと清書した線が壊れるし、直しが膨らんで終わらない。
+              # 測ること自体は状態の把握に使うが、直すのは適所でだけにする）
+              ["線の途切れ", "ゴミ", "手", "足", "顔", "頼んだ物"],
               ["色の差", "色のにじみ"],
               ["光の向き"],
               ["影"],
@@ -1167,9 +1158,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
               ["ディテール", "影の締まり"],
               ["手", "足", "顔", "骨組みの比", "反転して見る", "縮めて見る", "タイヤの丸み", "左右対称", "遠近の収束"]]
     if line_art:
-        # 線の仕上げ（工程 4）は、線画と同じ物差しで測り、同じ項目を扱う
+        # 線の仕上げ（工程 4）は、線画と同じ物差しで測り、線画の項目に線の強弱を足して扱う
         measurer = measurer[:4] + [m_lines]
-        covers = covers[:4] + [covers[3]]
+        covers = covers[:4] + [covers[3] + ["線の強弱"]]
     assert len(measurer) == n and len(covers) == n
 
     def measure(i, fresh=False):
@@ -1623,10 +1614,14 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         p_show = keep / f"{i + 1:02d}-{names[i]}-確かめ.png"
                         res["show"].save(p_show)
                         row["show"] = str(p_show)
-                    if kind == "check":   # 初めの並びに無い項目に崩れが出たら、その工程の確かめの最後に確かめる工程を足す
+                    if kind == "check":   # 初めの並びに無い項目に崩れが出たら、その工程の確かめの最後に確かめる工程を足す。
+                        # ただし足すのは、その工程が扱う項目（covers）だけ。測る工程が広いと
+                        # （線画は状態の把握にアタリの検品一式でも測る）、他の工程の仕事まで
+                        # その場で直し始めて、適所でない直しが膨らみ、絵も壊れる
                         planned = {x.get("item") for x in plan.steps[:plan.end_of_phase(i)] if x["phase"] == i
                                    and x["kind"] == "check" and x.get("visit", visits[i]) == visits[i]}
-                        extra = [it for it in res["by_item"] if it not in planned]
+                        extra = [it for it in res["by_item"] if it not in planned
+                                 and (it in (res.get("covers") or ()) or it in (items.OTHER, items.READABLE))]
                         if extra:
                             old = plan.need()
                             plan.insert([step("check", i, it, visit=visits[i]) for it in extra], plan.end_of_phase(i))
@@ -1634,12 +1629,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     if kind == "recheck":
                         prev = phase_left.get(str(i), {}).get(item, [])
                         if prev and got_flaws:
-                            # 直しで崩れがはっきり減ったら、直しが効いているので数え直す。
-                            # 誤差レベルの減り（少しだけ減った）は進歩と数えず、数える側に入れる
-                            if _progressed(prev, got_flaws):
-                                no_progress.pop(item, None)
-                            else:
+                            # 直したのに崩れの重さが下がらなかった（同じか増えた）ら数える。
+                            # 重さが下がれば、直しが効いているので数え直す
+                            if _severity(got_flaws) >= _severity(prev):
                                 no_progress[item] = no_progress.get(item, 0) + 1
+                            else:
+                                no_progress.pop(item, None)
                         if prev and _severity(got_flaws) > _severity(prev) and memo.get(("before", i, item)) is not None:
                             # 直しで崩れが増えた。直す前の絵に戻し、手を替えて直し直す（ゼロには戻らない）
                             say(f"「{item}」の直しで崩れが増えたので、直す前の絵に戻します")
@@ -1858,7 +1853,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                     clean = True
                                 say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                                 tell(words)
-                                raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean)
+                                # 線の段階（〜線画。線画モードの「線の仕上げ」も）の直しは、絵を広げずに
+                                # 描く。線だけの絵に細部の画素数を稼ぐ広げは要らず、広げた分だけ
+                                # 1 回の直しが重くなる（画素数 2.25 倍）。色の段階の直しは今までどおり広げる
+                                raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean,
+                                                     max_scale=1.0 if (i <= 3 or (line_art and i == 4)) else None)
                                 if how.get("mask") == "wear":
                                     raw = keep_tone(raw, cur, "服・髪・持ち物", m)
                                 tried = _inside(raw, cur, m)

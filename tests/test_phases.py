@@ -726,15 +726,23 @@ class NewChecksFlowTest(unittest.TestCase):
     def mends_of(self, got, item):
         return [m for r in got["history"] for m in r.get("mends", []) if m.get("item") == item]
 
-    def test_line_strength_flagged_then_thickened(self):
-        """線の強弱: 細い線を崩れとし、太らせる直しで直し、確かめ直しで通る。線画のコマが DIFF_MIN を超える"""
+    def test_line_strength_not_checked_at_line_phase(self):
+        """線の強弱は線画の確かめでは見ない（線画までは細い線で十分。強弱は清書の描く工程で
+        付ける物で、線画で太らせる直しを繰り返すのは適所ではない）"""
         C, _seen = checks(always_bad=False)
         got = self.run_draw(Painter(), "1girl, red scarf", C, lines=_counting_lines(weights=[0.2, 0.6]))
         self.assertTrue(got["complete"], got.get("left"))
+        self.assertEqual(self.mends_of(got, "線の強弱"), [])
+
+    def test_line_strength_checked_at_line_finish(self):
+        """線画モードの「線の仕上げ」では線の強弱を扱う: 細い線を崩れとし、太らせる直しで直し、確かめ直しで通る"""
+        C, _seen = checks(always_bad=False)
+        got = self.run_draw(Painter(), "1girl, red scarf, 線画", C, lines=_counting_lines(weights=[0.2, 0.2, 0.6]))
         mends = self.mends_of(got, "線の強弱")
         self.assertTrue(mends, got["history"])
         self.assertEqual(mends[0]["mend"], "太らせる")
-        self.assertGreaterEqual(mends[0]["diff"], phases.DIFF_MIN)   # 太らせる直しで絵が変わった
+        rows = [r["phase"] for r in got["history"] for m in r.get("mends", []) if m.get("item") == "線の強弱"]
+        self.assertEqual(set(rows), {"線の仕上げ"})
 
     def test_line_shift_flagged_then_fixed(self):
         """線のズレ: 線が途中でずれているのを崩れとし、直し、確かめ直しで通る"""
@@ -2386,14 +2394,14 @@ class CarriedFlawGuardTest(unittest.TestCase):
     def test_uncovered_phase_does_not_clear_carried_flaw(self):
         from atelier.ai import phase_plan
         patched = [list(x) for x in phase_plan.PHASE_ITEMS]
-        patched[4] = patched[4] + ["線の強弱"]   # 下塗りの並びに線の強弱を足す（が、下塗りの検品は線を測らない）
-        painter = Painter()
+        patched[4] = patched[4] + ["位置ずれ"]   # 下塗りの並びに位置ずれを足す（が、下塗りの検品は離れた物を測らない）
+        painter = DetachedPainter()   # 離れた物がずっと残る絵（アタリで直しても消えない）
         C, _seen = checks(False)
-        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0, "weight": 0.1}), \
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
                 mock.patch.object(phase_plan, "PHASE_ITEMS", patched):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
         self.assertFalse(got["complete"])
-        self.assertTrue(any("強弱" in f for f in got["left"]), got["left"])
+        self.assertTrue(any("離れている" in f for f in got["left"]), got["left"])
 
 
 class DustPrecisionTest(unittest.TestCase):
@@ -2634,22 +2642,21 @@ class NoProgressMendTest(unittest.TestCase):
         self.assertTrue(any("変わりませんでした" in s for s in said))
 
 
-class SlowProgressMendTest(unittest.TestCase):
-    """減りが誤差レベルしかない直しを「進歩」と数えない。重さが少しでも下がれば
-    数え直し（進んでいない直しの数）が消える作りだと、ゴミ 83 個 → 82 個、離れた物
-    13 個 → 11 個のような減りでも「良くなっている」ことになり、直しが際限なく続く
-    （検証 #27・#28 で、線画の直しが膨らんで制限時間に届かなかった）。
-    進歩と数えるのは、崩れの文が 1 つ消えるか、埋まった数がはっきり（2 割以上）減ったときだけ"""
+class PhaseScopeTest(unittest.TestCase):
+    """工程ごとに、直しの対象にする項目はその工程の仕事だけ。線画は状態の把握のために
+    アタリの検品一式でも測るが、構図の項目（位置ずれ・背景・画角・等身・骨組みなど）を
+    線画で直しの対象にしない。線画で構図を描き直すと清書した線が壊れるし、直しが
+    膨らんで終わらない（検証 #27・#28）。パーツ（手・足・顔）と頼んだ物は線画でも扱う"""
 
-    def test_progressed_needs_a_clear_drop(self):
-        self.assertFalse(phases._progressed(["ゴミがある（83 個）"], ["ゴミがある（82 個）"]))
-        self.assertTrue(phases._progressed(["ゴミがある（83 個）"], ["ゴミがある（60 個）"]))
-        self.assertFalse(phases._progressed(["体から離れている物がある（13 個）"], ["体から離れている物がある（11 個）"]))
-        self.assertTrue(phases._progressed(["体から離れている物がある（13 個）"], ["体から離れている物がある（9 個）"]))
-        self.assertFalse(phases._progressed(["手 1: 指が 6 本"], ["手 1: 指が 6 本"]))
-        self.assertTrue(phases._progressed(["手 1: 指が 6 本", "手 2: 指が 4 本"], ["手 1: 指が 6 本"]))
+    def run_draw(self, painter, prompt, checks):
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            return phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", say=lambda _s: None, checks=checks)
 
-    def test_slowly_shrinking_flaw_is_not_remended_forever(self):
+    @staticmethod
+    def mend_phases(got, item):
+        return [r["phase"] for r in got["history"] for m in r.get("mends", []) if m.get("item") == item]
+
+    def test_detached_is_mended_at_atari_not_at_line_phase(self):
         seen = {"hands": 0}
 
         class C:
@@ -2675,20 +2682,67 @@ class SlowProgressMendTest(unittest.TestCase):
             @staticmethod
             def hands(image, prompt):
                 seen["hands"] += 1
-                k = max(1, 13 - seen["hands"])   # 直すたびに 1 文だけ減る（誤差レベルの進み方）
-                bad = [f"手 {n + 1}: 指が 6 本" for n in range(k)]
-                return {"readable": True, "bad": bad,
-                        "hands": [{"box": [10, 10, 30, 30], "bad": ["指が 6 本"], "seen": True}],
-                        "feet": [], "faces": []}
+                return dict(HAND) if seen["hands"] >= 3 else dict(CLEAN_HAND)   # 線画の確かめから手が崩れる
 
-        painter = Painter()
-        said = []
+        got = self.run_draw(DetachedPainter(), "1girl, red scarf", C)
+        self.assertEqual(len(got["phases"]), N)
+        self.assertTrue(self.mend_phases(got, "位置ずれ"))                     # アタリでは直す
+        self.assertNotIn("線画", self.mend_phases(got, "位置ずれ"))             # 線画では構図を直さない
+        self.assertIn("線画", self.mend_phases(got, "手"))                      # パーツは線画でも直す
+
+
+class LineStageRedrawScaleTest(unittest.TestCase):
+    """線の段階（ラフ・アタリ・線画）の直しは、絵を広げずに描く。広げる（1.5 倍）のは
+    細部の画素数を稼ぐためだが、線だけの絵にその理由は無く、画素数 2.25 倍の時間が
+    そのまま 1 回の直しの重さになっていた（検証 #27・#28 で、線画の一箇所の直しに
+    何十分もかかった）。色の段階（仕上げなど）の直しは、今までどおり広げる"""
+
+    def run_with(self, bad_from):
+        seen = {"hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                return dict(HAND) if seen["hands"] >= bad_from else dict(CLEAN_HAND)
+
+        class ScalePainter(Painter):
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.scales = getattr(self, "scales", []) + [kw.get("max_scale")]
+                return super().redraw(prompt, seed, image, mask, on_step=on_step, **kw)
+
+        painter = ScalePainter()
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
-                              say=said.append, checks=C)
-        self.assertEqual(len(got["phases"]), N)                    # 工程は最後まで進む
-        self.assertLessEqual(len(painter.masks), phases.MENDS)     # 直しは最初の工程の分だけ。誤差レベルの減りで後の工程に持ち越さない
-        self.assertTrue(any("手" in k for k in got["left"]))        # 崩れは残った崩れとして正直に残る
+            phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                        say=lambda _s: None, checks=C)
+        return painter.scales
+
+    def test_line_stage_mends_do_not_upscale(self):
+        # hands の呼び出し順: 1=土台の計測, 2=アタリの確かめ, 3=線画の確かめ, 4=仕上げの確かめ
+        self.assertEqual(self.run_with(2), [1.0, 1.0, 1.0])   # アタリで初めて崩れた直しは広げない
+        self.assertEqual(self.run_with(3), [1.0, 1.0, 1.0])   # 線画で初めて崩れた直しも広げない
+
+    def test_finish_stage_mends_keep_the_upscale(self):
+        self.assertEqual(self.run_with(4), [None, None, None])   # 仕上げの直しは今までどおり広げる
 
 
 class RoughLayerTest(unittest.TestCase):
