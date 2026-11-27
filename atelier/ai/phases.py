@@ -244,6 +244,19 @@ def _compare_severity(flaws) -> float:
     return total
 
 
+def _progressed(prev, got) -> bool:
+    """直しで崩れが「はっきり」減ったか。重さが少しでも下がれば進歩とする作りだと、
+    ゴミ 83 個 → 82 個、離れた物 13 個 → 11 個のような誤差レベルの減りでも数え直し
+    （進んでいない直しの数）が消えて、直しが際限なく続く（検証 #27・#28 で、減りの
+    小さい直しが工程ごとに繰り返され、総工程が 83 → 100 と膨らんだ）。
+    進歩と数えるのは、重さが 1 以上、かつ前の重さの 2 割以上減ったときだけにする。
+    回数の上限を下げるのとは違う: はっきり効いている直しは、今までどおり続く"""
+    if not prev or not got:
+        return False
+    before, after = _severity(prev), _severity(got)
+    return after <= before - max(1.0, before * 0.2)
+
+
 def _mask(size, regions):
     from PIL import Image, ImageDraw
     mask = Image.new("L", size, 0)
@@ -1621,12 +1634,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     if kind == "recheck":
                         prev = phase_left.get(str(i), {}).get(item, [])
                         if prev and got_flaws:
-                            # 直したのに崩れの重さが下がらなかった（同じか増えた）ら数える。
-                            # 重さが下がれば、直しが効いているので数え直す
-                            if _severity(got_flaws) >= _severity(prev):
-                                no_progress[item] = no_progress.get(item, 0) + 1
-                            else:
+                            # 直しで崩れがはっきり減ったら、直しが効いているので数え直す。
+                            # 誤差レベルの減り（少しだけ減った）は進歩と数えず、数える側に入れる
+                            if _progressed(prev, got_flaws):
                                 no_progress.pop(item, None)
+                            else:
+                                no_progress[item] = no_progress.get(item, 0) + 1
                         if prev and _severity(got_flaws) > _severity(prev) and memo.get(("before", i, item)) is not None:
                             # 直しで崩れが増えた。直す前の絵に戻し、手を替えて直し直す（ゼロには戻らない）
                             say(f"「{item}」の直しで崩れが増えたので、直す前の絵に戻します")

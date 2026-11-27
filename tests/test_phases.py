@@ -2634,6 +2634,63 @@ class NoProgressMendTest(unittest.TestCase):
         self.assertTrue(any("変わりませんでした" in s for s in said))
 
 
+class SlowProgressMendTest(unittest.TestCase):
+    """減りが誤差レベルしかない直しを「進歩」と数えない。重さが少しでも下がれば
+    数え直し（進んでいない直しの数）が消える作りだと、ゴミ 83 個 → 82 個、離れた物
+    13 個 → 11 個のような減りでも「良くなっている」ことになり、直しが際限なく続く
+    （検証 #27・#28 で、線画の直しが膨らんで制限時間に届かなかった）。
+    進歩と数えるのは、崩れの文が 1 つ消えるか、埋まった数がはっきり（2 割以上）減ったときだけ"""
+
+    def test_progressed_needs_a_clear_drop(self):
+        self.assertFalse(phases._progressed(["ゴミがある（83 個）"], ["ゴミがある（82 個）"]))
+        self.assertTrue(phases._progressed(["ゴミがある（83 個）"], ["ゴミがある（60 個）"]))
+        self.assertFalse(phases._progressed(["体から離れている物がある（13 個）"], ["体から離れている物がある（11 個）"]))
+        self.assertTrue(phases._progressed(["体から離れている物がある（13 個）"], ["体から離れている物がある（9 個）"]))
+        self.assertFalse(phases._progressed(["手 1: 指が 6 本"], ["手 1: 指が 6 本"]))
+        self.assertTrue(phases._progressed(["手 1: 指が 6 本", "手 2: 指が 4 本"], ["手 1: 指が 6 本"]))
+
+    def test_slowly_shrinking_flaw_is_not_remended_forever(self):
+        seen = {"hands": 0}
+
+        class C:
+            @staticmethod
+            def request(image, prompt):
+                return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+            @staticmethod
+            def body(image, prompt, tags=None):
+                return {"readable": True, "bad": [], "avoid": []}
+
+            @staticmethod
+            def points(image):
+                w, h = image.size
+                return {"readable": True, "points": {"left_eye": (w * .45, h * .15), "right_eye": (w * .55, h * .15),
+                        "nose": (w * .5, h * .18), "left_ear": (w * .4, h * .15),
+                        "left_shoulder": (w * .4, h * .27), "right_shoulder": (w * .6, h * .27)}}
+
+            @staticmethod
+            def pose(image):
+                return {"readable": True, "bad": [], "map": image}
+
+            @staticmethod
+            def hands(image, prompt):
+                seen["hands"] += 1
+                k = max(1, 13 - seen["hands"])   # 直すたびに 1 文だけ減る（誤差レベルの進み方）
+                bad = [f"手 {n + 1}: 指が 6 本" for n in range(k)]
+                return {"readable": True, "bad": bad,
+                        "hands": [{"box": [10, 10, 30, 30], "bad": ["指が 6 本"], "seen": True}],
+                        "feet": [], "faces": []}
+
+        painter = Painter()
+        said = []
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              say=said.append, checks=C)
+        self.assertEqual(len(got["phases"]), N)                    # 工程は最後まで進む
+        self.assertLessEqual(len(painter.masks), phases.MENDS)     # 直しは最初の工程の分だけ。誤差レベルの減りで後の工程に持ち越さない
+        self.assertTrue(any("手" in k for k in got["left"]))        # 崩れは残った崩れとして正直に残る
+
+
 class RoughLayerTest(unittest.TestCase):
     """ラフはレイヤーとして残し、線画の工程の絵は「薄くしたラフの上に線」を合成して見せる。
     検品と次の工程は線のレイヤーそのもので進める（利用者の進め方: ラフをレイヤーにして
