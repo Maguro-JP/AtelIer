@@ -23,6 +23,14 @@ class ResultsAndProgressMixin:
         描き終えたあとに遅れて届いた途中の絵は捨てる（仕上がった絵を隠さない）"""
         if self.thread is None:
             return
+        from atelier.ai.phases import BASE_TAG
+        if BASE_TAG in getattr(img, "info", {}):
+            # 土台の絵は見せ方の決まりで出さない。デバッグモードの重ね表示（土台を薄く
+            # 重ねる）のためだけに取っておく
+            self._base_thumb = img
+            if getattr(self, "_base_overlay_on", False):
+                self._refresh_base_overlay()
+            return
         from atelier.ai.phases import PHASE_TAG
         if PHASE_TAG in getattr(img, "info", {}):
             self.show_phase_work(img, img.info[PHASE_TAG])
