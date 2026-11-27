@@ -92,6 +92,8 @@ FORM_CRUSH = 0.5      # 完成の判定: 最後の絵の質感の密度と鋭さ
 TONE_CRUSH = 0.85     # ディテール: 描き重ねでコントラストが元のこの割合を切ったら、影や濃い細部が潰れたとみて採用しない（私の推測）
 DETAIL_CRUSH = 0.7    # ディテール: 描き重ねで質感の密度が元のこの割合を切ったら、細部が潰れたとみて採用しない（私の推測）
 COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれより多ければ、色が散っている（私の推測）
+COVERAGE_MOST = 0.10  # 下塗り: 主役の輪郭の内側で紙の色のままの割合がこれを超えたら、塗り残し（私の推測）
+LINE_LOSS_MOST = 0.02  # 色・仕上げの工程の出口: 清書の線のうち、合成で暗く残っていない割合がこれを超えたら埋もれ（私の推測）
 DIFF_MIN = 0.5       # 前の絵との画素の差の平均（0〜255）がこれ未満なら「変わらなかった」として数えない（私の推測）
 MEND = (0.45, 0.5, 0.55, 0.6, 0.65, 0.7)   # 囲みの直しの強さ。上げる幅は小さくする（FIXES と同じ理由。一気に変えない）
 GROW = 12            # 囲みを広げる画素の数（1 段ごと）。直しの縁で切れた線や接合部は、広げた囲みで
@@ -905,6 +907,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             return None   # 新しいゴミ（暗い点・短い線の塊）が増えている。足すはずが散らかしている。採用しない
         if pt.new_bumps(img, out) > SPECKS_MOST:
             return None   # 滑らかだった所にブツブツ（でき物）が増えている。質感ではなく汚れ。採用しない
+        entry = st.get("detail_entry")
+        if entry is not None and entry.size == out.size:
+            # 工程全体の見張り: 1 回ごとの見張りだけだと、境目未満の斑点を何度も足して
+            # 積み重ねられる（描く・弱く描き直す・質感の締め直しが同じ工程で繰り返される）。
+            # 工程に入ったときの絵と比べて、増えた斑点の合計でも見る
+            if pt.new_specks(entry, out) > SPECKS_MOST or pt.new_bumps(entry, out) > SPECKS_MOST:
+                return None   # 工程の中で斑点が積み重なっている。採用しない
         return out
 
     TONE_WORDS = ("網点", "トーン", "screentone", "halftone")
@@ -929,6 +938,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         img = st["image"]
         if img is None:
             return {"image": img}
+        st["detail_entry"] = img   # ディテール工程に入ったときの絵。工程全体で増えた斑点の見張りの基準
         out = detail_pass(img, SHINE, st["seed"] + v * 1000)
         if out is None:
             out = detail_pass(img, SHINE / 2, st["seed"] + v * 1000 + 1)
@@ -1079,8 +1089,19 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         if b.get("readable") and b["share"] > pt.BLEED_MOST:
             flaws.append(f"色が紙にはみ出している（にじみ {b['share']}）")
             regions += [(box, "bleed") for box in b["boxes"]]
-        return {"flaws": flaws, "regions": regions, "readable": True,
-                "numbers": {"colors": colors, "parts": None if p is None else int(len(set(np.unique(p).tolist()) - {0}))}}
+        numbers = {"colors": colors, "parts": None if p is None else int(len(set(np.unique(p).tolist()) - {0}))}
+        _bm, blotches = pt.blotch_mask(img)
+        if blotches:
+            flaws.append(f"色に斑点がある（{blotches} 個）")   # 粒の物差し（grain）では塊の斑点は測れない。平らにした絵と比べて測る
+            numbers["blotches"] = blotches
+        _cm, uncolored = pt.coverage_mask(img)
+        if uncolored > COVERAGE_MOST:
+            flaws.append(f"塗り残しがある（主役の {uncolored} が紙の色のまま）")
+            numbers["uncolored"] = uncolored
+            ys, xs = np.nonzero(np.asarray(_cm.convert("L")) > 0)
+            if len(xs):
+                regions.append(((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1), "cover"))
+        return {"flaws": flaws, "regions": regions, "readable": True, "numbers": numbers}
 
     def m_light(img):
         lit = pt.light(img)
@@ -1240,7 +1261,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
               # 直しはアタリと仕上げの仕事。線画はただのスタートラインで、ここで完成にしようと
               # しない（利用者の指摘）。測ること自体は状態の把握に使うが、直すのは適所でだけにする
               ["線の途切れ", "ゴミ"],
-              ["色の差", "色のにじみ"],
+              ["色の差", "色のにじみ", "斑点", "塗り残し"],
               ["光の向き"],
               ["影"],
               ["目の光", "水の光", "葉のつや"],
@@ -1521,6 +1542,21 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             return []   # 大きく傾いている。回して直さない（残った崩れとして次へ進む）
         if item == "背景":
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "background"})]
+        if item == "斑点":
+            # 斑点は、平らにした絵と比べて見つけた塊を、周りの色で埋めて消す（純粋な操作）
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "blotch"})]
+        if item == "塗り残し":
+            if k == 0:
+                regs = [[list(b), t] for b, t in res.get("regions", []) if t == "cover"]
+                if regs:
+                    return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "boxes", "regions": regs})]
+            # 描き直しで直らなければ、輪郭の内側の紙のままの所を周りの色で埋める（純粋な操作）
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "cover"})]
+        if item == "色の差":
+            if k == 0:
+                # 近い色を寄せて色数を減らす（純粋な操作）。描き直しだけだと、色数が
+                # 変わるたびに責任の判定で戻され、直し切れずに未完成で終わっていた
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "posterize"})]
         if item == "線の強弱":
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "thicken"})]
         if item == "ディテール":
@@ -1593,9 +1629,48 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 + "、".join(flaws[:3]))
         grew(old)
 
+    def line_integrity(i, row):
+        """色・仕上げの工程の出口で、清書の線が埋もれていないか確かめる（利用者の指摘、
+        2026-11-27: 先の工程に行ったら壊れてても修正に戻らない）。工程は自分の範囲しか
+        直さないので、後の工程が清書の線を埋めても、最終検品まで誰も気づかなかった。
+        埋もれていたら清書のレイヤーから戻し、戻し切れなければ残った崩れとして数える
+        （黙って完成にしない）。清書のレイヤー自体は書き換えない"""
+        line = (st.get("layers") or {}).get("清書")
+        img = st.get("image")
+        if line is None or img is None or line.size != img.size:
+            return
+        # 比べるのは線らしい画素だけ（pt.line_pixels: 線でない暗い塊は、後の直しで
+        # 正しく消える物なので参照にしない）。仕上げや艶の描き重ねで線の縁が明るく
+        # なったり、回す直しで線が数画素ずれたりするのは、埋もれではない
+        core_l = pt.line_pixels(line)
+        total = int(core_l.sum())
+        if not total:
+            return
+        r = max(2, round(min(img.size) / 32))   # この近さに暗い画素があれば、線はそこにある
+
+        def missing(im):
+            present = pt._dilate(pt.luminance(im) < 80, r)
+            return float((core_l & ~present).sum()) / total
+
+        if missing(img) <= LINE_LOSS_MOST:
+            return
+        restored, _n = pt.restore_missing_lines(line, img)
+        if restored is not img and missing(restored) < missing(img):
+            st["image"] = restored
+            img = restored
+            if row.get("image"):
+                row["image"] = save_img(img, i, names[i])
+            say(f"「{names[i]}」で埋もれた清書の線を、清書のレイヤーから戻しました")
+        if missing(img) > LINE_LOSS_MOST:
+            msg = f"清書の線が埋もれている（{names[i]}の出口で {missing(img):.0%}）"
+            phase_left.setdefault(str(i), {})["線の完全性"] = [msg]
+            remaining["線の完全性"] = [f"{names[i]}: {msg}"]
+
     def finish_phase(i, row):
         """工程（9 の 1 つ）の最後の工程が済んだ。記録をまとめ、確かめ（confirm）を受ける。描き直しを頼まれたら True"""
         nonlocal backs
+        if i in (4, 5, 6, 7, 9):   # 下塗り・光源・影・艶・仕上げ: 清書の線を埋めうる工程の出口で確かめる
+            line_integrity(i, row)
         left = [f for fl in phase_left.get(str(i), {}).values() for f in fl]
         row["after"] = list(left)
         row["fixed"] = bool(row["mends"]) or row["fixed"]
@@ -1798,7 +1873,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         say("消せる欠片は無いので、離れた物の囲みを描き直します")
                         how = {"mask": "boxes", "regions": how["regions"]}
                         op = None
-                    if op in ("rotate", "thicken", "erase", "shine", "mirror", "detail", "detail_retry", "erase_detached"):
+                    if op in ("rotate", "thicken", "erase", "shine", "mirror", "detail", "detail_retry", "erase_detached",
+                              "blotch", "cover", "posterize"):
                         # 模型で描き直さない直し（純粋な操作）。直す工程には、必ず対応する検品がある
                         tried = None
                         dd = None
@@ -1806,7 +1882,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         mend_name = {"rotate": "回す", "thicken": "太らせる", "erase": "消す",
                                      "shine": "光を付ける", "mirror": "鏡写し",
                                      "detail": "質感を締める", "detail_retry": "弱く描き直す",
-                                     "erase_detached": "欠片を消す"}[op]
+                                     "erase_detached": "欠片を消す", "blotch": "斑点を消す",
+                                     "cover": "塗り残しを埋める", "posterize": "色を寄せる"}[op]
                         if cur is None:
                             s["status"] = "skipped"
                             queue_fix(i, item, s.get("flaws", []), {}, k, why="絵がありません")
@@ -1853,6 +1930,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         elif op == "detail":
                             say(f"質感を締め直しています: " + "、".join(s.get("flaws", [])[:3]))
                             tried = pt.enhance_detail(cur)
+                            dentry = st.get("detail_entry")   # 名前は entry にしない（draw の工程の入り口の記録と別物）
+                            if (dentry is not None and dentry.size == tried.size
+                                    and (pt.new_specks(dentry, tried) > SPECKS_MOST or pt.new_bumps(dentry, tried) > SPECKS_MOST)):
+                                say("質感の締め直しで、ディテール工程に入ってから増えた斑点が境目を超えたので、採用しません")
+                                tried = cur   # 工程全体で増えた斑点の見張り（1 回ごとでは境目未満でも積み重なる）
                             dd = diff(cur, tried)
                             dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
                             changed = (dd["mean"] or 0) >= DIFF_MIN
@@ -1860,6 +1942,36 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             say(f"影を潰さないよう、弱い強さでディテールを描き直しています: " + "、".join(s.get("flaws", [])[:3]))
                             got2 = detail_pass(cur, SHINE / 2, st["seed"] + k * 77)
                             tried = got2 if got2 is not None else cur
+                            dd = diff(cur, tried)
+                            dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
+                            changed = (dd["mean"] or 0) >= DIFF_MIN
+                        elif op == "blotch":
+                            say(f"色の面の斑点を、周りの色で埋めて消しています: " + "、".join(s.get("flaws", [])[:3]))
+                            mask, _n = pt.blotch_mask(cur)
+                            if mask is None:
+                                tried = cur
+                                dd = diff(cur, tried)
+                                dd["outside"], dd["inside"] = dd["mean"], dd["mean"]
+                                changed = False
+                            else:
+                                tried = pt.area_fill(cur, mask)
+                                dd = diff(cur, tried, mask)
+                                changed = (dd["inside"] or 0) >= 10
+                        elif op == "cover":
+                            say(f"塗り残し（輪郭の内側で紙のままの所）を、周りの色で埋めています: " + "、".join(s.get("flaws", [])[:3]))
+                            mask, _cshare = pt.coverage_mask(cur)
+                            if mask is None:
+                                tried = cur
+                                dd = diff(cur, tried)
+                                dd["outside"], dd["inside"] = dd["mean"], dd["mean"]
+                                changed = False
+                            else:
+                                tried = pt.area_fill(cur, mask)
+                                dd = diff(cur, tried, mask)
+                                changed = (dd["inside"] or 0) >= 10
+                        elif op == "posterize":
+                            say(f"散らかった色を、近い色同士で寄せて減らしています: " + "、".join(s.get("flaws", [])[:3]))
+                            tried = pt.posterize_base(cur, COLORS_MOST)
                             dd = diff(cur, tried)
                             dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
                             changed = (dd["mean"] or 0) >= DIFF_MIN
@@ -1953,7 +2065,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                         r //= 2
                                         m = _grow(mask, r)
                                 words = emphasize(phase_prompt(i), how["missing"]) if how.get("mask") == "wear" and how.get("missing") else phase_prompt(i)
-                                clean = False
+                                # 消してから描くのが順番（利用者の規則、2026-11-27）。形を変える直しを
+                                # 古い形の上に描くと、古い線が薄く残って二重になり、検品に残り続ける。
+                                # 前は手・足・顔（regions）だけが消してから描いていて、アタリの骨組み・
+                                # 位置ずれ・頼んだ物などは上に描いていた。目（光を足す）・影の側（調子）・
+                                # 赤ペン（利用者の印）だけは、元の絵を土台に描き重ねる
+                                clean = how.get("mask") not in ("eyes", "shadow_side", "pen")
                                 if how.get("mask") == "regions":
                                     # 手・足・顔の形の崩れ：囲みの中を消してから描き直す。
                                     # 囲みの中に渡すのは、その囲みの直す内容の言葉だけ。
@@ -1962,7 +2079,6 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                     fw = fix_words(how.get("regions"))
                                     if fw:
                                         words = f"{fw}, {line_words(i)}" if i <= 3 else fw
-                                    clean = True
                                 say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                                 tell(words)
                                 # 線の段階（〜線画。線画モードの「線の仕上げ」も）の直しは、絵を広げずに
@@ -1995,6 +2111,15 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                     say(f"「{item}」の描き直しが囲みの中を塗りつぶしたので、採用しません（形を無くして良く見せる直しはしません）")
                                     tried = cur
                                     dd = diff(cur, tried, m)
+                                    s["rejected"] = True
+                                # 斑点の見張り: 描き直しで新しい暗い塊やブツブツが増えていたら採用しない。
+                                # 今までこの見張りはディテールの描き重ね（detail_pass）の中だけにあり、
+                                # 下塗りの色の直し・影・目の直しなどは斑点を散らかしても採用されていた
+                                if pt.new_specks(cur, tried) > SPECKS_MOST or pt.new_bumps(cur, tried) > SPECKS_MOST:
+                                    say(f"「{item}」の描き直しで斑点（新しい暗い塊・ブツブツ）が増えたので、採用しません")
+                                    tried = cur
+                                    dd = diff(cur, tried, m)
+                                    s["rejected"] = True
                                 attempted = True
                         if attempted:
                             s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
@@ -2020,7 +2145,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 nk = max(k + 1, tries.get(tkey(i, item), 0) + 1)
                                 tries[tkey(i, item)] = nk
                                 old = plan.need()
-                                if nk < MENDS and how.get("mask") != "pen":
+                                # 見張りに採用されなかった直しは、同じ手（囲みを広げ・強さを上げた描き直し）を
+                                # 繰り返さない。確かめ直しが次の手（mends_for の次の段）を差し込む。
+                                # 同じ手を繰り返すと、確実に効く手（塗り残しを埋める等）に永遠に届かない
+                                if nk < MENDS and how.get("mask") != "pen" and not s.get("rejected"):
                                     plan.insert([step("mend", i, item, flaws=list(s.get("flaws", [])), k=nk, how=how)])
                                 # 手を替え尽くしたら差し込まない。待っている確かめ直しが同じ崩れを見つけ、聞く工程を差し込む
                                 grew(old)

@@ -233,6 +233,31 @@ class WindowPlanTest(unittest.TestCase):
         w.chat_send("猫耳の少女を3回描いて")
         self.assertTrue(self._settle(app, w, lambda: len(w.images) >= n + 3 and not w._plan_queue, n=8000), len(w.images) - n)
 
+    def test_plan_draw_without_body_never_uses_last_text(self):
+        """段取りの本文（描く内容）が無いとき、前の頼みの題材を描いてはいけない。
+        前は _plan_draw が last_text で埋めていたので、指示と全く関係ない絵が描かれた
+        （利用者の指摘、2026-11-27）。本文が無ければ「分かりませんでした」で止める"""
+        app, w = self._window()
+        w.last_text = "犬を描いて"   # 前の頼み
+        sent = []
+        w.send = lambda *a, **k: sent.append(a)   # 描く入口は記録だけにする
+        w._plan_draw("")
+        self.assertEqual(sent, [])   # 前の題材で描き始めていない
+        self.assertEqual(w.entry.text(), "")   # 欄も前の頼みで埋まっていない
+
+    def test_repeat_only_plan_asks_instead_of_drawing_last_subject(self):
+        """「3枚描いて」のように題材の無い段取りは、前の題材を描かずに聞き返す"""
+        app, w = self._window()
+        w.last_text = "犬を描いて"
+        sent = []
+        w.send = lambda *a, **k: sent.append(a)
+        self.assertTrue(w.chat_plan("3枚描いて"))
+        for _ in range(5):
+            w._plan_pump()
+            app.processEvents()
+        self.assertEqual(sent, [])
+        self.assertEqual(w._plan_queue, [])   # 聞き返して段取りは止まっている
+
 
 if __name__ == "__main__":
     unittest.main()

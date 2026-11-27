@@ -390,9 +390,15 @@ class Canvas(QGraphicsView):
                 self.redpen.clear()
 
     def add_phase_layers(self, items: list[tuple[str, str]]):
-        """工程ごとの途中の絵を、一番下に隠したレイヤーとして足す（目の印で出して見比べる）。描いた絵と選んだレイヤーはそのまま"""
+        """工程ごとの途中の絵を、一番下に隠したレイヤーとして足す（目の印で出して見比べる）。描いた絵と選んだレイヤーはそのまま。
+        工程のレイヤーは 1 回の描画ごとの物。前の回の分は置き換える（積まない）。
+        前は違う絵を描くたびに前の回の工程レイヤーが残り続け、直しのゴミごと
+        レイヤーに溜まっていった（利用者の指摘、2026-11-27）"""
         if not self.layers:
             return
+        cur_layer = self.layers[self.current] if 0 <= self.current < len(self.layers) else None
+        for old in getattr(self, "_phase_layers", []):
+            self.layers[:] = [l for l in self.layers if l is not old]   # 実物で見分ける（同じ名前・同じ絵のレイヤーと取り違えない）
         w, h = self.size_px()
         added = []
         for name, path in items:
@@ -402,11 +408,13 @@ class Canvas(QGraphicsView):
             p.end()
             added.append(Layer(name, layer, False))
         self.layers[:0] = added
-        self.current += len(added)
+        self._phase_layers = added
+        self.current = next((idx for idx, l in enumerate(self.layers) if l is cur_layer), len(self.layers) - 1)
         self.rebuild()
 
     def _reset(self, layers: list[Layer], current: int):
         self.layers, self.current = layers, current
+        self._phase_layers = []   # 絵を替えたら、前の絵の工程レイヤーの記録も外す（実物は積み重ねごと替わっている）
         self.sym_center = None   # 新しい絵では軸を真ん中に戻す
         self._clear_marks()
         self.set_selection(None)

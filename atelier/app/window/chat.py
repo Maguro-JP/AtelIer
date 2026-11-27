@@ -387,7 +387,11 @@ class ChatMixin:
     def _plan_draw(self, body: str, fix: bool = False):
         if fix:
             self.mode.setCurrentIndex(2)
-        self.entry.setText(body or self.last_text)
+        # 描くのは、この段取りの本文だけ。前の頼み（last_text）で埋めない。
+        # 前は本文が読めなかった段取りが、前の頼みの題材を黙って描いていた
+        # （利用者の指摘、2026-11-27: 指示と全く関係ない絵を描いている）。
+        # 本文が無ければ、下の「何を描くかが分かりませんでした」で止める
+        self.entry.setText(body)
         if not self.entry.text().strip():
             self.chat.add("ai", "何を描くかが分かりませんでした。描く内容を書いてください")
             self._plan_queue = []

@@ -112,6 +112,28 @@ class CanvasFixTest(unittest.TestCase):
         self.assertEqual(len(c.layers), 1)
         self.assertEqual(c.layers[0].image.pixelColor(50, 50).alpha(), 0)
 
+    def test_phase_layers_are_replaced_not_accumulated(self):
+        """工程のレイヤーは 1 回の描画ごとの物。違う絵を描いたら、前の回の工程レイヤーは
+        残らない（前は積み重なり続け、完成しない回の直しのゴミごと溜まっていった。
+        利用者の指摘、2026-11-27）。描いた絵のレイヤーと、選ばれているレイヤーはそのまま"""
+        c = self.w.canvas
+        if not c.layers:
+            self.w.new_blank()
+        base_count = len(c.layers)
+        cur_before = c.layers[c.current]
+        f1, f2, f3 = self.d / "p1.png", self.d / "p2.png", self.d / "p3.png"
+        for f in (f1, f2, f3):
+            figure().save(f)
+        c.add_phase_layers([("工程 1: サムネイル", str(f1)), ("工程 2: アタリ", str(f2))])
+        self.assertEqual(len(c.layers), base_count + 2)
+        first_run = list(c._phase_layers)
+        c.add_phase_layers([("工程 1: サムネイル", str(f3))])   # 違う絵の回
+        phase_now = [l for l in c.layers if l.name.startswith("工程")]
+        self.assertEqual(len(phase_now), 1)   # 前の回の工程レイヤーは残っていない
+        self.assertFalse(any(l is x for l in first_run for x in c.layers))
+        self.assertEqual(len(c.layers), base_count + 1)   # 描いた絵のレイヤーはそのまま
+        self.assertIs(c.layers[c.current], cur_before)   # 選ばれているレイヤーもそのまま
+
     def test_count_field(self):
         p = self.w.ai_panel
         self.assertEqual(p.count(), 1)

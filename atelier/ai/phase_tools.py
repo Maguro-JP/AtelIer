@@ -517,6 +517,148 @@ def flatten_base(image):
     return image.convert("RGB").filter(ImageFilter.ModeFilter(5))
 
 
+def blotch_mask(image):
+    """下塗りの面にできた斑点（でき物のような塊）の囲み（L の絵）と数を返す。無ければ (None, 0)。
+
+    粒の物差し（grain）は 3x3 の中央値との差なので、縁のくっきりした塊は中の画素の
+    中央値が塊自身の色になって測れない。ここでは平らにした絵と比べて、滑らかだった
+    所にできた強い変化の塊を、その塊の形（穴を埋めた形）で見る。
+    目の光のような紙に近い白と、線のインクのような暗い塊は、斑点ではなく絵の一部
+    として数えない。細い線（口など中身の無い形）も数えない"""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001  scipy が無ければ測れない（斑点は無いことにする）
+        return None, 0
+    # 参照は、面の色だけを残した絵（ModeFilter(9)）。斑点より小さい窓で平らにすると
+    # 斑点の芯が残って差が出ず、滑らかさで絞ると斑点の縁そのものが「滑らかでない」に
+    # なるので、切り分けは形（面積・中身・色）だけで行う
+    flat = image.convert("RGB").filter(ImageFilter.ModeFilter(9))
+    a = np.asarray(flat, np.int16)
+    b = np.asarray(image.convert("RGB"), np.int16)
+    cand = np.abs(a - b).max(axis=2) > 36
+    lab, n = ndimage.label(cand)
+    if not n:
+        return None, 0
+    lum = luminance(image)
+    keep = np.zeros(cand.shape, bool)
+    count = 0
+    for k in range(1, n + 1):
+        comp = lab == k
+        filled = ndimage.binary_fill_holes(comp)
+        area = int(filled.sum())
+        if area < 9 or area > 1024:
+            continue
+        if ndimage.distance_transform_edt(filled).max() < 3:
+            continue   # 中身の無い細い形（線の一部）
+        px = b[filled]
+        if px.min(axis=1).mean() > 240:
+            continue   # 紙に近い白（目の光など）は斑点ではない
+        if lum[filled].mean() < 50:
+            continue   # インクの暗さ（線の一部）は斑点ではない
+        keep |= filled
+        count += 1
+    if not count:
+        return None, 0
+    return Image.fromarray((keep * 255).astype("uint8")), count
+
+
+def area_fill(image, mask):
+    """囲みの中を、周りの面の色で埋める。erase_fill と違い、種は主役の範囲にある
+    線でない色だけにする。輪郭や線の黒を種にすると、一番近いのが線というだけで
+    黒が内側に広がってしまう（塗り残しを埋めたら線の黒で汚れた。検証で確認）。
+    囲みの外は変えない"""
+    import numpy as np
+    from PIL import Image
+    im = image.convert("RGB")
+    m = np.asarray(mask.convert("L").resize(im.size)) > 0
+    if not m.any():
+        return im
+    seeds = ~m & silhouette(im) & (luminance(im) >= 80)
+    if not seeds.any():
+        return erase_fill(im, mask)
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001
+        return erase_fill(im, mask)
+    _dist, inds = ndimage.distance_transform_edt(~seeds, return_indices=True)
+    arr = np.asarray(im).copy()
+    ys, xs = np.nonzero(m)
+    arr[ys, xs] = arr[inds[0][ys, xs], inds[1][ys, xs]]
+    return Image.fromarray(arr)
+
+
+def coverage_mask(image):
+    """塗り残しの囲みと割合を返す: 主役の輪郭の内側なのに、紙の色のままの所。
+    色の数を数える範囲（紙でない所）には、色の付いていない所は入らないので、
+    今まで塗り残しは測れなかった。輪郭で囲まれた内側を埋めた形と比べて測る。
+    囲みが無ければ (None, 0.0)"""
+    import numpy as np
+    from PIL import Image
+    try:
+        from scipy import ndimage
+    except Exception:   # noqa: BLE001
+        return None, 0.0
+    sil = silhouette(image)
+    if sil.sum() < 50:
+        return None, 0.0
+    filled = ndimage.binary_fill_holes(sil)
+    hole = filled & ~sil
+    if not hole.any():
+        return None, 0.0
+    share = float(hole.sum()) / max(int(filled.sum()), 1)
+    return Image.fromarray((hole * 255).astype("uint8")), share
+
+
+def posterize_base(image, most):
+    """色が散っている下塗りを、近い色同士を寄せて色数を減らした絵にする。
+    色の差の崩れには、今まで模型の描き直ししか手が無く、描き直すたびに色数が
+    変わって責任の判定で戻され、直し切れずに未完成で終わっていた（利用者の報告）。
+    主役の範囲（紙でない所）の中で、2% 以上を占める色が most 以下になるまで寄せる。
+    紙の所と、主役の外は変えない"""
+    import numpy as np
+    from PIL import Image
+    im = image.convert("RGB")
+    m = silhouette(im)
+    if m.sum() < 50:
+        return im
+    q = im.quantize(colors=32, method=Image.MEDIANCUT)
+    _pal = (q.getpalette() or [])[:96]
+    pal = np.zeros(96, np.uint8)
+    pal[:len(_pal)] = _pal
+    pal = pal.reshape(32, 3).astype(np.float32)
+    idx = np.asarray(q)
+    counts = np.bincount(idx[m].ravel(), minlength=32).astype(np.float32)
+    total = max(float(counts.sum()), 1.0)
+    big = [i for i in range(32) if counts[i] / total >= 0.02]
+    if len(big) <= most:
+        return im
+    order = sorted(big, key=lambda i: -counts[i])
+    step = 24.0
+    centers = None
+    while step <= 200.0:
+        centers = []   # (中心の色, その色に寄せる元の色の番号)
+        for i in order:
+            for c in centers:
+                if np.abs(pal[i] - c[0]).max() <= step:
+                    c[1].append(i)
+                    break
+            else:
+                centers.append([pal[i].copy(), [i]])
+        if len(centers) <= most:
+            break
+        step *= 1.5
+    arr = np.asarray(im).astype(np.float32)
+    for center, members in centers or []:
+        wsum = sum(counts[i] for i in members)
+        col = sum(pal[i] * counts[i] for i in members) / max(wsum, 1.0)
+        sel = m & np.isin(idx, members)
+        arr[sel] = col
+    from PIL import Image as _Image
+    return _Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+
+
 def detail_density(image) -> dict:
     """ディテールの量: 主役の内側で、隣の画素との明暗の差が強い画素の割合（density）と、
     その差の平均（sharp: 線や質感の鋭さ。ぼやけると下がる）。
@@ -612,6 +754,34 @@ def edge_leftovers(before, after, mask):
         return None
     from PIL import Image
     return Image.fromarray((out * 255).astype("uint8"))
+
+
+def line_pixels(image):
+    """絵の中の「線らしい」暗い画素（線の芯、lum < 40）。線のレイヤーにも、線でない
+    暗い塊（崩れの印や塗りの塊）が混ざることがある。塊は後の直しで正しく消える物
+    なので、線の残りを数える参照からは外す（塊: 辺が太く、枠の中をほぼ埋めている成分）。
+    線の縁（薄い画素）は描き重ねで明るくなってよいので、参照は芯だけにする"""
+    import numpy as np
+    from scipy import ndimage
+    dark = luminance(image) < 40
+    if not dark.any():
+        return dark
+    lab, n = ndimage.label(dark)
+    if n == 0:
+        return dark
+    edt = ndimage.distance_transform_edt(dark)
+    keep = np.ones(n + 1, dtype=bool)
+    objs = ndimage.find_objects(lab)
+    for idx, sl in enumerate(objs, 1):
+        comp = lab[sl] == idx
+        area = int(comp.sum())
+        if area < 16:
+            continue
+        bbox_area = comp.size
+        if area / bbox_area > 0.7 and float(edt[lab == idx].max()) >= 3:
+            keep[idx] = False   # 枠を埋める太い塊は線ではない
+    keep[0] = False
+    return keep[lab]
 
 
 def restore_missing_lines(source, after):

@@ -2351,6 +2351,303 @@ class BaseLineRestoreTest(unittest.TestCase):
                         "下塗りの結果の線が清書レイヤーの線と一致していない（埋もれ・ずれ・欠け・太り）")
 
 
+def blotchy_image(size):
+    """平らな色の面に、8x8 の濃い斑点（でき物のような塊）を 6 個置いた絵"""
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", size, "white")
+    d = ImageDraw.Draw(im)
+    d.rectangle([16, 12, 48, 84], fill=(205, 175, 155))
+    for (x, y) in ((20, 20), (36, 20), (20, 40), (36, 44), (20, 62), (36, 66)):
+        d.rectangle([x, y, x + 7, y + 7], fill=(120, 60, 50))
+    return im
+
+
+def band_image(size, n_bands):
+    """主役の矩形を n_bands 色の縦帯で塗った絵（色が散っている下塗りの再現）"""
+    import colorsys
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", size, "white")
+    d = ImageDraw.Draw(im)
+    x0, y0, x1, y1 = (16, 14, 48, 82)
+    step = (x1 - x0) / n_bands
+    for i in range(n_bands):
+        r, g, b = colorsys.hsv_to_rgb((i / n_bands) % 1.0, 0.45, 0.78 if i % 2 else 0.95)
+        d.rectangle([x0 + i * step, y0, x0 + (i + 1) * step, y1],
+                    fill=(int(r * 255), int(g * 255), int(b * 255)))
+    return im
+
+
+class ColoringPainter(Painter):
+    """線画（白地に黒い帯）を返し、下塗りの描き重ね（strength == BASE_COLOR）だけ差し替える画家"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+        from PIL import Image, ImageDraw
+        size = kw.get("size") or (64, 96)
+        im = Image.new("RGB", size, "white")
+        d = ImageDraw.Draw(im)
+        d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))   # 線画の線
+        return im
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        self.log.append(("refine", seed, strength))
+        if strength == phases.BASE_COLOR:
+            return self.base_color(image.size)
+        return image.copy()
+
+    def base_color(self, size):
+        raise NotImplementedError
+
+    def run(self):
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(self, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+            rows = {r["phase"]: r for r in got["phases"]}
+        return got, rows
+
+
+class ColoringDefectsTest(unittest.TestCase):
+    """塗りの欠陥（利用者の再発報告、2026-11-27）: 斑点・塗り残し・色の差で諦めて未完成。
+    検品には必ず、実際に効く直しがあること"""
+
+    def test_blotches_are_flagged_and_removed(self):
+        """下塗りの斑点は、粒の物差しでは測れなかった。平らにした絵と比べる検品で見つけ、
+        周りの色で埋める直しで消える。目の光（紙に近い白）は斑点として消さない"""
+        class P(ColoringPainter):
+            def base_color(self, size):
+                im = blotchy_image(size)
+                from PIL import ImageDraw
+                d = ImageDraw.Draw(im)
+                r = 2
+                for x in (size[0] * 0.45, size[0] * 0.55):   # 目の光（figure と同じ位置）
+                    d.ellipse([x - r, size[1] * 0.15 - r, x + r, size[1] * 0.15 + r], fill=(255, 255, 255))
+                return im
+        got, rows = P().run()
+        self.assertTrue(any("斑点" in f for f in rows["下塗り"].get("found", [])), rows["下塗り"].get("found"))
+        self.assertEqual(pt.blotch_mask(got["image"])[1], 0)   # 斑点は消えている
+        self.assertGreater(got["image"].getpixel((29, 14))[0], 240)   # 目の光は残っている
+
+    def test_color_scatter_is_fixed_by_posterize_without_redraw(self):
+        """色が散っている崩れは、近い色を寄せる純粋な直しで直る。模型の描き直しだけが
+        手だった頃は、描き直すたびに色数が変わって責任の判定で戻され、未完成で終わっていた"""
+        class P(ColoringPainter):
+            def __init__(self):
+                super().__init__()
+                self.redraw_calls = 0
+
+            def base_color(self, size):
+                # 主役を 4x4 の格子で 16 色に塗る（色が散っている）。細い帯だと
+                # 下塗りの線の始末（strip_own_lines）が暗い帯を線と見分ける話と混ざるので、面で塗る
+                import colorsys
+                from PIL import Image, ImageDraw
+                im = Image.new("RGB", size, "white")
+                d = ImageDraw.Draw(im)
+                x0, y0, x1, y1 = (16, 14, 48, 82)
+                for gy in range(4):
+                    for gx in range(4):
+                        r, g, b = colorsys.hsv_to_rgb((gy * 4 + gx) / 16.0, 0.45, 0.78 if (gx + gy) % 2 else 0.95)
+                        d.rectangle([x0 + gx * (x1 - x0) / 4, y0 + gy * (y1 - y0) / 4,
+                                     x0 + (gx + 1) * (x1 - x0) / 4, y0 + (gy + 1) * (y1 - y0) / 4],
+                                    fill=(int(r * 255), int(g * 255), int(b * 255)))
+                r = 2
+                for x in (size[0] * 0.45, size[0] * 0.55):   # 目の光（ほかの工程の直しを呼ばないため）
+                    d.ellipse([x - r, size[1] * 0.15 - r, x + r, size[1] * 0.15 + r], fill=(255, 255, 255))
+                return im
+
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                self.redraw_calls += 1
+                return band_image(image.size, 20)   # 描き直すと色が増える画家
+        painter = P()
+        got, rows = painter.run()
+        self.assertFalse(any("色が散っている" in f for f in got["left"]), got["left"])
+        mends = [m for r in got["history"] for m in r.get("mends", []) if m.get("item") == "色の差"]
+        # 色の差の直しは全部「色を寄せる」（純粋な操作）で、描き直しは 1 回も使われていない
+        self.assertTrue(mends and all(m.get("mend") == "色を寄せる" for m in mends), mends)
+        self.assertTrue(any(m.get("changed") for m in mends), mends)
+
+    def test_uncolored_part_is_flagged_and_filled(self):
+        """主役の輪郭の内側が紙のまま（塗り残し）は、今まで測る検品が無く、黙って通っていた。
+        検品で見つけ、直しで埋まること"""
+        class P(ColoringPainter):
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                from PIL import Image, ImageDraw
+                size = kw.get("size") or (64, 96)
+                im = Image.new("RGB", size, "white")
+                d = ImageDraw.Draw(im)
+                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))   # 主役の輪郭（閉じている）
+                d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))
+                return im
+
+            def base_color(self, size):
+                from PIL import Image, ImageDraw
+                im = Image.new("RGB", size, "white")
+                d = ImageDraw.Draw(im)
+                d.rectangle([16, 12, 48, 48], fill=(205, 175, 155))   # 上半分だけ。下半分は紙のまま
+                r = 2
+                for x in (size[0] * 0.45, size[0] * 0.55):
+                    d.ellipse([x - r, size[1] * 0.15 - r, x + r, size[1] * 0.15 + r], fill=(255, 255, 255))
+                return im
+
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                from PIL import ImageDraw
+                out = image.copy()
+                ImageDraw.Draw(out).rectangle([18, 50, 46, 64], fill=(205, 175, 155))   # 下半分の途中までしか塗らない画家
+                return out
+        got, rows = P().run()
+        self.assertTrue(any("塗り残し" in f for f in rows["下塗り"].get("found", [])), rows["下塗り"].get("found"))
+        mends = [m for r in got["history"] for m in r.get("mends", []) if m.get("item") == "塗り残し"]
+        self.assertTrue(any(m.get("mend") == "塗り残しを埋める" and m.get("changed") for m in mends), mends)   # 残りは埋める手で直った
+        self.assertLessEqual(pt.coverage_mask(got["image"])[1], phases.COVERAGE_MOST)
+        self.assertLess(got["image"].getpixel((24, 76))[0], 250)   # 下半分の一番下まで色が付いている
+
+    def test_speck_scattering_redraw_is_rejected_and_cover_fills(self):
+        """塗り残しの描き直しが斑点を散らかしたら採用しない。見張りで戻された直しは
+        同じ手を繰り返さず、次の手（周りの色で埋める）に進んで、塗り残しは直る"""
+        class P(ColoringPainter):
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                from PIL import Image, ImageDraw
+                size = kw.get("size") or (64, 96)
+                im = Image.new("RGB", size, "white")
+                d = ImageDraw.Draw(im)
+                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))
+                d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))
+                return im
+
+            def base_color(self, size):
+                from PIL import Image, ImageDraw
+                im = Image.new("RGB", size, "white")
+                ImageDraw.Draw(im).rectangle([16, 12, 48, 48], fill=(205, 175, 155))
+                return im
+
+            def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
+                from PIL import ImageDraw
+                out = image.copy()
+                d = ImageDraw.Draw(out)
+                d.rectangle([18, 50, 46, 82], fill=(205, 175, 155))   # 塗り残しは塗る
+                for x in (20, 26, 38, 44):   # しかし黒い斑点を散らかす
+                    for y in range(54, 79, 6):
+                        d.rectangle([x, y, x + 1, y + 1], fill=(0, 0, 0))
+                return out
+        got, rows = P().run()
+        mends = [m for r in got["history"] for m in r.get("mends", []) if m.get("item") == "塗り残し"]
+        self.assertTrue(mends, got["history"])
+        self.assertFalse(mends[0].get("changed"), mends)   # 斑点を散らかした描き直しは採用されていない
+        self.assertTrue(any(m.get("mend") == "塗り残しを埋める" and m.get("changed") for m in mends), mends)
+        self.assertLessEqual(pt.coverage_mask(got["image"])[1], phases.COVERAGE_MOST)
+        for x, y in ((20, 54), (26, 60), (38, 66), (44, 72)):   # 散らかった斑点の位置に黒は無い
+            self.assertGreater(got["image"].getpixel((x, y))[0], 150, (x, y))
+
+
+class DetailAccumulationTest(unittest.TestCase):
+    """ディテールの斑点は、1 回ごとの見張り（8 個）だけでは積み重なる。工程に入ったときの
+    絵と比べる見張りで、工程全体の合計でも止める（利用者の目撃、2026-11-27: ディテールで斑）"""
+
+    def test_detail_passes_do_not_accumulate_specks(self):
+        class P(Painter):
+            def __init__(self):
+                super().__init__()
+                self.detail_calls = 0
+                self.before_detail = None
+
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.log.append(("refine", seed, strength))
+                if "detailed texture" in prompt:
+                    self.detail_calls += 1
+                    if self.before_detail is None:
+                        self.before_detail = image.copy()
+                    from PIL import ImageDraw
+                    out = image.copy()
+                    d = ImageDraw.Draw(out)
+                    x0 = 6 + (self.detail_calls - 1) * 8   # 呼ぶたびに別の場所へ、境目未満の斑点を足す
+                    for dx in range(5):
+                        d.rectangle([x0 + dx, 88, x0 + dx + 1, 89], fill=(0, 0, 0))
+                    return out
+                return image.copy()
+        painter = P()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+                mock.patch.object(pt, "shadows", lambda *_a, **_k: {"readable": True, "shade_minus_lit": 5}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+        self.assertGreaterEqual(painter.detail_calls, 2)   # ディテールの描き重ねが複数回走った
+        self.assertIsNotNone(painter.before_detail)
+        specks = pt.new_specks(painter.before_detail, got["image"])
+        self.assertLessEqual(specks, phases.SPECKS_MOST,
+                             f"ディテール工程で斑点が {specks} 個まで積み重なった")
+
+
+class EraseThenDrawOrderTest(unittest.TestCase):
+    """形を変える直しは、消してから描く（利用者の指摘、2026-11-27: アタリの修正が
+    書いてから消す順番になっている）。前は手・足・顔だけが消してから描いていて、
+    アタリの骨組み・線の途切れなどは古い線の上に描いていた（薄く残って二重になる）"""
+
+    def test_form_mends_erase_before_drawing(self):
+        class Rec(Painter):
+            def __init__(self):
+                super().__init__()
+                self.cleans = []
+
+            def redraw(self, words, seed, image, mask, strength=0.45, clean=False, **kw):
+                self.cleans.append(clean)
+                return super().redraw(words, seed, image, mask, strength=strength, clean=clean, **kw)
+
+        painter = Rec()
+        C, _seen = checks(True)
+        with TemporaryDirectory() as d:
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+        items = [m.get("item") for r in got["history"] for m in r.get("mends", [])]
+        self.assertIn("骨組みの比", items)   # アタリの形の直しが走った
+        self.assertEqual(len(painter.cleans), len(items))   # この流れの直しは全部描き直し
+        self.assertTrue(all(painter.cleans),
+                        f"消してから描いていない直しがある（clean の並び: {painter.cleans}、直し: {items}）")
+
+
+class LineIntegrityExitTest(unittest.TestCase):
+    """後の工程が清書の線を埋めたら、その工程の出口で清書のレイヤーから戻す
+    （利用者の指摘、2026-11-27: 先の工程に行ったら壊れてても修正に戻らない）"""
+
+    def test_lines_buried_by_a_later_mend_are_restored_at_phase_exit(self):
+        class Bury(Painter):
+            def redraw(self, words, seed, image, mask, strength=0.45, clean=False, **kw):
+                out = super().redraw(words, seed, image, mask, strength=strength, clean=clean, **kw)
+                from PIL import ImageDraw
+                ImageDraw.Draw(out).rectangle([0, 40, out.width, 47], fill=(235, 235, 235))   # 帯の線を薄くして埋める
+                return out
+
+        painter = Bury()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+                mock.patch.object(pt, "shadows", lambda *_a, **_k: {"readable": True, "shade_minus_lit": 5}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+            line_row = next(r for r in got["phases"] if r["phase"] == "線画")
+            from PIL import Image
+            line_img = Image.open(line_row["image"]).convert("RGB")
+            mend_files = [m["image"] for r in got["history"] if r["phase"] == "影 2 段"
+                          for m in r.get("mends", []) if m.get("image")]
+            mend_imgs = [Image.open(p).convert("RGB") for p in mend_files]
+        shadow_mends = [m for r in got["history"] if r["phase"] == "影 2 段" for m in r.get("mends", [])]
+        self.assertTrue(shadow_mends)   # 影の直し（線を埋める描き直し）が走った
+        import numpy as np
+        dark_l = pt.luminance(line_img) < 80
+        band = np.zeros_like(dark_l)
+        band[40:48, :] = True
+        ref = dark_l & band
+        self.assertGreater(int(ref.sum()), 0)   # 帯の中に清書の線がある
+
+        def missing_of(im):
+            present = pt._dilate(pt.luminance(im) < 80, 1)
+            return float((ref & ~present).sum()) / float(ref.sum())
+
+        self.assertTrue(mend_imgs)
+        buried = max(missing_of(im) for im in mend_imgs)
+        self.assertGreater(buried, phases.LINE_LOSS_MOST,
+                           "直しの絵で線が埋もれていない（このテストの前提が崩れている）")
+        missing = missing_of(got["image"])
+        self.assertLessEqual(missing, phases.LINE_LOSS_MOST,
+                             f"影の出口で帯の線の {missing:.0%} が埋もれたまま")
+
+
 class CompareSeverityTest(unittest.TestCase):
     """土台と比べる重さ: ゴミの個数で完成が決まらないこと"""
 
