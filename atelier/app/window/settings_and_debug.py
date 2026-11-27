@@ -15,6 +15,14 @@ from atelier.files.paths import HOME as DATA
 from pathlib import Path
 
 
+def faded_base(image, alpha: float):
+    """土台の絵を、指定の薄さ（0〜1）で重ねられる RGBA の絵にする（デバッグ表示用）"""
+    rgba = image.convert("RGBA")
+    a = rgba.getchannel("A").point(lambda v: int(v * max(0.0, min(1.0, alpha))))
+    rgba.putalpha(a)
+    return rgba
+
+
 class SettingsAndDebugMixin:
     """設定、ヘルプ、デバッグモードと記録（Window が継承する）"""
 
@@ -120,6 +128,37 @@ class SettingsAndDebugMixin:
             self._debug_dock().show()
         elif getattr(self, "_dbg_dock", None) is not None:
             self._dbg_dock.hide()
+            btn = getattr(self, "base_overlay_btn", None)
+            if btn is not None and btn.isChecked():
+                btn.setChecked(False)   # デバッグを切ったら、土台の重ね表示も消す
+
+    def _toggle_base_overlay(self, on):
+        self._base_overlay_on = bool(on)
+        self._refresh_base_overlay()
+
+    def _stash_base(self, img):
+        """土台の絵を受け取って取っておく（Job の base_thumb から届く）。出すのは重ね表示が
+        オンのときだけ。通常の見せ方には出さない"""
+        self._base_thumb = img
+        if getattr(self, "_base_overlay_on", False):
+            self._refresh_base_overlay()
+
+    def _refresh_base_overlay(self):
+        """土台の絵を薄くしてキャンバスに重ねる。オフなら消す。土台がまだ届いていなければ、
+        届いたときに show_preview がもう一度呼ぶ"""
+        try:
+            if not getattr(self, "_base_overlay_on", False):
+                self.canvas.show_overlay(None)
+                return
+            base = getattr(self, "_base_thumb", None)
+            if base is None:
+                return
+            slider = getattr(self, "base_overlay_slider", None)
+            alpha = (slider.value() / 100.0) if slider is not None else 0.35
+            from atelier.app.window.image_convert import qimage_from_pil
+            self.canvas.show_overlay(qimage_from_pil(faded_base(base, alpha)))
+        except Exception:   # noqa: BLE001  デバッグ表示の失敗で描く処理を止めない
+            pass
 
     def _debug_dock(self):
         from PySide6.QtCore import QObject, QTimer, Signal
@@ -147,6 +186,22 @@ class SettingsAndDebugMixin:
         dock.visibilityChanged.connect(
             lambda v: self._usage_timer.start() if v else self._usage_timer.stop())
         lay.addWidget(self.debug_usage_label)
+        # 土台の絵の重ね表示（デバッグ専用）: 精度優先の基準にした土台の絵を、今の絵に
+        # 薄く重ねて、何を直そうとしているのかを見られるようにする。通常の見せ方では出さない
+        from PySide6.QtWidgets import QSlider
+        base_row = QHBoxLayout()
+        self.base_overlay_btn = QPushButton("土台の絵を薄く重ねる")
+        self.base_overlay_btn.setCheckable(True)
+        self.base_overlay_btn.setToolTip("精度優先の基準にした土台の絵（80 点の一発の絵）を、今描いている絵に薄く重ねます")
+        self.base_overlay_btn.toggled.connect(self._toggle_base_overlay)
+        self.base_overlay_slider = QSlider(Qt.Horizontal)
+        self.base_overlay_slider.setRange(10, 80)
+        self.base_overlay_slider.setValue(35)
+        self.base_overlay_slider.setToolTip("土台の絵の濃さ")
+        self.base_overlay_slider.valueChanged.connect(lambda _v: self._refresh_base_overlay())
+        base_row.addWidget(self.base_overlay_btn)
+        base_row.addWidget(self.base_overlay_slider)
+        lay.addLayout(base_row)
         self.debug_view = QPlainTextEdit()
         self.debug_view.setReadOnly(True)
         self.debug_view.setMaximumBlockCount(debuglog.RING)

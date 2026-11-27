@@ -40,6 +40,7 @@ class Job(QObject):
     """AI の 1 回分を裏で回す。描く（枚数分）か、直す（regions を渡したとき）"""
     status = Signal(str)
     preview = Signal(object)   # 描いている途中の絵（PIL）
+    base_thumb = Signal(object)   # 土台の絵（PIL）。見せる絵ではないので preview とは別の通り道で渡す（デバッグの重ね表示用）
     one = Signal(str, str)     # 1 枚できた（描く言葉、置き場）
     done = Signal()
     failed = Signal(str)
@@ -72,6 +73,10 @@ class Job(QObject):
             return
         self._last_preview = now
         self.preview.emit(img)
+
+    def _base(self, img):
+        """土台の絵の渡し口。1 回の描画で 1 枚だけ届く。preview（見せる絵）には混ぜない"""
+        self.base_thumb.emit(img)
 
     def _say(self, msg: str):
         """工程の知らせ。止める旗が立っていれば、ここで止める（旗を見ない工程の区切りでも止まる）"""
@@ -127,7 +132,7 @@ class Job(QObject):
         # 落ちても止めず、軽い設定・小さい大きさ・別の模型・別の種と段を下げて描く（engine.Studio.draw_anyway）
         draw = getattr(self.studio, "draw_anyway", None) or self.studio.draw   # 段を下げる形を持たない描き手（試験の偽物など）はそのまま描く
         prompt, path = draw(self.text, seed, on_status=self._say, base=self.base, strength=self.strength, size=self.size,
-                            on_preview=self._preview, style=self.style, meta=self.meta, resume=self.resume, **extra)
+                            on_preview=self._preview, on_base=self._base, style=self.style, meta=self.meta, resume=self.resume, **extra)
         self._stopped()
         preload(path)   # 置くときに画面の糸で絵を読まないよう、ここ（裏の糸）で先に読む
         self.one.emit(prompt, str(path))

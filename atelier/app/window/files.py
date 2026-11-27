@@ -387,6 +387,7 @@ class FilesMixin:
         self.thread.started.connect(self.job.run)
         self.job.status.connect(self.on_status)
         self.job.preview.connect(self.show_preview)
+        self.job.base_thumb.connect(self._stash_base)
         self._record_job(self.job)
         self.job.one.connect(self.on_one)
         self.job.done.connect(self.finish)

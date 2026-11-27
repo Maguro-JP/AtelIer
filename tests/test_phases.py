@@ -1527,8 +1527,6 @@ class PreviewTest(unittest.TestCase):
                 now[0] = m.split("「", 1)[1].split("」", 1)[0] if "「" in m else ""
 
         def show(im):
-            if phases.BASE_TAG in getattr(im, "info", {}):
-                return   # 土台は印を付けて窓へ渡すだけで、見せ方には出さない（窓が印を見て弾く）
             shown.append(im)
             phases_shown.append(now[0])
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
@@ -2084,8 +2082,7 @@ class BrushUpBaseTest(unittest.TestCase):
         self.assertTrue(any("良くなっていない" in f for f in got["left"]), got["left"])
 
     def test_base_image_is_never_shown(self):
-        """土台の絵は内側だけ。通常の見せ方では出さない。印を付けて窓へ渡すが、
-        出すのは窓のデバッグの重ね表示だけ。工程の絵のファイルにも、最後の絵にもならない"""
+        """土台の絵は内側だけ。preview にも、工程の絵のファイルにも、最後の絵にもならない"""
         from PIL import Image
         base_img = Image.new("RGB", (64, 96), (255, 0, 255))
 
@@ -2108,11 +2105,7 @@ class BrushUpBaseTest(unittest.TestCase):
             files = sorted((Path(d) / "k").glob("*.png"))
             base_px = list(base_img.getdata())
             self.assertTrue(painter.painted_base)   # 土台は描かれた（そのとき preview は渡されていない）
-            # preview に出るのは印付きの土台だけ。印の無い絵に土台が出てはいけない
-            displayed = [im for im in shown if phases.BASE_TAG not in getattr(im, "info", {})]
-            self.assertFalse(any(list(im.getdata()) == base_px for im in displayed), "土台が preview に出た")
-            tagged = [im for im in shown if phases.BASE_TAG in getattr(im, "info", {})]
-            self.assertEqual(len(tagged), 1)   # 土台は印を付けて窓へ 1 回だけ渡す
+            self.assertFalse(any(list(im.getdata()) == base_px for im in shown), "土台が preview に出た")
             self.assertFalse(any(list(Image.open(p).getdata()) == base_px for p in files), "土台が工程の絵として保存された")
         self.assertNotEqual(list(got["image"].getdata()), base_px)
 
@@ -2871,46 +2864,21 @@ class CarriedFlawGuardTest(unittest.TestCase):
 
 class BaseThumbTest(unittest.TestCase):
     """土台の絵は通常の見せ方では出さない。デバッグモードで薄く重ねて見るためだけに、
-    印（BASE_TAG）を付けて窓へ渡す。工程の絵には混ぜない"""
+    専用の渡し口（on_base）で窓へ渡す。preview（見せる絵の通り道）には流さないし、
+    工程の絵にも混ぜない。前は印を付けて preview に流していて、受け側が見落とすと
+    土台がそのまま画面に出た（0.1.28）"""
 
     def test_base_is_handed_to_the_window_with_its_tag_only(self):
-        shown = []
+        shown, bases = [], []
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             phases.draw(Painter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k",
-                        checks=hand_only_checks(bad_times=0), on_preview=shown.append)
-        tagged = [im for im in shown if phases.BASE_TAG in getattr(im, "info", {})]
-        self.assertEqual(len(tagged), 1, [sorted(getattr(im, "info", {})) for im in shown])
-        self.assertEqual(tagged[0].size, (64, 96))
-        self.assertNotIn(phases.PHASE_TAG, tagged[0].info)   # 工程の絵として扱わせない
-
-    def test_window_does_not_show_the_tagged_base(self):
-        """窓は印の付いた土台を出さない。重ね表示のためだけに取っておく。
-        0.1.28 の CI 失敗: phases が印付き土台を preview に渡すようになったのに、
-        窓に印を見る処理が無く、土台が筆でキャンバスに出ていた"""
-        from PIL import Image
-        from PySide6.QtWidgets import QApplication
-        from atelier.app.main_window import Window
-        from atelier.ai.engine import Studio
-        from tests.test_draw import FakePainter, FakeWords
-        QApplication.instance() or QApplication([])
-        with TemporaryDirectory() as d:
-            w = Window(Studio(FakeWords(), FakePainter(), Path(d)))
-            try:
-                w.thread = object()   # 描いている途中
-                w.recorder.clear()
-                base = Image.new("RGB", (64, 96), (255, 0, 255))
-                base.info[phases.BASE_TAG] = {"kind": "person"}
-                w.show_preview(base)
-                self.assertIs(getattr(w, "_base_thumb", None), base)   # 重ね表示のためだけに取っておく
-                self.assertFalse(getattr(w.canvas, "overlay", None) and w.canvas.overlay.isVisible())   # 出さない
-                self.assertEqual(len(w.recorder.frames), 0)   # タイムラプスにも残さない
-                self.assertIsNone(getattr(w, "_phase_player", None))   # 筆の再生も走らせない
-                # 印の無い途中の絵は今まで通り出す
-                w.show_preview(Image.new("RGB", (64, 96), (255, 0, 0)))
-                self.assertTrue(w.canvas.overlay.isVisible())
-            finally:
-                w.thread = None
-                w.close()
+                        checks=hand_only_checks(bad_times=0), on_preview=shown.append, on_base=bases.append)
+        self.assertEqual(len(bases), 1, [im.size for im in bases])   # 窓へは専用の渡し口で 1 回だけ
+        self.assertEqual(bases[0].size, (64, 96))
+        self.assertNotIn(phases.PHASE_TAG, bases[0].info)   # 工程の絵として扱わせない
+        # 土台そのものが preview に出ていないことは、土台だけ別の色で描く
+        # BrushUpBaseTest.test_base_image_is_never_shown が画素で確かめている
+        self.assertFalse(any(phases.BASE_TAG in getattr(im, "info", {}) for im in shown), "土台が印付きで preview に出た")
 
 
 class FlatMendTest(unittest.TestCase):

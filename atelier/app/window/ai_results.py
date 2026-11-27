@@ -486,6 +486,8 @@ class AiResultsMixin:
         self.thread.started.connect(job.run)
         job.status.connect(self.on_status)
         job.preview.connect(self.show_preview)
+        if hasattr(job, "base_thumb"):
+            job.base_thumb.connect(self._stash_base)
         self._record_job(job)
         job.one.connect(self.on_one)
         job.done.connect(self.finish)

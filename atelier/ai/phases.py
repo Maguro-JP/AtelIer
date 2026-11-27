@@ -72,7 +72,7 @@ def request_medium(prompt):
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
 BASE_GRAIN_MOST = 0.02   # 下塗り: 色の粒（ブツブツ）の割合がこれを超えたら、面の色に寄せて平らにする
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
-BASE_TAG = "atelier_base"     # 土台の絵に付ける印。通常の見せ方では出さず、デバッグモードで薄く重ねて見るためだけに窓へ渡す
+BASE_TAG = "atelier_base"     # 土台の絵の印。土台は on_base の専用の渡し口で窓へ渡す（preview には流さない）。この印は、万一 preview に土台が混ざっても窓が出さないための受け止め用に残す
 
 PHASES = [
     ("目的", "何を一番見せるか（主役）", "頼み", "頼みの言葉の数、主役の言葉"),
@@ -457,7 +457,7 @@ DRAWS = (1, 2, 3, 4, 6, 8)   # 描く工程のある工程（サムネイル、�
 
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
          confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None, answer=None,
-         resume: bool = False) -> dict:
+         resume: bool = False, on_base=None) -> dict:
     """計画（atelier/ai/phase_plan.py の工程の並び）に沿って 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録,
     "history": 全部の記録, "plan": 工程の並び, "left": [], "checked": True, "complete": True, "backs": 戻った回数,
     "total": 累計の工程の数, "need": 要る工程の数}。
@@ -603,13 +603,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         got = measure_base(img)
         st["base"] = {"image": img, "flaws": [] if got is None else got["flaws"],
                       "severity": None if got is None else got["severity"], "kind": None if got is None else got["kind"]}
-        if on_preview is not None:
-            # 土台の絵は画面に出さないのが決まり。ただしデバッグモードで「何を直そうとして
-            # いるのか」を見るため、印を付けて窓にだけ渡す（窓は印を見て、重ね表示が
-            # オンな時だけ薄く出す。通常の見せ方・工程の絵には混ぜない）
-            tagged = img.copy()
-            tagged.info[BASE_TAG] = {"kind": st["base"]["kind"]}
-            on_preview(tagged)
+        if on_base is not None:
+            # 土台の絵は画面に出さないのが決まり。preview（見せる絵の通り道）には流さず、
+            # デバッグモードで「何を直そうとしているのか」を薄く重ねて見るためだけに、
+            # 専用の渡し口（on_base）で窓へ渡す。前は印を付けて preview に流していたが、
+            # 受け側が印を見落とすと土台がそのまま画面とタイムラプスに出た（0.1.28）。
+            # 通り道自体を分ければ、見落としでは出ない
+            on_base(img.copy())
         if got is None:
             say("土台の絵を検品できませんでした（良くなったかを比べる基準は無しで進めます）")
         else:
