@@ -43,6 +43,13 @@ SHOW_FROM = "サムネイル"   # ラフ（サムネイル）から先の絵は�
 ROUGH_WORDS = "rough pencil sketch, light sketchy lines, construction lines, monochrome, greyscale, white background, no color"   # ラフ画の言葉（鉛筆や色鉛筆でさっと描く）。サムネイル・アタリで頼みの訳に足す
 PEN_WORDS = "lineart, clean inked lines, monochrome, greyscale, white background, no color"   # 線画の言葉（ペンでなぞって描く）。線画で頼みの訳に足す
 DETAIL_WORDS = "detailed texture, fine details, intricate details, delicate details"   # ディテールの言葉（質感の足し方だけ。新しく描く物の言葉は入れない）。ディテールで頼みの訳に足す
+GPEN_WORDS = "clean inked lines drawn with a G-pen, varied line weight, tapered stroke ends, bold outer contours, thin inner lines, monochrome, greyscale, white background, no color"   # 清書の言葉（Gペンで仕上げる）。線の仕上げで頼みの訳に足す
+WATERCOLOR_WORDS = "watercolor painting, soft translucent color washes, wet edges, paper texture"   # 画材に水彩の指定があったときだけ使う言葉
+BRUSH_WORDS = {"pencil": ROUGH_WORDS, "pen": PEN_WORDS, "gpen": GPEN_WORDS, "watercolor": WATERCOLOR_WORDS}   # 画材（draw_tools の BRUSHES の名前）→ 模型に渡す描き方の言葉
+MEDIUM_WORDS = (("gpen", ("gペン", "g-pen", "g pen", "gpen")),
+                ("pencil", ("鉛筆", "色鉛筆", "pencil")),
+                ("watercolor", ("水彩", "watercolor")),
+                ("pen", ("ペン", "pen")))   # 頼みの言葉の中の画材の指定。Gペンは「ペン」を含むので先に見る
 LINE_ART_WORDS = ("線画", "モノクロ", "白黒", "線だけ", "monochrome", "greyscale", "grayscale", "line art", "lineart")   # 線画で終わる頼みの言葉
 
 
@@ -51,6 +58,17 @@ def wants_line_art(prompt) -> bool:
     しない。指定があれば、色の工程の代わりに線の質を上げて線画で完成にする（利用者の規則）"""
     p = (prompt or "").lower()
     return any(w in p for w in LINE_ART_WORDS)
+
+
+def request_medium(prompt):
+    """頼みの言葉に画材の指定があれば、その画材（draw_tools の BRUSHES の名前）。無ければ None。
+    「鉛筆の画像」のような指定がある場合だけ、その指定の画材で描く（利用者の指示、2026-11-27）。
+    指定は工程の既定の画材（ラフ=鉛筆、線画=ペン、清書=Gペン）より勝つ"""
+    low = (prompt or "").lower()
+    for kind, words in MEDIUM_WORDS:
+        if _has_word(low, words):
+            return kind
+    return None
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
 BASE_GRAIN_MOST = 0.02   # 下塗り: 色の粒（ブツブツ）の割合がこれを超えたら、面の色に寄せて平らにする
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
@@ -480,25 +498,35 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
           "layers": {}}   # レイヤー: 線画・清書・下塗りを別々に残す。表示と検品は合成した st["image"] で行う
     memo = {"thumbs": {}, "measured": {}, "check": False}   # 描いた絵と測った結果を使い回す（同じ絵を 2 度描かない・測らない）
     tones = []
+    # 工程ごとの道具（画材）。指定が無ければ、見ただけで工程が分かるようにラフ=鉛筆、
+    # 線画=ペン、清書=Gペン。頼みに画材の指定があれば、線の工程は全部その画材で描く
+    medium = request_medium(prompt)
+    rough_brush = medium or "pencil"   # ラフ（サムネイル・アタリ）
+    pen_brush = medium or "pen"        # 線画のペンなぞり
+    clean_brush = medium or "gpen"     # 清書（線画の中の仕上げと、線画モードの線の仕上げ）
 
     def tell(words):
         say(f"{WORDS_NOTE}{words}")
 
     def rough_prompt():
-        """ラフ画を描く言葉（頼みの訳に、鉛筆でさっと描くラフの言葉を足した物）。サムネイル・アタリで使う"""
-        return f"{st['prompt']}, {ROUGH_WORDS}"
+        """ラフ画を描く言葉（頼みの訳に、ラフの画材の言葉を足した物）。サムネイル・アタリで使う"""
+        return f"{st['prompt']}, {BRUSH_WORDS[rough_brush]}"
 
     def pen_prompt():
-        """線画を描く言葉（頼みの訳に、ペンでなぞる線の言葉を足した物）。線画で使う"""
-        return f"{st['prompt']}, {PEN_WORDS}"
+        """線画を描く言葉（頼みの訳に、線画の画材の言葉を足した物）。線画で使う"""
+        return f"{st['prompt']}, {BRUSH_WORDS[pen_brush]}"
+
+    def gpen_prompt():
+        """清書を描く言葉（頼みの訳に、清書の画材の言葉を足した物）。線の仕上げで使う"""
+        return f"{st['prompt']}, {BRUSH_WORDS[clean_brush]}"
 
     def detail_prompt():
         """ディテールを足す言葉（頼みの訳に、質感の足し方だけの言葉を足した物）。新しい物は足さない"""
         return f"{st['prompt']}, {DETAIL_WORDS}"
 
     def line_words(i):
-        """線の工程の、線の描き方だけの言葉（頼みの訳は入れない）。ラフは鉛筆、線画はペン"""
-        return ROUGH_WORDS if i <= 2 else PEN_WORDS if i == 3 else ""
+        """線の工程の、線の描き方だけの言葉（頼みの訳は入れない）。その工程の画材の言葉"""
+        return BRUSH_WORDS[rough_brush] if i <= 2 else BRUSH_WORDS[pen_brush] if i == 3 else ""
 
     def phase_prompt(i):
         """工程 i で直すときに模型に渡す言葉。ラフの工程（サムネイル・アタリ）は鉛筆のラフの言葉、線画はペンの言葉、色の工程（下塗りから）は頼みの訳だけ"""
@@ -643,7 +671,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         out = img.resize((w, h))
         memo["measured"][1] = (out, st["prompt"], {"flaws": flaws, "numbers": {"thumbs": rows, "picked": s},
                                                    "readable": bool(req.get("readable"))})
-        return {"image": out, "words": words, "numbers": {"thumbs": rows, "picked": s}}
+        return {"image": out, "words": words, "numbers": {"thumbs": rows, "picked": s, "brush": rough_brush}}
 
     def d_atari(v):
         # アタリは構図の調整と下描きを 1 つの工程にする。サムネイル（線のラフ画）を土台に、体の形・顔と手と足・服と髪と持ち物の
@@ -686,7 +714,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         rough = st["layers"].get("ラフ")
         if rough is not None and rough.size == img.size:
             display = pt.underlay(img, rough)
-        return {"image": img, "display": display, "words": words}
+        return {"image": img, "display": display, "words": words, "numbers": {"brush": rough_brush}}
 
     def d_draft(v):
         img, words, note = st["image"], [], ""
@@ -746,10 +774,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         tried = _inside(keep_tone(painter.redraw(words2, st["seed"] + 131 + v * 1000, img, mask, strength=REPAINT, max_scale=1.0), img, "服・髪・持ち物", mask), img, mask)
         return {"image": tried, "words": words, "numbers": {"by_parts": by_parts}}
 
-    def clean_lines(img):
-        """清書の実務: 線の強弱を付け、ゴミを塊そのものだけ消す。
+    def clean_lines(img, kind="gpen"):
+        """清書の実務: ゴミを塊そのものだけ消す。線の強弱は Gペンの画材（kind）のときだけ付ける
+        （入り抜きと強弱は Gペンの線の質そのもの。鉛筆など他の画材の指定があるときは、
+        その画材の線の質感のままにして強弱付けをしない）。
         返すのは (絵, 太らせた画素の数, 消す前のゴミの数。読めなければ None)"""
-        out, hit = pt.weight_lines(img)
+        out, hit = pt.weight_lines(img) if kind == "gpen" else (img, 0)
         d = pt.dust(out)
         cleaned = out
         if d.get("readable") and d["count"]:
@@ -768,18 +798,18 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         words = []
         if can_refine:
             say("線の仕上げをしています（色には進まず、線の質を上げます）")
-            tell(pen_prompt())
-            words.append(pen_prompt())
-            raw = keep_tone(painter.refine(pen_prompt(), st["seed"] + v * 1000, img, strength=SHINE, on_step=on_step, **pv), img, "線の仕上げ")
+            tell(gpen_prompt())
+            words.append(gpen_prompt())
+            raw = keep_tone(painter.refine(gpen_prompt(), st["seed"] + v * 1000, img, strength=SHINE, on_step=on_step, **pv), img, "線の仕上げ")
             ink_before, ink_after = pt.ink_share(img), pt.ink_share(raw)
             if ink_before > 0 and ink_after < ink_before * LINE_INK_KEEP:
                 say("仕上げの描き重ねで線が薄くなるので、元の線のまま清書だけします")
             else:
                 img = raw
         say("清書しています（線の強弱を付け、ゴミを消す）")
-        cleaned, hit, dust_count = clean_lines(img)
+        cleaned, hit, dust_count = clean_lines(img, clean_brush)
         return {"image": cleaned, "words": words,
-                "numbers": {"pixels": hit, "dust": dust_count}}
+                "numbers": {"pixels": hit, "dust": dust_count, "brush": clean_brush}}
 
     def d_lines(v):
         """線画: ラフをペンでなぞって線にする。なぞったあと清書する（線の強弱を付け、ゴミを消す）。
@@ -813,7 +843,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 img = pt.over_lines(img, base_line)
         # 清書: 線の強弱を付け、残ったゴミを塊そのものだけ消して、線を仕上げる
         say("清書しています（線の強弱を付け、ゴミを消す）")
-        cleaned, hit, dust_count = clean_lines(img)
+        cleaned, hit, dust_count = clean_lines(img, clean_brush)
         # 表示用の合成: ラフのレイヤーがあれば、薄くして線の下に敷く。返す絵（検品と
         # 次の工程の土台）は線のレイヤーそのもの。工程の絵だけが合成になる。
         # 下に敷くラフは、ゴミだけ消した写しを使う。清書まで終わった工程の絵に
@@ -827,7 +857,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 under = pt.erase_fill(rough, rmask)
             display = pt.underlay(cleaned, under)
         return {"image": cleaned, "display": display, "words": words,
-                "numbers": {"pixels": hit, "dust": dust_count}}
+                "numbers": {"pixels": hit, "dust": dust_count, "brush": pen_brush, "clean_brush": clean_brush}}
 
     def d_base(v):
         """下塗り。線の工程までは色を付けないので、ここで初めて色をのせる。

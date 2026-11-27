@@ -2771,6 +2771,80 @@ class LineStagesTest(unittest.TestCase):
         self.assertGreaterEqual(ink_lines, ink_atari * 0.6)
 
 
+class PhaseBrushTest(unittest.TestCase):
+    """工程ごとの道具: 指定が無ければラフ=鉛筆、線画=ペン、清書=Gペン。
+    頼みに画材の指定（鉛筆の画像など）があれば、その画材が清書の既定（Gペン）にも勝つ
+    （利用者の指示、2026-11-27 22:13: 見ただけでどの工程か分かるようにする）"""
+
+    class BrushPainter(Painter):
+        """模型に渡した言葉を全部記録する画家。描き重ねは絵を変えない写しを返す"""
+        def __init__(self):
+            super().__init__()
+            self.prompts = []
+
+        def paint(self, prompt, seed, on_step=None, **kw):
+            self.prompts.append(prompt)
+            return super().paint(prompt, seed, on_step=on_step, **kw)
+
+        def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+            self.prompts.append(prompt)
+            self.log.append(("refine", seed, strength))
+            return image.copy()
+
+    def run_draw(self, prompt, painter=None):
+        painter = painter or self.BrushPainter()
+        C = hand_only_checks(bad_times=0)
+        calls = {"weight": 0}
+        orig = pt.weight_lines
+
+        def spy(im, r=None):
+            calls["weight"] += 1
+            return orig(im, r=r)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+                mock.patch.object(pt, "weight_lines", spy):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", checks=C)
+        return got, painter, calls
+
+    def test_request_medium_parsing(self):
+        self.assertEqual(phases.request_medium("鉛筆の画像"), "pencil")
+        self.assertEqual(phases.request_medium("1girl, pencil sketch"), "pencil")
+        self.assertEqual(phases.request_medium("Gペンで描いた線画"), "gpen")   # 「ペン」より先に見る
+        self.assertEqual(phases.request_medium("水彩の風景"), "watercolor")
+        self.assertEqual(phases.request_medium("ペン画"), "pen")
+        self.assertIsNone(phases.request_medium("1girl, red scarf"))
+        self.assertIsNone(phases.request_medium("open the door"))   # 'pen' の部分一致で拾わない
+
+    def test_default_brushes_per_phase(self):
+        got, painter, calls = self.run_draw("1girl, red scarf")
+        rows = {r["phase"]: r for r in got["phases"]}
+        self.assertEqual(rows["サムネイル"]["numbers"].get("brush"), "pencil")   # ラフは鉛筆
+        self.assertEqual(rows["アタリ"]["numbers"].get("brush"), "pencil")       # アタリもラフの続き（鉛筆）
+        self.assertEqual(rows["線画"]["numbers"].get("brush"), "pen")            # 線画はペンでなぞる
+        self.assertEqual(rows["線画"]["numbers"].get("clean_brush"), "gpen")     # 清書は Gペン
+        self.assertGreaterEqual(calls["weight"], 1)   # 清書（Gペン）は線の強弱を付ける
+
+    def test_line_finish_uses_gpen_words(self):
+        """線の仕上げは清書の続き。模型への言葉も Gペンで、記録の画材も gpen"""
+        painter = self.BrushPainter()
+        C, _seen = checks(False)
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf, 線画", 5, (64, 96), Path(d) / "k", checks=C, confirm=None)
+        rows = {r["phase"]: r for r in got["phases"]}
+        words = " ".join(rows["線の仕上げ"]["words"])
+        self.assertIn("G-pen", words)
+        self.assertEqual(rows["線の仕上げ"]["numbers"].get("brush"), "gpen")
+
+    def test_pencil_request_overrides_gpen_at_clean(self):
+        """鉛筆の指定がある頼みでは、清書も鉛筆のまま。Gペンの強弱付けは掛けない"""
+        got, painter, calls = self.run_draw("1girl, red scarf, 鉛筆の絵")
+        rows = {r["phase"]: r for r in got["phases"]}
+        self.assertEqual(rows["サムネイル"]["numbers"].get("brush"), "pencil")
+        self.assertEqual(rows["線画"]["numbers"].get("brush"), "pencil")
+        self.assertEqual(rows["線画"]["numbers"].get("clean_brush"), "pencil")   # 清書が Gペンに化けない
+        self.assertEqual(calls["weight"], 0)   # 鉛筆の線に、Gペンの線の強弱付けをしない
+        self.assertFalse(any("G-pen" in p for p in painter.prompts), painter.prompts)
+
+
 class CarriedFlawGuardTest(unittest.TestCase):
     """持ち越した崩れは、その項目を実際に測った工程の確かめでだけ外す。
     項目名だけが工程の並びにあって検品が測っていない場合は、消えたことにしない"""
