@@ -345,7 +345,10 @@ def _components(image):
     except Exception:   # noqa: BLE001  scipy が無ければ、塊を分けられない
         return None
     m = silhouette(image)
-    lab, n = ndimage.label(m)
+    # 前景は 8 近傍で数える。線は斜めに 1 画素幅で続くことがあり、4 近傍（scipy の
+    # 既定）で数えると 1 本の線が欠片に割れ、欠片が「離れた物」や「ゴミ」に化ける。
+    # ラフ画・線画は線だけの絵なので、まともな線でも必ず崩れが立つ物差しになっていた
+    lab, n = ndimage.label(m, structure=np.ones((3, 3), int))
     if n == 0:
         return lab, np.array([]), 0
     sizes = ndimage.sum(m, lab, range(1, n + 1))
@@ -828,14 +831,26 @@ def detached(image) -> dict:
         return {"readable": False, "boxes": [], "count": 0}
     h, w = lab.shape
     from scipy import ndimage
-    big_sl = ndimage.find_objects(lab)[big - 1]
+    objs = ndimage.find_objects(lab)
+    big_sl = objs[big - 1]
     bx0, bx1 = big_sl[1].start, big_sl[1].stop
     by0, by1 = big_sl[0].start, big_sl[0].stop
+    # 主役の輪郭の内側にある線（目・鼻・服の線）は、体から離れた物ではない。
+    # 線画では内側の線が主役の塊と別成分になるのが当たり前で、内側まで「離れた物」と
+    # 数えると、まともなラフ画でも必ず位置ずれになる（ゴミの物差しの「主役の中にある
+    # 小さな塊はディテール」と同じ扱いにする）
+    filled = ndimage.binary_fill_holes(lab == big)
     near = min(h, w) * DETACH_MOST
     boxes = []
-    for box in _component_boxes(lab, sizes, big, lambda _k, size, box: (
-            not (size <= DUST_MAX_PIXELS
-                 and max(box[3] - box[1], box[2] - box[0]) <= max(3, min(h, w) * DUST_SIZE_MOST)))):
+    for k, sl in enumerate(objs, 1):
+        if k == big or sl is None:
+            continue
+        box = (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop)
+        if (sizes[k - 1] <= DUST_MAX_PIXELS
+                and max(box[3] - box[1], box[2] - box[0]) <= max(3, min(h, w) * DUST_SIZE_MOST)):
+            continue   # ゴミの大きさの物は、ゴミの方で扱う
+        if filled[sl][lab[sl] == k].all():
+            continue   # 主役の輪郭の内側の線は、離れた物ではない
         # 枠の距離（主役の枠から。0 なら重なっている）。枠の距離で見るのは、正確な画素の距離は重いため
         dx = max(bx0 - box[2], box[0] - bx1, 0)
         dy = max(by0 - box[3], box[1] - by1, 0)

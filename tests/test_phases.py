@@ -3922,3 +3922,48 @@ class LineArtModeTest(unittest.TestCase):
         self.assertIn("下塗り", names)
         self.assertEqual(names[-1], "仕上げ")
 
+
+class AtariLineArtMeasureTest(unittest.TestCase):
+    """最初のアタリが、描いた本人（線のラフ画）のままで検品に通ること。
+    アタリが描くのは輪郭だけの線画なのに、位置ずれ・ゴミの物差しが「塗りつぶした
+    人物の塊」を前提に成分を数えていたため、頭の輪郭や目の線といった絵そのものが
+    「体から離れた物」「ゴミ」に化け、最初のアタリに必ず直しが入っていた
+    （利用者の指摘、2026-11-27: 最初のアタリがズレてるせいで描き直しが確定で入る）"""
+
+    def test_sketch_outlines_are_not_detached_or_dust(self):
+        """線のラフ画: 輪郭の線と内側の線（目など）は、離れた物でもゴミでもない"""
+        for size in ((64, 96), (256, 384)):
+            im = sketch(size)
+            self.assertEqual(pt.detached(im)["count"], 0, (size, pt.detached(im)))
+            self.assertEqual(pt.dust(im)["count"], 0, (size, pt.dust(im)))
+
+    def test_detached_blob_beside_sketch_still_found(self):
+        """線画でも、本当に体から離れた塊は位置ずれとして見つける（直しすぎない）"""
+        from PIL import ImageDraw
+        im = sketch((64, 96))
+        d = ImageDraw.Draw(im)
+        d.rectangle([45, 40, 55, 50], fill=(30, 30, 30))  # 体の輪郭の外に、離れた塊
+        self.assertEqual(pt.detached(im)["count"], 1, pt.detached(im))
+
+    def test_first_atari_of_clean_sketch_needs_no_mend(self):
+        """検品（模型）が全部通る線のラフ画を描く画家では、最初のアタリに
+        崩れが出ず、直しも入らない。直しは本当に崩れた絵のためだけに残る"""
+        class SketchPainter(Painter):
+            def paint(self, prompt, seed, on_step=None, **kw):
+                self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+                return sketch(kw.get("size") or (64, 96))
+
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                self.log.append(("refine", seed, strength))
+                return image.copy()
+
+        C = hand_only_checks(0)   # 頼んだ物・体・手の検品は全部通す
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(SketchPainter(), "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
+        atari = [r for r in got["history"] if r["phase"] == "アタリ"]
+        self.assertTrue(atari)
+        for r in atari:
+            self.assertEqual(r["found"], [], r)
+            self.assertEqual(r.get("mends", []), [], r)
+        self.assertEqual([x for x in got["left"] if x.startswith("アタリ")], [], got["left"])
+
