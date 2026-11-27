@@ -436,14 +436,17 @@ DRAWS = (1, 2, 3, 4, 6, 8)   # 描く工程のある工程（サムネイル、�
 
 
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
-         confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None, answer=None) -> dict:
+         confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None, answer=None,
+         resume: bool = False) -> dict:
     """計画（atelier/ai/phase_plan.py の工程の並び）に沿って 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録,
     "history": 全部の記録, "plan": 工程の並び, "left": [], "checked": True, "complete": True, "backs": 戻った回数,
     "total": 累計の工程の数, "need": 要る工程の数}。
     返るのは全部の工程が検品を通ったときか、利用者に聞いて止まったとき（asked）だけ。止めるのは利用者の「止める」（Stopped）だけ。
     confirm(i, 名前, 絵, 記録) は工程（9 の工程の 1 つ）の最後に呼び、"go"・"redo"・("words", 足す言葉の訳) を返す。
     pause_key があれば、打ち切られたとき・聞いて止まったときに、計画と位置と土台を atelier/files/pause_keep.py に残す。
-    同じ鍵で呼び直すと計画の同じ工程から続け、answer があれば止まった聞く工程の答えにする"""
+    続きから描くのは resume=True のときだけ（窓の「再開」と、聞いて止まった工程への答え）。
+    resume でない呼び直しは新しい描画で、残っていた途中は引き継がず白い紙から描く
+    （同じ頼み・種の新しい描画が、前の絵の上に描き始める事故があった。利用者の報告、2026-11-27）"""
     from PIL import Image
     from atelier.ai.engine import Stopped, emphasize
     from atelier.qc import hand_check as handcheck
@@ -1276,7 +1279,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         return res
 
     # 計画と記録
-    saved = pausekeep.state(pause_key) if pause_key else None
+    saved = pausekeep.state(pause_key) if (pause_key and resume) else None
     if saved and "plan" in saved:   # 一時停止した工程から続ける。済んだ工程の絵と記録はそのまま使う
         plan = Plan.load(names, HIDDEN, saved["plan"])
         final, history, entry, visits = saved["final"], saved["history"], saved["entry"], saved["visits"]

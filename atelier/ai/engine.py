@@ -1865,10 +1865,11 @@ class Studio:
         return "auto" if self.image_auto else FAV if self.use_favorites else "single"
 
     def draw(self, text: str, seed: int, on_status=None, base=None, strength: float = 1.0, size=None,
-             on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None) -> tuple[str, Path]:
+             on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None,
+             resume: bool = False) -> tuple[str, Path]:
         ch = self.character
         if not ch:
-            return self._draw(text, seed, on_status, base, strength, size, on_preview, style, reference, ref_scale, meta)
+            return self._draw(text, seed, on_status, base, strength, size, on_preview, style, reference, ref_scale, meta, resume=resume)
         # 人物の禁止ワードと LoRA は、この 1 回のあいだだけ描き手に入れ、終わったら元に戻す
         p = self.painter
         avoid0, lora0 = getattr(p, "avoid", None), getattr(p, "lora", None)
@@ -1881,7 +1882,7 @@ class Studio:
             if fam(image_model(getattr(p, "model", "")).family).reference:
                 reference = ch["reference"]
         try:
-            return self._draw(text, seed, on_status, base, strength, size, on_preview, style, reference, ref_scale, meta)
+            return self._draw(text, seed, on_status, base, strength, size, on_preview, style, reference, ref_scale, meta, resume=resume)
         finally:
             if avoid0 is not None:
                 p.avoid = avoid0
@@ -1889,7 +1890,8 @@ class Studio:
                 p.lora = lora0
 
     def _draw(self, text: str, seed: int, on_status=None, base=None, strength: float = 1.0, size=None,
-              on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None) -> tuple[str, Path]:
+              on_preview=None, style: str = "", reference=None, ref_scale: float = 0.6, meta: dict | None = None,
+              resume: bool = False) -> tuple[str, Path]:
         say = on_status or (lambda msg: None)
         self.last_phases = None   # 工程に分けて描いた回だけ、工程ごとの絵と検品を持つ（アプリが隠したレイヤーに置く）
         self.last_asked = None   # 聞いて止まった回の印も、回ごとに戻す（AI モードの絵を途中の絵と取り違えない）
@@ -1950,7 +1952,7 @@ class Studio:
             else:
                 say("おまかせで選べる絵の模型が手元にありません。今の模型で描きます")
         if self.way == "phases" and base is None and reference is None:
-            return self._draw_phases(text, seed, style, size, say, on_preview, meta)
+            return self._draw_phases(text, seed, style, size, say, on_preview, meta, resume=resume)
         # 模型を 1 つ選んだ速い流れは、選んだ模型だけで描く（前は 2 段の部品があると構図を別の模型で描き、選んだ模型が上書きされた）。
         # 「構図と仕上げを分けて描く」を選んだときだけ 2 段にする
         two = None if fast and self.way != "two" else self._two_stage_models(base, reference, say)
@@ -2264,7 +2266,7 @@ class Studio:
             return ("words", self.words.to_prompt(str(ans[1]), tags=as_tags))
         return ans
 
-    def _draw_phases(self, text, seed, style, size, say, on_preview, meta):
+    def _draw_phases(self, text, seed, style, size, say, on_preview, meta, resume=False):
         """人の描き方の 12 の工程に分けて描く（atelier/ai/phases.py）。工程の中は計画（atelier/ai/phase_plan.py）の表に、
         描く・確かめる（項目ごと）・直す（崩れごと）・確かめ直す（直した項目だけ）・聞くの工程として並ぶ。
         渡す言葉は AI モードと同じ作り方（頼みの訳に、学んだ並べ替えと意図の構図を足す）。phase_confirm（アプリが入れる）があれば工程ごとに確かめる"""
@@ -2310,7 +2312,8 @@ class Studio:
             got = phases.draw(self.painter, prompt, seed, size, keep, say=say, on_preview=on_preview,
                               on_step=lambda i, n: say(f"描いています（{i}/{n}）"), confirm=self._phase_confirm(as_tags),
                               ask=getattr(self, "phase_ask", None), answer=self._phase_answer(as_tags),
-                              pause_key=pausekeep.key("phases", text, seed, style, tuple(size) if size else None, model), pause_job=job)
+                              pause_key=pausekeep.key("phases", text, seed, style, tuple(size) if size else None, model), pause_job=job,
+                              resume=resume)
         finally:
             if hasattr(self.painter, "avoid"):
                 self.painter.avoid = avoid0

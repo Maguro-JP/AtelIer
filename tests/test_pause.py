@@ -83,7 +83,7 @@ class PhasesPauseTest(KeepDir):
         # 再開: 同じ鍵で呼び直すと、計画の同じ工程から続き、済んだ工程は描き直さない
         said2 = []
         calls_before = painter.n_paint
-        got = phases.draw(painter, "1girl", 5, (64, 96), self.d / "k2", say=said2.append, checks=C, pause_key=k)
+        got = phases.draw(painter, "1girl", 5, (64, 96), self.d / "k2", say=said2.append, checks=C, pause_key=k, resume=True)
         self.assertIn(f"一時停止した工程 {j}/", said2[0])
         first = next(s for s in said2 if s.startswith("工程 "))
         self.assertTrue(first.startswith(f"工程 {j}/"), (first, stopped_at))
@@ -96,6 +96,30 @@ class PhasesPauseTest(KeepDir):
         self.assertEqual(begun, list(range(j, got["need"] + 1)), begun)
         self.assertIsNone(pausekeep.info(k))   # 描き終えたら残した途中は消す
         self.assertGreater(painter.n_paint, calls_before)
+
+    def test_new_draw_with_same_key_starts_from_blank(self):
+        """新しい描画は、同じ頼み・種で残っていた一時停止の途中を引き継がない。
+        再開の指定（resume）が無い呼び直しは、前の絵の上に描き始めず、白い紙から
+        最初の工程で描き直す（利用者の報告、2026-11-27: 前の絵の上に新しい絵を描き始める）。
+        続きから描くのは、窓の「再開」と、聞いて止まった工程への答えだけ"""
+        from unittest import mock
+        from atelier.ai import phase_tools as pt
+        p = mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0})
+        p.start()
+        self.addCleanup(p.stop)
+        C, _ = checks(False)
+        painter = FailingPainter(3, membudget.MemoryDanger("危ない"))
+        k = pausekeep.key("phases", "t", 5)
+        with self.assertRaises(pausekeep.Paused):
+            phases.draw(painter, "1girl", 5, (64, 96), self.d / "k", checks=C, pause_key=k, pause_job={"text": "t"})
+        self.assertIsNotNone(pausekeep.info(k))   # 途中は残っている（再開で使える）
+        # 同じ鍵で、再開の指定なしに呼び直す = 新しい描画。途中から続けない
+        said = []
+        got = phases.draw(painter, "1girl", 5, (64, 96), self.d / "k2", say=said.append, checks=C, pause_key=k)
+        self.assertFalse(any("一時停止した工程" in s for s in said), said[:3])
+        first = next(s for s in said if s.startswith("工程 "))
+        self.assertTrue(first.startswith("工程 0/"), first)   # 最初の工程（目的）から描き直している
+        self.assertEqual([r["phase"] for r in got["phases"]], phases.NAMES)
 
     def test_memory_danger_pauses_and_resumes_same_phase(self):
         self.run_with(membudget.MemoryDanger("危ない"))

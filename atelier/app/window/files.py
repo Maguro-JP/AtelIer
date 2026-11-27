@@ -380,7 +380,8 @@ class FilesMixin:
         self.job_studio = self.studio
         self.thread = QThread()
         self.job = Job(self.studio, job.get("text", ""), job.get("seeds") or [0], style=job.get("style", ""),
-                       meta=job.get("meta") or {}, size=tuple(job["size"]) if job.get("size") else self.size_pick.currentData())
+                       meta=job.get("meta") or {}, size=tuple(job["size"]) if job.get("size") else self.size_pick.currentData(),
+                       resume=True)   # 続きから描く回だけ、残した途中を引き継ぐ。新しい描画は引き継がない
         self._worker = self.job
         self.job.moveToThread(self.thread)
         self.thread.started.connect(self.job.run)

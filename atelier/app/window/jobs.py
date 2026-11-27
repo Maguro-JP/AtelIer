@@ -45,13 +45,15 @@ class Job(QObject):
     failed = Signal(str)
 
     def __init__(self, studio: Studio, text: str, seeds, base=None, strength: float = 0.6, size=None, style: str = "",
-                 regions=None, reference=None, ref_scale: float = 0.6, meta: dict | None = None, check: bool = True):
+                 regions=None, reference=None, ref_scale: float = 0.6, meta: dict | None = None, check: bool = True,
+                 resume: bool = False):
         super().__init__()
         self.seeds = [seeds] if isinstance(seeds, int) else list(seeds)
         self.studio, self.text, self.style = studio, text, style
         self.base, self.strength, self.size = base, strength, size
         self.regions, self.reference, self.ref_scale, self.meta = regions, reference, ref_scale, meta or {}
         self.check = check
+        self.resume = resume   # 一時停止の続きから描く回か。新しい描画は、同じ頼み・種でも前の途中を引き継がない
         self.tid = None   # 走っている裏の糸の番号。緊急停止がここへ Stopped を投げ込む
         self._last_preview = 0.0
         fresh_stop(studio)
@@ -60,8 +62,9 @@ class Job(QObject):
 
     def _preview(self, img):
         """途中の絵は工程ごとに届く。全部を画面の糸に積むと、速い模型では置く処理が溜まって画面とメモリを圧迫したので、間を空けて渡す"""
-        from atelier.ai.phases import PHASE_TAG
-        if PHASE_TAG in getattr(img, "info", {}):   # 工程の絵は間引かない（間引くと描けた工程が窓に出なかった）
+        from atelier.ai.phases import BASE_TAG, PHASE_TAG
+        if PHASE_TAG in getattr(img, "info", {}) or BASE_TAG in getattr(img, "info", {}):
+            # 工程の絵は間引かない（間引くと描けた工程が窓に出なかった）。土台の絵も 1 枚だけなのでそのまま渡す
             self.preview.emit(img)
             return
         now = time.monotonic()
@@ -124,7 +127,7 @@ class Job(QObject):
         # 落ちても止めず、軽い設定・小さい大きさ・別の模型・別の種と段を下げて描く（engine.Studio.draw_anyway）
         draw = getattr(self.studio, "draw_anyway", None) or self.studio.draw   # 段を下げる形を持たない描き手（試験の偽物など）はそのまま描く
         prompt, path = draw(self.text, seed, on_status=self._say, base=self.base, strength=self.strength, size=self.size,
-                            on_preview=self._preview, style=self.style, meta=self.meta, **extra)
+                            on_preview=self._preview, style=self.style, meta=self.meta, resume=self.resume, **extra)
         self._stopped()
         preload(path)   # 置くときに画面の糸で絵を読まないよう、ここ（裏の糸）で先に読む
         self.one.emit(prompt, str(path))
