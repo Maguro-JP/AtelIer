@@ -466,7 +466,7 @@ def main():
         if any("描けました" in m for m in ran) and not passed:
             raise RuntimeError(f"検品を通っていないのに「描けました」と出た: {detail}")
         work = [n for n in after if n.startswith(w.WORK_LAYER)]
-        drew = [m for m in st if _re.match(r"工程 \d+/\d+「(アタリ|線画|下塗り|光源|影 2 段|光・艶・目のハイライト|仕上げ)", m)]
+        drew = [m for m in st if _re.match(r"工程 \d+/\d+「(アタリ|線画|下塗り|光源|影 2 段|光・艶・目のハイライト|ディテール|仕上げ)", m)]
         detail["work_layer"] = work
         if any(_re.match(r"工程 \d+/\d+「(線画|下塗り)", m) for m in drew) and not work and not passed:
             # 線画に入ったのに、描けた絵が見えるレイヤーに無い（前は全部通るまで何も見えなかった）

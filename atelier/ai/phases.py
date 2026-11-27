@@ -42,6 +42,7 @@ NO_PREVIEW = ("目的", "サムネイル", "アタリ")   # 描いている途�
 SHOW_FROM = "サムネイル"   # ラフ（サムネイル）から先の絵は、描けたら窓の作業用のレイヤーに筆で描き込んで見せる（線画・塗り・仕上げも同じ）
 ROUGH_WORDS = "rough pencil sketch, light sketchy lines, construction lines, monochrome, greyscale, white background, no color"   # ラフ画の言葉（鉛筆や色鉛筆でさっと描く）。サムネイル・アタリで頼みの訳に足す
 PEN_WORDS = "lineart, clean inked lines, monochrome, greyscale, white background, no color"   # 線画の言葉（ペンでなぞって描く）。線画で頼みの訳に足す
+DETAIL_WORDS = "detailed texture, fine details, intricate details, delicate details"   # ディテールの言葉（質感の足し方だけ。新しく描く物の言葉は入れない）。ディテールで頼みの訳に足す
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
 
@@ -54,6 +55,7 @@ PHASES = [
     ("光源", "光の向き 1 つ", "光の来る側", "左右・上下の明るさの差（dx, dy）"),
     ("影 2 段", "影 1 段目・2 段目", "影の向きのそろい、影が光より明るくないか", "影の側の暗い画素の割合（shade_share）、影と光の明るさの差"),
     ("光・艶・目のハイライト", "目の光、髪の艶、水の光、葉のつや", "目の中の光、水の光、葉のつや", "両目の一番明るい画素（eye_max）、水の明るさの広がり、葉の明るさの広がり"),
+    ("ディテール", "質感・小さい印・汚し・影の締め（仕上げの直前。消す直しはしない）", "ディテールの量、影の締まり", "主役の内側の質感の密度（detail_density）、影と光の明るさの差（shade_minus_lit）"),
     ("仕上げ", "全体の崩れ", "縮めて見る、反転して見る、タイヤの丸み、左右対称、遠近の収束", "手・足・顔・体の崩れの数、縮めた明るさの差、顔の反転の差（asym）、タイヤの丸み、対称、遠近の線の角度"),
 ]
 NAMES = [p[0] for p in PHASES]
@@ -67,6 +69,9 @@ REPAINT = 0.35        # 服・髪・持ち物: 描かれていない物を足す
 FIX = 0.55            # 顔・手・足の直し: 崩れた枠の中だけを描き直す強さ（1 回目）
 FIXES = (0.55, 0.7, 0.85, 0.95)   # 直しを重ねるたびに強くする。同じ強さで戻って直すと崩れた指の形をなぞり、下描きから最後まで同じ崩れが残った
 SHINE = 0.35          # 目の光の直し: 目の囲みの中だけを描き直す強さ
+DETAIL_LEAST = 0.03   # ディテール: 主役の内側の質感の密度がこれ未満なら、ディテールが薄い（私の推測）
+TONE_CRUSH = 0.85     # ディテール: 描き重ねでコントラストが元のこの割合を切ったら、影や濃い細部が潰れたとみて採用しない（私の推測）
+DETAIL_CRUSH = 0.7    # ディテール: 描き重ねで質感の密度が元のこの割合を切ったら、細部が潰れたとみて採用しない（私の推測）
 COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれより多ければ、色が散っている（私の推測）
 DIFF_MIN = 0.5       # 前の絵との画素の差の平均（0〜255）がこれ未満なら「変わらなかった」として数えない（私の推測）
 MEND = (0.45, 0.55, 0.65, 0.75, 0.85, 0.95)   # 囲みの直しの強さ。変わらなかった・同じ崩れが続いた回ごとに 1 段上げる
@@ -404,7 +409,7 @@ def _grow(mask, r):
     return mask if r <= 0 else mask.filter(ImageFilter.MaxFilter(2 * r + 1))
 
 
-DRAWS = (1, 2, 3, 4, 6)   # 描く工程のある工程（サムネイル、アタリ、線画、下塗り、影 2 段）。ほかは測るだけで、描く工程を表に置かない
+DRAWS = (1, 2, 3, 4, 6, 8)   # 描く工程のある工程（サムネイル、アタリ、線画、下塗り、影 2 段、ディテール）。ほかは測るだけで、描く工程を表に置かない
 
 
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
@@ -445,6 +450,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     def pen_prompt():
         """線画を描く言葉（頼みの訳に、ペンでなぞる線の言葉を足した物）。線画で使う"""
         return f"{st['prompt']}, {PEN_WORDS}"
+
+    def detail_prompt():
+        """ディテールを足す言葉（頼みの訳に、質感の足し方だけの言葉を足した物）。新しい物は足さない"""
+        return f"{st['prompt']}, {DETAIL_WORDS}"
 
     def line_words(i):
         """線の工程の、線の描き方だけの言葉（頼みの訳は入れない）。ラフは鉛筆、線画はペン"""
@@ -675,7 +684,19 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             mask = pt.dust_mask(out)
             if mask is not None and mask.getextrema()[1] != 0:
                 cleaned = pt.erase_fill(out, mask)
-        return {"image": cleaned, "words": words,
+        # 表示用の合成: ラフのレイヤーがあれば、薄くして線の下に敷く。返す絵（検品と
+        # 次の工程の土台）は線のレイヤーそのもの。工程の絵だけが合成になる。
+        # 下に敷くラフは、ゴミだけ消した写しを使う。清書まで終わった工程の絵に
+        # ラフのゴミの影が写ると、消えていないように見える（ラフのレイヤー自体は残す）
+        display = None
+        rough = st["layers"].get("ラフ")
+        if rough is not None and rough.size == cleaned.size:
+            under = rough
+            rmask = pt.dust_mask(rough)
+            if rmask is not None and rmask.getextrema()[1] != 0:
+                under = pt.erase_fill(rough, rmask)
+            display = pt.underlay(cleaned, under)
+        return {"image": cleaned, "display": display, "words": words,
                 "numbers": {"pixels": hit, "dust": d.get("count") if d.get("readable") else None}}
 
     def d_base(v):
@@ -725,10 +746,47 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         out, hit = pt.shade_second(img, lit, keep_m)
         return {"image": out, "numbers": {"pixels": hit}}
 
+    def detail_pass(img, strength, seed):
+        """ディテールの描き重ね。色と明るさの見張り（keep_tone）と、潰れの見張り
+        （コントラストと暗さが元の絵から大きく落ちたら、影や濃い細部が潰れたとみる）を
+        通った結果だけを返す。通らなければ None（呼び出し側は元の絵のまま進む）"""
+        if not can_refine or img is None:
+            return None
+        out = painter.refine(detail_prompt(), seed, img, strength=strength, on_step=on_step, **pv)
+        if out is None or out.size != img.size:
+            return None
+        out = keep_tone(out, img, "ディテール")
+        tb, ta = pt.tone(img), pt.tone(out)
+        if ta["contrast"] < tb["contrast"] * TONE_CRUSH or ta["dark"] > tb["dark"] + 25:
+            return None   # 影や濃い細部が潰れている。採用しない
+        db, da = pt.detail_density(img), pt.detail_density(out)
+        if (db.get("readable") and da.get("readable")
+                and (da["density"] < db["density"] * DETAIL_CRUSH
+                     or da["sharp"] < db["sharp"] * DETAIL_CRUSH)):
+            return None   # 質感が潰れている（ぼやけ等）。採用しない
+        return out
+
+    def d_detail(v):
+        """ディテール: 仕上げの直前に、質感と小さい印を足して整える。消す直しはしない
+        （清書より後に消すと、足した表現まで消える）。足すことで影や汚しなどの表現が
+        潰れるくらいなら、弱い強さで試し直し、それでも駄目なら足さずに元の絵で進む"""
+        img = st["image"]
+        if img is None:
+            return {"image": img}
+        out = detail_pass(img, SHINE, st["seed"] + v * 1000)
+        if out is None:
+            out = detail_pass(img, SHINE / 2, st["seed"] + v * 1000 + 1)
+        if out is None:
+            say("ディテールを足すと影や細部が潰れるので、元の絵のまま進みます")
+            return {"image": img, "numbers": {"detail": pt.detail_density(img).get("density")}}
+        say("ディテールを足しています（質感・小さい印。消す直しはしません）")
+        return {"image": out, "words": [detail_prompt()],
+                "numbers": {"detail": pt.detail_density(out).get("density")}}
+
     def draws(i):
         return i in DRAWS
 
-    drawer = {1: d_thumbs, 2: d_atari, 3: d_lines, 4: d_base, 6: d_shadow}
+    drawer = {1: d_thumbs, 2: d_atari, 3: d_lines, 4: d_base, 6: d_shadow, 8: d_detail}
 
     # 測る。どれも {"flaws", "numbers", "readable", "regions", "eyes", "missing", "show", "note"} を返す。描かない
     def m_purpose(img):
@@ -925,6 +983,26 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         numbers["eye_max"] = [best]
         return {"flaws": flaws, "eyes": eyes, "numbers": numbers, "readable": True}
 
+    def m_detail(img):
+        """ディテールの検品: 量と、影の締まりだけを見る。他の工程の検品一式は背負わない
+        （線画がアタリの検品を背負って直しが膨らんだ事故の再発防止）。ゴミは数えるだけ
+        （消すのは清書だけ。ディテール追加の後に消すと、足した表現まで消える）"""
+        flaws, numbers = [], {}
+        dd = pt.detail_density(img)
+        if dd.get("readable"):
+            numbers["detail"] = dd["density"]
+            if dd["density"] < DETAIL_LEAST:
+                flaws.append(f"ディテールが薄い（{dd['density']}）")
+        sh = pt.shadows(img, st.get("light") or {})
+        if sh.get("readable"):
+            numbers["shade_minus_lit"] = sh["shade_minus_lit"]
+            if sh["shade_minus_lit"] > 0:
+                flaws.append(f"影の締まりが弱い（影が光より明るい {sh['shade_minus_lit']}）")
+        d = pt.dust(img)
+        if d.get("readable"):
+            numbers["dust"] = d["count"]
+        return {"flaws": flaws, "numbers": numbers, "readable": True}
+
     def m_finish(img):
         sv = pt.shrink_view(img)
         flaws = []
@@ -990,7 +1068,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         return {"flaws": flaws, "regions": regions, "numbers": numbers,
                 "readable": bool(sv.get("readable")) and face_ok}
 
-    measurer = [m_purpose, m_thumbs, m_atari, m_lines, m_base, m_light, m_shadow, m_shine, m_finish]
+    measurer = [m_purpose, m_thumbs, m_atari, m_lines, m_base, m_light, m_shadow, m_shine, m_detail, m_finish]
     assert len(measurer) == n
     # 工程ごとの検品が実際に測っている項目。測っていない項目の崩れを、その工程の確かめで
     # 「消えた」ことにしない（持ち越した崩れが黙って外れる事故の再発防止）
@@ -1003,6 +1081,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
               ["光の向き"],
               ["影"],
               ["目の光", "水の光", "葉のつや"],
+              ["ディテール", "影の締まり"],
               ["手", "足", "顔", "骨組みの比", "反転して見る", "縮めて見る", "タイヤの丸み", "左右対称", "遠近の収束"]]
 
     def measure(i, fresh=False):
@@ -1265,6 +1344,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "background"})]
         if item == "線の強弱":
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "thicken"})]
+        if item == "ディテール":
+            # 質感の締め直し（純粋な操作）。新しい物は描かないし、何も消さない
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "detail"})]
+        if item == "影の締まり":
+            # 弱い強さでディテールを描き直す（潰れの見張りを通らなければ元のまま＝直らなかった扱い）
+            return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "detail_retry"})]
         if item == "影":
             return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "shadow_side"})]
         if item == "水の光":
@@ -1385,6 +1470,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             t0 = time.time()
             try:
                 if kind == "draw":
+                    if i == 3 and st.get("image") is not None:
+                        # ラフをレイヤーとして残す。線画はこの上に描き、工程の絵では
+                        # ラフを薄くして下に敷く（利用者の進め方）。検品と直しは線の絵で行う
+                        st["layers"]["ラフ"] = st["image"]
+                        st["image"].save(keep / f"layer-{2 + 1:02d}-ラフ.png")
                     if i == 4 and st.get("image") is not None:
                         # 線のレイヤーを残す。ゴミ取りは清書（線画）で済んでいるので、ここでは消さない
                         # （色の直前にもう一度消すと、細い線やディテールまで消える。利用者の規則）
@@ -1403,7 +1493,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     if got.get("note"):
                         row["note"] = got["note"]
                     if s["changed"]:
-                        s["image"] = save_img(img, i, NAMES[i])
+                        # 工程の絵は表示用の合成があればそちら（線画は薄いラフの上に線）。
+                        # 検品・次の工程・前後比較は、レイヤーそのもの（img）で進める
+                        s["image"] = save_img(got.get("display") or img, i, NAMES[i])
                         row.update({"image": s["image"], "changed": True, "diff": s["diff"]})
                     elif before is not None and img is not None:
                         say(f"「{NAMES[i]}」は絵を変えなかったので、工程として数えません")
@@ -1496,13 +1588,14 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     how = s.get("how") or {}
                     op = how.get("op")
                     k = int(s.get("k", 0))
-                    if op in ("rotate", "thicken", "erase", "shine", "mirror"):
+                    if op in ("rotate", "thicken", "erase", "shine", "mirror", "detail", "detail_retry"):
                         # 模型で描き直さない直し（純粋な操作）。直す工程には、必ず対応する検品がある
                         tried = None
                         dd = None
                         changed = False
                         mend_name = {"rotate": "回す", "thicken": "太らせる", "erase": "消す",
-                                     "shine": "光を付ける", "mirror": "鏡写し"}[op]
+                                     "shine": "光を付ける", "mirror": "鏡写し",
+                                     "detail": "質感を締める", "detail_retry": "弱く描き直す"}[op]
                         if cur is None:
                             s["status"] = "skipped"
                             queue_fix(i, item, s.get("flaws", []), {}, k, why="絵がありません")
@@ -1531,6 +1624,19 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         elif op == "mirror":
                             say(f"左右対称になるよう、鏡写しで直しています: " + "、".join(s.get("flaws", [])[:3]))
                             tried, _hit = pt.mirror_fix(cur)
+                            dd = diff(cur, tried)
+                            dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
+                            changed = (dd["mean"] or 0) >= DIFF_MIN
+                        elif op == "detail":
+                            say(f"質感を締め直しています: " + "、".join(s.get("flaws", [])[:3]))
+                            tried = pt.enhance_detail(cur)
+                            dd = diff(cur, tried)
+                            dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
+                            changed = (dd["mean"] or 0) >= DIFF_MIN
+                        elif op == "detail_retry":
+                            say(f"影を潰さないよう、弱い強さでディテールを描き直しています: " + "、".join(s.get("flaws", [])[:3]))
+                            got2 = detail_pass(cur, SHINE / 2, st["seed"] + k * 77)
+                            tried = got2 if got2 is not None else cur
                             dd = diff(cur, tried)
                             dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
                             changed = (dd["mean"] or 0) >= DIFF_MIN
@@ -1635,6 +1741,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 if how.get("mask") == "wear":
                                     raw = keep_tone(raw, cur, "服・髪・持ち物", m)
                                 tried = _inside(raw, cur, m)
+                                if clean:
+                                    # 後始末の検品: 消して描き直した直しで、消した物の欠片が
+                                    # 囲みの縁の外に残っていたら、その直しの中で消す
+                                    left = pt.edge_leftovers(cur, tried, m)
+                                    if left is not None:
+                                        say("消した物の欠片が囲みの縁に残っていたので、後始末で消します")
+                                        tried = pt.erase_fill(tried, left)
                                 dd = diff(cur, tried, m)
                                 attempted = True
                         if attempted:
@@ -1742,6 +1855,27 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                           encoding="utf-8")
         raise
     rows = [final[k] for k in range(n) if final.get(k) is not None]
+    # 最終チェック（仕上げの後、完成の前）: 清書より後の直しで消えた線が無いかを見る。
+    # 線は清書のレイヤーに残っているので、途切れた線分（残っている線に両端がつながる物）
+    # だけをレイヤーから戻せる。戻した上で線の途切れとゴミを数え直し、途切れが残れば
+    # 完成にせず、残った崩れとして出す
+    final_check = {"flaws": [], "restored": 0, "dust": None}
+    line_layer = st["layers"].get("清書")
+    if st.get("image") is not None and line_layer is not None and line_layer.size == st["image"].size:
+        fixed, n_px = pt.restore_missing_lines(line_layer, st["image"])
+        if n_px:
+            say(f"最終チェック: 直しで消えた線（{n_px} 画素）を、清書のレイヤーから戻しました")
+            st["image"] = fixed
+            final_check["restored"] = n_px
+        lm = pt.lines(st["image"])
+        if lm.get("readable"):
+            if lm["gap"] > pt.LINE_GAP_MOST:
+                final_check["flaws"].append(f"外の輪郭が途切れている（{lm['gap']}）")
+            if lm.get("max_gap", 0) > pt.LINE_MAX_GAP_MOST:
+                final_check["flaws"].append(f"線が途中でずれている（途切れが {lm['max_gap']}）")
+        dd = pt.dust(st["image"])
+        if dd.get("readable"):
+            final_check["dust"] = dd["count"]
     # 磨き上げの最低条件: 最後の絵の崩れの重さが、土台（80 点の一発の絵）より小さくなければ完成にしない。
     # 土台も最後も崩れが無ければ（比べる検品で 0 同士なら）悪くなってはいないので、そのまま完成にする
     base_rec = st.get("base") or {}
@@ -1755,6 +1889,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         not_better = f"最初の絵より良くなっていない（崩れの重さ {base_sev} → {final_sev}）"
         say(f"最後の絵の崩れの重さは {final_sev} で、土台の {base_sev} より小さくなっていません")
     unresolved = (list(asked["left"]) if asked else []) + passed_over + [f for fl in remaining.values() for f in fl] + ([not_better] if not_better else [])
+    unresolved += [f for f in final_check["flaws"] if f not in unresolved]
     complete = not unresolved
     if complete or (not asked and pause_key):
         pausekeep.clear(pause_key)
@@ -1763,6 +1898,6 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
            "asked": asked, "backs": backs, "total": total, "need": plan.need(), "fixes": fixes,
            "remaining": [f for fl in remaining.values() for f in fl],
            "base": {"severity": base_sev, "flaws": list(base_rec.get("flaws", [])), "kind": base_rec.get("kind")},
-           "final_severity": final_sev}
+           "final_severity": final_sev, "final_check": final_check}
     (keep / "phases.json").write_text(json.dumps(out, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     return {"image": st["image"], **out, "blocked": None, "unresolved": unresolved}

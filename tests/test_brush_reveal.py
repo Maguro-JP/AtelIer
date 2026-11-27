@@ -175,3 +175,30 @@ class MidDrawBrushTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class FinishStageTest(unittest.TestCase):
+    """仕上げの段は、残った細かい差を全体に薄く混ぜて出さない。混ぜると、筆と
+    関係ない所に線でも何でもない物が薄く出現する（利用者の指摘）。出ている所から
+    近い順に描き、仕上げの間も筆先は消さない"""
+
+    def _plan(self):
+        from atelier.paint import brush_reveal as br
+        before = Image.new("RGB", (200, 200), "white")
+        after = before.copy()
+        d = ImageDraw.Draw(after)
+        d.line((20, 20, 20, 180), fill="black", width=5)     # 先の段で描かれる線
+        after.putpixel((190, 100), (225, 225, 225))          # 縮めた絵では拾えない細かい差（仕上げ行き）
+        plan = br.Plan(before, after, work_side=100)
+        plan.fill()
+        return br, plan
+
+    def test_finish_is_not_a_global_crossfade(self):
+        br, plan = self._plan()
+        mid = plan.frame(0.92)
+        # 仕上げの途中では、その画素はまだ出ていない。混ぜて出すと 240 のような中間の色になる
+        self.assertEqual(mid.getpixel((190, 100)), (255, 255, 255))
+        self.assertEqual(plan.frame(1.0).getpixel((190, 100)), (225, 225, 225))
+
+    def test_tip_stays_during_finish(self):
+        br, plan = self._plan()
+        self.assertIsNotNone(plan.tip(0.95))

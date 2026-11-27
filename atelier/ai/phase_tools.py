@@ -19,6 +19,9 @@ LINE_MAX_GAP_MOST = 0.25   # 外の輪郭のうち、線の無い所が続く一
 OUTLINE_GROW = 0.004       # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、1216 画素なら 5 画素。私の推測）
 DUST_MAX_PIXELS = 64       # ゴミ: 塊の画素数がこれ以下ならゴミ（私の推測）
 DUST_SIZE_MOST = 0.05      # ゴミ: 塊の長い辺が短い辺のこの割合以下（ただし 3 画素以上）ならゴミ（私の推測）
+DUST_PATTERN_MIN = 8       # ゴミ: 同じくらいの大きさの小さい塊がこれ以上あれば、ゴミではなく模様（星・雪・質感）（私の推測）
+DUST_PATTERN_SPAN = 0.25   # ゴミ: 模様とみなすには、塊の集まりが絵の幅・高さのこの割合以上に広がっていること（私の推測）。一か所に固まった欠片は模様ではない
+DETAIL_RANGE = 24          # ディテール: 局所の明暗の変化がこれを超えた画素をディテールとする（私の推測）
 DETACH_MOST = 0.08         # 位置ずれ: 主役から離れた塊が、短い辺のこの割合より近くにあれば体から離れた部位（私の推測）
 HORIZON_TILT_MOST = 2.0    # 画角: 地平線の傾きがこれ（度）を超えたら傾いている（私の推測）
 BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこれ以上なら色がはみ出している（私の推測）
@@ -249,6 +252,23 @@ def over_lines(color, line):
     return Image.fromarray(np.clip(c * ln, 0, 255).astype("uint8"))
 
 
+def underlay(line, rough, strength=0.35):
+    """線のレイヤーの下に、ラフを薄くして敷いた、見せるための合成。
+
+    ラフは線の紙の色へ寄せて薄くし（暗さが strength の割合だけ残る）、線とは
+    画素ごとに暗い方を取る。線の画素はそのまま残り、線の無い所ではラフが
+    薄く見える。人がラフを透かして、その上に線を描く見え方に合わせたもの。
+    検品や次の工程に使う絵ではない（そちらは線のレイヤーそのものを使う）。
+    """
+    import numpy as np
+    from PIL import Image
+    ln = _np(line.convert("RGB")).astype(np.float32)
+    rf = _np(rough.convert("RGB").resize(line.size)).astype(np.float32)
+    paper = np.array(paper_color(line), dtype=np.float32)
+    faded = paper + (rf - paper) * strength
+    return Image.fromarray(np.clip(np.minimum(ln, faded), 0, 255).astype("uint8"))
+
+
 def _components(image):
     """シルエットの連結成分。返すのは (ラベル配列, 成分の大きさの配列, 一番大きい成分の番号)。scipy が無ければ None"""
     import numpy as np
@@ -296,7 +316,7 @@ def _dust_labels(image):
     anchor = np.isin(lab, [k for k in range(1, len(sizes) + 1) if sizes[k - 1] > DUST_MAX_PIXELS])
     inside = ndimage.binary_fill_holes(anchor) if anchor.any() else np.zeros(lab.shape, bool)
     dist = ndimage.distance_transform_edt(~anchor) if anchor.any() else None
-    keep = []
+    cand = []
     for k, sl in enumerate(ndimage.find_objects(lab), 1):
         if k == big or sl is None or sizes[k - 1] > DUST_MAX_PIXELS:
             continue
@@ -308,8 +328,21 @@ def _dust_labels(image):
             continue   # 主役の中の小さな塊はディテール（目・ボタン・模様）
         if dist is not None and float(dist[sl][comp].min()) <= margin:
             continue   # 実の線の近くの欠片もディテール（線の一部）
-        keep.append(k)
-    return lab, keep
+        cand.append(k)
+    if len(cand) >= DUST_PATTERN_MIN:
+        # 同じくらいの大きさの小さい塊が、画面に広く散らばってたくさんあるのは、
+        # ゴミではなく模様（星・雪・雨・背景の質感）。模様と同じ大きさの帯にある塊は
+        # ゴミにしない。大きさの違う塊だけが、模様に紛れた本当のゴミとして残る。
+        # 一か所に固まった塊（髪の線の欠片など）は広がっていないので模様にしない
+        objs = ndimage.find_objects(lab)
+        cxs = [(objs[k - 1][1].start + objs[k - 1][1].stop) / 2 for k in cand]
+        cys = [(objs[k - 1][0].start + objs[k - 1][0].stop) / 2 for k in cand]
+        if (max(cxs) - min(cxs) >= w * DUST_PATTERN_SPAN
+                and max(cys) - min(cys) >= h * DUST_PATTERN_SPAN):
+            ordered = sorted(sizes[k - 1] for k in cand)
+            med = ordered[len(ordered) // 2]
+            cand = [k for k in cand if not (med / 2 <= sizes[k - 1] <= med * 2)]
+    return lab, cand
 
 
 def dust(image) -> dict:
@@ -342,6 +375,135 @@ def dust_mask(image):
     lab, keep = got
     m = np.isin(lab, keep) if keep else np.zeros(lab.shape, bool)
     return Image.fromarray((m * 255).astype("uint8"))
+
+
+def detail_density(image) -> dict:
+    """ディテールの量: 主役の内側で、隣の画素との明暗の差が強い画素の割合（density）と、
+    その差の平均（sharp: 線や質感の鋭さ。ぼやけると下がる）。
+    質感・小さい印・汚しなどの細部が多いほど大きい。主役が読めなければ readable は False。
+    返すのは {"readable", "density", "sharp"}"""
+    import numpy as np
+    got = _components(image)
+    if got is None:
+        return {"readable": False, "density": None, "sharp": None}
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return {"readable": False, "density": None, "sharp": None}
+    from scipy import ndimage
+    anchor = np.isin(lab, [k for k in range(1, len(sizes) + 1) if sizes[k - 1] > DUST_MAX_PIXELS])
+    inside = ndimage.binary_fill_holes(anchor) if anchor.any() else anchor
+    if not inside.any():
+        return {"readable": False, "density": None, "sharp": None}
+    g = np.asarray(image.convert("L"), dtype=float)
+    grad = np.maximum(np.abs(np.diff(g, axis=0, prepend=g[:1])),
+                      np.abs(np.diff(g, axis=1, prepend=g[:, :1])))
+    det = (grad > DETAIL_RANGE) & inside
+    return {"readable": True,
+            "density": round(float(det.sum() / inside.sum()), 3),
+            "sharp": round(float(grad[inside].mean()), 2)}
+
+
+def enhance_detail(image):
+    """質感の締め直し: 主役の内側だけ、輪郭と質感を締める純粋な加工。
+    新しい物は描かないし、何も消さない。模型の描き直しと違ってゴミを撒かない"""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    sharp = image.filter(ImageFilter.UnsharpMask(radius=2, percent=60, threshold=2))
+    got = _components(image)
+    if got is None:
+        return sharp
+    lab, sizes, big = got
+    if big == 0 or len(sizes) == 0:
+        return sharp
+    from scipy import ndimage
+    anchor = np.isin(lab, [k for k in range(1, len(sizes) + 1) if sizes[k - 1] > DUST_MAX_PIXELS])
+    inside = ndimage.binary_fill_holes(anchor) if anchor.any() else anchor
+    if not inside.any():
+        return sharp
+    a = np.asarray(image).astype(float)
+    b = np.asarray(sharp).astype(float)
+    out = np.where(inside[..., None], b, a)
+    return Image.fromarray(np.clip(out, 0, 255).astype("uint8"))
+
+
+def edge_leftovers(before, after, mask):
+    """消して描き直す直しの後始末: 囲みの縁の外に残った、消した物の欠片の囲み（L の絵）を返す。
+    欠片 = 直す前の絵で囲みに掛かっていた物の成分が、直した絵でも囲みの外にだけ残り、
+    囲みの中の新しい絵につながっていない小さな塊。線が縁を越えて続いている物は、
+    囲みの中につながっているので欠片にしない。無ければ None"""
+    import numpy as np
+    if before is None or after is None or mask is None or before.size != after.size:
+        return None
+    got_b = _components(before)
+    got_a = _components(after)
+    if got_b is None or got_a is None:
+        return None
+    lab_b, sizes_b, big_b = got_b
+    lab_a, sizes_a, big_a = got_a
+    if big_a == 0 or len(sizes_a) == 0:
+        return None
+    from scipy import ndimage
+    m = np.asarray(mask.convert("L")) > 0
+    if not m.any():
+        return None
+    ring = ndimage.binary_dilation(m, iterations=3) & ~m
+    out = np.zeros(lab_a.shape, bool)
+    n = 0
+    for k, sl in enumerate(ndimage.find_objects(lab_a), 1):
+        if sl is None or sizes_a[k - 1] > DUST_MAX_PIXELS:
+            continue
+        comp_full = lab_a == k
+        if comp_full[m].any():
+            continue   # 囲みの中の新しい絵につながっている（線の続き）ので残す
+        if not comp_full[ring].any():
+            continue   # 縁の近くにある物だけを見る
+        comp = lab_a[sl] == k
+        prev = lab_b[sl][comp]
+        hit = False
+        for pk in np.unique(prev):
+            if pk and (lab_b == pk)[m].any():
+                hit = True
+                break
+        if not hit:
+            continue   # 直す前から囲みと無関係だった物は、直しの残りではない
+        out |= comp_full
+        n += 1
+    if not n:
+        return None
+    from PIL import Image
+    return Image.fromarray((out * 255).astype("uint8"))
+
+
+def restore_missing_lines(source, after):
+    """source（清書のレイヤー）の線のうち、after で消えている部分だけを戻す。
+    戻すのは、残っている線に両端がつながる「途切れた線分」だけ。近くに線が
+    無い孤立した部分は戻さない（描き直しで位置が変わった線を、二重に描かないため）。
+    返すのは (絵, 戻した画素数)"""
+    import numpy as np
+    if source is None or after is None or source.size != after.size:
+        return after, 0
+    from scipy import ndimage
+    dark_s = luminance(source) < 80
+    dark_a = luminance(after) < 80
+    missing = dark_s & ~dark_a
+    if not missing.any():
+        return after, 0
+    lab_m, n_m = ndimage.label(missing)
+    if n_m == 0:
+        return after, 0
+    touch = ndimage.binary_dilation(dark_a, iterations=1)
+    joined = np.unique(lab_m[touch & (lab_m > 0)])
+    if len(joined) == 0:
+        return after, 0
+    keep = np.isin(lab_m, joined)
+    n = int(keep.sum())
+    if not n:
+        return after, 0
+    a = np.asarray(after).astype(float)
+    s = np.asarray(source).astype(float)
+    out = np.where(keep[..., None], np.minimum(a, s), a)
+    from PIL import Image
+    return Image.fromarray(np.clip(out, 0, 255).astype("uint8")), n
 
 
 def detached(image) -> dict:

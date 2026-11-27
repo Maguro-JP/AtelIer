@@ -4,7 +4,8 @@ AI の絵がいきなりキャンバスに出ると、描いた過程が何も�
 差のある所だけを 線画 → 大きな塗り → 細かい塗り → 仕上げ の順に、筆の運びで少しずつ描き込む。
 - 線画: timelapse.reconstruct と同じ「周りより暗い所」を線とし、つながった線ごとに端から線に沿って伸ばす
 - 塗り: 色を均した平塗りの塊（同じ色でつながった所）ごとに、真ん中から塗り広げる。大きな塊を先、細かい塊を後にする
-- 仕上げ: 平塗りから AI の絵へ移す。最後の 1 枚は AI の絵そのもの
+- 仕上げ: 残った細かい差を、出ている所から近い順に描く。最後の 1 枚は AI の絵そのもの。
+  全体を薄く混ぜて出すと、筆と関係ない所に線でも何でもない物が薄く出現するので混ぜない
 囲みのある直しは、置く前と置いた後の差が囲みの中にしか無いので、筆も囲みの中だけを動く。
 
 見せるのはキャンバスの上の重ね絵（overlay）と筆先の丸だけで、レイヤーの画素には触らない。絵は先にレイヤーへ置き、
@@ -117,6 +118,7 @@ class Plan:
         line = dark & diff
         self._a = a
         self.line = line
+        self._finish_t = None   # 仕上げの段で各画素を描く時刻（元の大きさ）。fill() で計算する
         self.ready = False   # 塗りの段を計算し終えたか。終わるまでは線画の段だけを見せる
         # 縮めた大きさの座標を元の大きさへ写す表（最近傍）
         self._ry = np.minimum((np.arange(self.full[1]) * h) // self.full[1], h - 1)
@@ -222,6 +224,28 @@ class Plan:
                     tips.extend(self._lay(t, blobs, dist, bobjs[i], i + 1, at, span, hatch=hatch))
                     at += span
         t[diff & ~np.isfinite(t)] = SMALL_END
+        # 仕上げの段: 縮めた絵では拾えなかった細かい差（元の大きさでだけ違う所）を、
+        # もう出ている所から近い順に描く時刻を付ける。全体を薄く混ぜて出すと、
+        # 筆と関係ない所に線でも何でもない物が薄く出現する（利用者の指摘）
+        A = self.A_full.astype(np.float32)
+        B = self.B_full.astype(np.float32)
+        fd = np.abs(A - B).max(axis=2) > DIFF_MIN
+        shown0 = (t <= SMALL_END)[self._ry][:, self._rx]
+        rest = fd & ~shown0
+        ft = np.full(fd.shape, np.inf, np.float32)
+        if rest.any():
+            from scipy.ndimage import distance_transform_edt
+            dist = distance_transform_edt(~shown0)
+            top = float(dist[rest].max()) or 1.0
+            ft[rest] = SMALL_END + (1.0 - SMALL_END) * np.clip(dist[rest] / top, 0.0, 1.0)
+            for k in range(1, 7):   # 仕上げの筆先: 区切りごとに、これから描く所の真ん中
+                lo = SMALL_END + (1.0 - SMALL_END) * (k - 1) / 6
+                hi = SMALL_END + (1.0 - SMALL_END) * k / 6
+                sel = rest & (ft > lo) & (ft <= hi)
+                if sel.any():
+                    ys, xs = np.nonzero(sel)
+                    tips.append((hi, float(xs.mean()) * self.scale, float(ys.mean()) * self.scale))
+        self._finish_t = ft
         tips.sort()
         self.t, self.tips = t, tips   # 入れ替えは 1 回の代入で（再生の糸が途中の表を見ないように）
         self.ready = True
@@ -258,22 +282,18 @@ class Plan:
         """時刻 t（0〜1）の途中の絵（計算した大きさ）。t>=1 は次の絵そのもの"""
         if t >= 1.0:
             return Image.fromarray(self.A_full)
-        if t > SMALL_END:   # 仕上げ: 残った差を全部描く
-            small = self.diff.copy()
-        else:
-            small = self.t <= t
-        shown = small[self._ry][:, self._rx]
-        if t > SMALL_END:   # 差が小さく残った所（縮めたときに拾えなかった所）も順に描く
-            k = (t - SMALL_END) / (1.0 - SMALL_END)
-            out = self.B_full * (1 - k) + self.A_full * k
-            out = np.where(shown[..., None], self.A_full, out.astype(np.uint8))
-            return Image.fromarray(out)
+        if t > SMALL_END:   # 仕上げ: 残った差を、出ている所から近い順に描く（全体を薄く混ぜない）
+            shown = (self.t <= t)[self._ry][:, self._rx]
+            if self._finish_t is not None:
+                shown = shown | (self._finish_t <= t)
+            return Image.fromarray(np.where(shown[..., None], self.A_full, self.B_full))
+        shown = (self.t <= t)[self._ry][:, self._rx]
         return Image.fromarray(np.where(shown[..., None], self.A_full, self.B_full))
 
     def tip(self, t: float):
         """時刻 t の筆先の位置と太さ（元の絵の大きさの座標）。動いていないときは None。
         太さはその場の線の太さに合わせる。細い線でも見える大きさを保ち、太すぎないようにする"""
-        if not self.tips or t >= SMALL_END + 0.01:
+        if not self.tips or t >= 1.0:
             return None
         i = min(range(len(self.tips)), key=lambda j: abs(self.tips[j][0] - t))
         _, x, y = self.tips[i]

@@ -338,7 +338,7 @@ class PhasesTest(unittest.TestCase):
 
     def test_nine_phases_in_order(self):
         self.assertEqual(phases.NAMES, ["目的", "サムネイル", "アタリ", "線画",
-                                        "下塗り", "光源", "影 2 段", "光・艶・目のハイライト", "仕上げ"])
+                                        "下塗り", "光源", "影 2 段", "光・艶・目のハイライト", "ディテール", "仕上げ"])
         for name, decides, looks, numbers in phases.PHASES:
             self.assertTrue(decides and looks and numbers, name)   # 工程ごとに見る物と判定の数字を決めてある
 
@@ -2260,9 +2260,9 @@ class LayerTest(unittest.TestCase):
         self.assertGreater(img.getpixel((8, 48))[0], 180, "色が付いていない")   # 線の無い所
 
     def test_layers_are_recorded(self):
-        """下塗りの記録に、残したレイヤー（線画・清書・下塗り）が出る"""
+        """下塗りの記録に、残したレイヤー（ラフ・線画・清書・下塗り）が出る"""
         got, rows, img = self.run_layered()
-        self.assertEqual(rows["下塗り"]["numbers"].get("layers"), ["線画", "清書", "下塗り"])
+        self.assertEqual(rows["下塗り"]["numbers"].get("layers"), ["ラフ", "線画", "清書", "下塗り"])
 
     def test_line_like_gate(self):
         """上に乗せてよいのは本物の線画だけ。色の付いた絵は線レイヤーにしない"""
@@ -2632,3 +2632,167 @@ class NoProgressMendTest(unittest.TestCase):
         self.assertLessEqual(len(painter.masks), phases.MENDS)     # 直しは最初の工程の分だけ。後の工程で繰り返さない
         self.assertTrue(any("手" in k for k in got["left"]))        # 崩れは残った崩れとして正直に残る
         self.assertTrue(any("変わりませんでした" in s for s in said))
+
+
+class RoughLayerTest(unittest.TestCase):
+    """ラフはレイヤーとして残し、線画の工程の絵は「薄くしたラフの上に線」を合成して見せる。
+    検品と次の工程は線のレイヤーそのもので進める（利用者の進め方: ラフをレイヤーにして
+    透過させ、その上に線画を描いて構図・検品・修正をする）"""
+
+    def test_underlay_keeps_line_pixels_and_fades_rough(self):
+        from PIL import Image
+        line = Image.new("RGB", (8, 8), (255, 255, 255))
+        rough = Image.new("RGB", (8, 8), (0, 0, 0))
+        for y in range(8):
+            line.putpixel((3, y), (30, 30, 30))       # 線の所（真ん中の 1 列）
+        out = pt.underlay(line, rough)
+        self.assertEqual(out.getpixel((3, 4)), (30, 30, 30))     # 線はそのまま残る
+        ghost = out.getpixel((6, 4))[0]                          # 線の無い所はラフが薄く見える
+        self.assertGreater(ghost, 120)
+        self.assertLess(ghost, 220)
+
+    def test_line_phase_shows_lines_over_faded_rough(self):
+        from PIL import Image
+        seen = {}
+
+        def spy(line, rough, strength=0.35):
+            seen["line"], seen["rough"] = line, rough
+            return Image.new("RGB", line.size, (200, 30, 30))    # 合成の代わりに目印の絵を返す
+
+        painter = Painter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
+                mock.patch.object(pt, "underlay", spy):
+            keep = Path(d) / "k"
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), keep,
+                              say=lambda _s: None, checks=hand_only_checks())
+            self.assertIn("rough", seen)                                    # ラフを下に敷いて合成した
+            self.assertTrue((keep / "layer-03-ラフ.png").exists())           # ラフがレイヤーのファイルとして残る
+            phase3 = [r for r in got["history"] if r["phase"] == "線画" and r.get("image")]
+            self.assertTrue(phase3)
+            shown = Image.open(phase3[-1]["image"]).convert("RGB")          # 工程の絵は合成の方
+            self.assertGreater(shown.getpixel((2, 2))[0], 150)
+            self.assertLess(shown.getpixel((2, 2))[1], 80)
+
+
+class DustPatternTest(unittest.TestCase):
+    """ゴミの判定: 同じくらいの大きさの小さい塊がたくさんあれば模様（星・雪・質感）で、ゴミではない"""
+
+    def _field(self, specks):
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        dr = ImageDraw.Draw(img)
+        dr.rectangle([20, 20, 80, 160], fill=(40, 40, 40))   # 主役（土台になる大きな塊）
+        for (x, y) in specks:
+            dr.rectangle([x, y, x + 2, y + 2], fill=(30, 30, 30))
+        return img
+
+    def test_many_similar_specks_are_a_pattern_not_dust(self):
+        specks = [(120 + (i % 4) * 20, 20 + (i // 4) * 30) for i in range(12)]
+        d = pt.dust(self._field(specks))
+        self.assertTrue(d["readable"])
+        self.assertEqual(d["count"], 0, d)   # 星空のような模様をゴミとして消してはいけない
+
+    def test_few_specks_are_still_dust(self):
+        d = pt.dust(self._field([(120, 20), (160, 90), (130, 170)]))
+        self.assertTrue(d["readable"])
+        self.assertEqual(d["count"], 3, d)
+
+
+class DetailToolsTest(unittest.TestCase):
+    """ディテールの物差しと加工、差し戻しの見張り、直しの後始末"""
+
+    def test_detail_density_reads_texture(self):
+        from PIL import Image, ImageDraw
+        flat = Image.new("RGB", (120, 120), (255, 255, 255))
+        dr = ImageDraw.Draw(flat)
+        dr.rectangle([30, 30, 90, 90], fill=(120, 120, 120))
+        busy = flat.copy()
+        dr2 = ImageDraw.Draw(busy)
+        for x in range(32, 90, 4):
+            for y in range(32, 90, 4):
+                if (x + y) % 8 == 0:
+                    dr2.rectangle([x, y, x + 1, y + 1], fill=(30, 30, 30))
+        d_flat = pt.detail_density(flat)
+        d_busy = pt.detail_density(busy)
+        self.assertTrue(d_flat["readable"] and d_busy["readable"])
+        self.assertGreater(d_busy["density"], d_flat["density"])
+
+    def test_enhance_detail_sharpens_only_inside_subject(self):
+        from PIL import Image, ImageDraw, ImageFilter
+        import numpy as np
+        img = Image.new("RGB", (120, 120), (255, 255, 255))
+        dr = ImageDraw.Draw(img)
+        dr.rectangle([30, 30, 90, 90], fill=(100, 100, 100))
+        dr.rectangle([45, 45, 75, 75], fill=(180, 180, 180))
+        soft = img.filter(ImageFilter.GaussianBlur(2))
+        before = pt.detail_density(soft)["sharp"]
+        out = pt.enhance_detail(soft)
+        after = pt.detail_density(out)["sharp"]
+        self.assertGreater(after, before)
+        # 主役の外（紙）は変えない
+        self.assertEqual(np.asarray(out)[5, 5].tolist(), [255, 255, 255])
+
+    def test_edge_leftovers_finds_orphaned_fragment(self):
+        from PIL import Image, ImageDraw
+        import numpy as np
+        before = Image.new("RGB", (200, 200), (255, 255, 255))
+        dr = ImageDraw.Draw(before)
+        dr.rectangle([20, 20, 60, 160], fill=(40, 40, 40))        # 主役
+        dr.rectangle([90, 97, 130, 102], fill=(30, 30, 30))       # 囲みを横切る物
+        mask = Image.new("L", (200, 200), 0)
+        ImageDraw.Draw(mask).rectangle([100, 40, 120, 160], fill=255)
+        after = before.copy()
+        dr2 = ImageDraw.Draw(after)
+        dr2.rectangle([100, 97, 120, 102], fill=(255, 255, 255))  # 囲みの中は消して描き直した
+        dr2.ellipse([104, 60, 116, 72], fill=(90, 90, 90))        # 囲みの中の新しい絵
+        left = pt.edge_leftovers(before, after, mask)
+        self.assertIsNotNone(left)
+        a = np.asarray(left)
+        self.assertEqual(int(a[99, 125]), 255)   # 縁の外に残った欠片（121〜130）を拾う
+        self.assertEqual(int(a[99, 95]), 255)    # 反対側の欠片（90〜99）も、囲みの中とつながっていない残り
+        self.assertEqual(int(a[100, 30]), 0)     # 主役そのものは欠片ではない
+
+
+class DetailPhaseTest(PhasesTest):
+    """ディテール工程: 仕上げの直前にあること、消す直しが無いこと、影を潰す結果を採用しないこと"""
+
+    def test_detail_phase_position_and_items(self):
+        from atelier.ai import phase_items as items
+        self.assertEqual(phases.NAMES[8], "ディテール")
+        self.assertEqual(phases.NAMES[9], "仕上げ")
+        self.assertEqual(items.PHASE_ITEMS[8], ["ディテール", "影の締まり"])
+        for i in range(4, len(items.PHASE_ITEMS)):
+            self.assertNotIn("ゴミ", items.PHASE_ITEMS[i])   # 清書より後の工程は、ゴミを消す項目を持たない
+
+    def test_draw_completes_with_detail_phase(self):
+        got, painter, seen, said, files = self.run_phases(always_bad=False)
+        names = [r["phase"] for r in got["history"]]
+        self.assertIn("ディテール", names)
+        self.assertLess(names.index("ディテール"), len(names) - 1)
+        self.assertEqual(names[-1], "仕上げ")
+
+    def test_detail_pass_that_crushes_shadows_is_not_adopted(self):
+        class WashPainter(Painter):
+            def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+                if "detailed texture" in prompt:
+                    from PIL import ImageFilter
+                    return image.filter(ImageFilter.GaussianBlur(4))   # 質感も影の締まりも潰す結果
+                return image.copy()
+        got, painter, seen, said, files = self.run_phases(always_bad=False, painter=WashPainter())
+        self.assertTrue(any("潰れるので、元の絵のまま" in s for s in said), said[-6:])
+
+    def test_restore_missing_lines_bridges_cuts_but_not_moved_lines(self):
+        from PIL import Image, ImageDraw
+        import numpy as np
+        src = Image.new("RGB", (120, 120), (255, 255, 255))
+        ImageDraw.Draw(src).line([20, 60, 100, 60], fill=(30, 30, 30), width=2)
+        cut = src.copy()
+        ImageDraw.Draw(cut).rectangle([55, 58, 65, 62], fill=(255, 255, 255))   # 線の真ん中が消えた
+        out, n = pt.restore_missing_lines(src, cut)
+        self.assertGreater(n, 0)
+        self.assertLess(int(np.asarray(out)[60, 60][0]), 80)   # 途切れがつながった
+        moved = Image.new("RGB", (120, 120), (255, 255, 255))
+        ImageDraw.Draw(moved).line([20, 70, 100, 70], fill=(30, 30, 30), width=2)   # 描き直しで線が下に移った
+        out2, n2 = pt.restore_missing_lines(src, moved)
+        self.assertEqual(n2, 0)   # 移った線は二重に描かない
+        self.assertEqual(int(np.asarray(out2)[60, 60][0]), 255)
