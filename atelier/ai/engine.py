@@ -516,6 +516,12 @@ ASK = ("Translate the drawing request (Japanese or any other language) into Engl
        "Reply with one line of short comma-separated tags only (e.g. red bikini, long hair, beach, waving). "
        "Bind each color to its object. Translate every detail, add nothing that is not in the request. "
        "For things the request says to leave out, write no <thing>.")
+# 訳した英語の文をタグにする。日本語から直にタグを作らせると、小さい模型は語を飛ばし（夕暮れの教室 → classroom）、
+# 語順の長い文で色と物の組を取り違えた。先に文全体を英語の文に訳し、その文からタグを作る
+ASK_EN_TAGS = ("Turn the English image description into tags for an anime illustration model (Danbooru style). "
+               "Reply with one line of short comma-separated tags only (e.g. red bikini, long hair, beach, waving). "
+               "Keep every detail and every place, bind each color to its object, add nothing that is not in the description. "
+               "For things the description says to leave out, write no <thing>.")
 
 
 # 子どもを表す言葉と性的な言葉が並んだ頼みだけは描かない。ほかは止めない
@@ -642,6 +648,7 @@ class Words:
         self.path = path
         self.negative: list[str] = []   # 直前の頼みで打ち消した物（帽子なし → hat）。描かない物に足す
         self.untranslated: list[str] = []   # 直前の頼みで、英語にならなかった言葉
+        self.english = ""   # 直前の頼みを言葉の模型が訳した英語の文（タグにする前。言葉の模型が無いときは空）
         self.tokens = 0   # 直前の 1 回で模型が出したトークンの数（速さを測るため）
 
     @property
@@ -719,7 +726,18 @@ class Words:
                 self.untranslated = [out]
                 out = ""
             return out or (sentence(picked) if picked else english_only(text))
-        keep, neg, ja = _clean_tags(self.ask(ASK, text))
+        # 先に頼み全体を英語の文に訳し、その文をタグにする。文に訳せなければ（日本語が残れば）前と同じく直にタグにする
+        self.english = ""
+        try:
+            sent = self.ask(ASK_SENTENCE, text, max_tokens=96).strip()
+        except Exception:
+            sent = ""
+        if sent and not has_japanese(sent):
+            self.english = sent
+            raw = self.ask(ASK_EN_TAGS, sent)
+        else:
+            raw = self.ask(ASK, text)
+        keep, neg, ja = _clean_tags(raw)
         # 表で読めなかった語は、1 語ずつ言葉の模型に訳させて確かめる（文ごとの訳では、語が黙って抜けることがあった）。
         # 訳せた語は利用者の辞書に覚え、次からは表と同じに引く。訳せなかった語は読めなかった語として画面に出す
         lost = []

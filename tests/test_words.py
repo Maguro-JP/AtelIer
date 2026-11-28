@@ -82,10 +82,10 @@ class ReadEveryWordTest(unittest.TestCase):
 
     def test_align_shows_every_word_in_order(self):
         with Home():
-            rows = jaterms.align("赤い帽子なしで紅茶を運ぶメイドがベンチに座る")
+            rows = jaterms.align("赤い帽子なしで紅茶を運ぶメイドがブランコに座る")
             self.assertEqual([(r["word"], r["kind"]) for r in rows],
-                             [("赤い帽子なし", "neg"), ("紅茶", "draw"), ("運ぶ", "draw"), ("メイド", "draw"), ("ベンチ", "lost"), ("座る", "draw")])
-            self.assertEqual(jaterms.coverage("紅茶を運ぶメイドがベンチに座る"), (5, 1))
+                             [("赤い帽子なし", "neg"), ("紅茶", "draw"), ("運ぶ", "draw"), ("メイド", "draw"), ("ブランコ", "lost"), ("座る", "draw")])
+            self.assertEqual(jaterms.coverage("紅茶を運ぶメイドがブランコに座る"), (5, 1))
 
     def test_mixed_english_tags_kept(self):
         with Home():   # 単語のお気に入りから足した英語のタグが、日本語の頼みの中で落ちない
@@ -100,12 +100,12 @@ class ReadEveryWordTest(unittest.TestCase):
     def test_user_fix_reads_lost_word(self):
         from atelier.words import dictionary as worddict
         with Home():
-            self.assertIn("ベンチ", jaterms.leftover("ベンチに座る少女"))
-            worddict.set_term("ベンチ", "bench")
-            self.assertNotIn("ベンチ", jaterms.leftover("ベンチに座る少女"))
-            self.assertIn("bench", jaterms.tags_from("ベンチに座る少女"))
-            worddict.set_term("ベンチ", "ベンチ")   # 日本語のタグは絵の模型に渡さない
-            self.assertNotIn("ベンチ", jaterms.tags_from("ベンチに座る少女"))
+            self.assertIn("ブランコ", jaterms.leftover("ブランコに座る少女"))
+            worddict.set_term("ブランコ", "swing")
+            self.assertNotIn("ブランコ", jaterms.leftover("ブランコに座る少女"))
+            self.assertIn("swing", jaterms.tags_from("ブランコに座る少女"))
+            worddict.set_term("ブランコ", "ブランコ")   # 日本語のタグは絵の模型に渡さない
+            self.assertNotIn("ブランコ", jaterms.tags_from("ブランコに座る少女"))
 
     def test_language_model_reads_word_by_word(self):
         """言葉の模型があるときは、表で読めなかった語を 1 語ずつ訳させ、辞書に覚える。訳せない語は読めなかった語に出す"""
@@ -134,6 +134,76 @@ class ReadEveryWordTest(unittest.TestCase):
             worddict.set_term("新聞", "news paper")              # 利用者の直しを、模型の訳で上書きしない
             worddict.set_term("新聞", "paper", source="llm")
             self.assertEqual(worddict.terms()["新聞"], "news paper")
+
+
+class SentenceFirstTest(unittest.TestCase):
+    """言葉の模型があるときは、頼み全体を英語の文に訳してから、その文をタグにする（直にタグにすると語が抜けた）"""
+
+    def fake(self, sentence):
+        from atelier.ai.engine import ASK, ASK_EN_TAGS, ASK_SENTENCE, Words
+
+        class Fake(Words):
+            def __init__(self):
+                self.asked = []
+
+            def ready(self):
+                return True
+
+            def ask(self, system, text, max_tokens=64, one_line=True):
+                self.asked.append(system)
+                if system == ASK_SENTENCE:
+                    return sentence
+                if system == ASK_EN_TAGS:
+                    return "1girl, standing, school building, evening, no hat"
+                if system == ASK:
+                    return "1girl, standing"
+                return "none"
+        return Fake(), ASK, ASK_EN_TAGS, ASK_SENTENCE
+
+    def test_sentence_then_tags(self):
+        with Home():
+            w, ASK, ASK_EN_TAGS, ASK_SENTENCE = self.fake("A girl without a hat standing in front of a school in the evening.")
+            out = w.to_prompt("夕暮れに学校の前に立つ帽子なしの少女")
+            self.assertEqual(w.asked[:2], [ASK_SENTENCE, ASK_EN_TAGS])
+            self.assertTrue(w.english.startswith("A girl"))
+            for t in ("school", "evening", "standing", "1girl"):
+                self.assertIn(t, out)
+            self.assertIn("hat", w.negative)
+            self.assertNotIn("hat", [t.strip() for t in out.split(",")])   # 打ち消しは描く言葉に入れない
+
+    def test_japanese_sentence_falls_back_to_tags(self):
+        with Home():
+            w, ASK, _e, _s = self.fake("学校の前に立つ少女")
+            out = w.to_prompt("学校の前に立つ少女")
+            self.assertIn(ASK, w.asked)
+            self.assertIn("school", out)   # 表で拾った語は落とさない
+            self.assertEqual(w.english, "")
+
+
+class PlaceWordsTest(unittest.TestCase):
+    """場所の語が黙って落ちない（言葉の模型が無い機械の表の道）。落ちた語は読めなかった語として出る"""
+    CASES = {"夕暮れの教室": ["evening", "classroom"], "放課後の学校": ["after school", "school"],
+             "駅のホームに立つ少女": ["train station", "platform"], "公園のベンチに座る": ["park", "bench", "sitting"],
+             "商店街を歩く少女": ["shopping street"], "工場": ["factory"], "病院の廊下": ["hospital", "hallway"],
+             "神社の境内": ["shrine"], "図書館で本を読む": ["library", "book"], "海辺の少女": ["beach"], "学校": ["school"]}
+
+    def test_places(self):
+        from atelier.ai.engine import Words
+        with Home():
+            w = Words(Path(""))
+            for text, want in self.CASES.items():
+                out = [t.strip() for t in w.to_prompt(text).split(",")]
+                for t in want:
+                    self.assertIn(t, out, text)
+                self.assertEqual(w.untranslated, [], text)
+
+    def test_fix_direction(self):
+        from atelier.ai.engine import Words
+        with Home():
+            w = Words(Path(""))
+            self.assertEqual(w.fix_prompt("右手を下げて"), (["right arm down"], []))
+            self.assertEqual(w.fix_prompt("両手を上げて"), (["arms up"], []))
+            self.assertEqual(w.fix_prompt("目を大きく")[0][0], "large eyes")
 
 
 class DictionaryTest(unittest.TestCase):
@@ -258,18 +328,18 @@ class WindowTest(unittest.TestCase):
             self.assertLess(order.index(w.entry), order.index(w.tips_scroll))
             self.assertLess(order.index(w.tips_scroll), order.index(w.word_row))
             self.assertLess(order.index(w.word_row), order.index(w.neg_tips_box))
-            w.entry.setText("紅茶を運ぶメイドがベンチに座る")
+            w.entry.setText("紅茶を運ぶメイドがブランコに座る")
             w.ai_panel.preview_timer.timeout.emit()
             app().processEvents()
             self.assertTrue(w.lost_row.isVisible())
-            self.assertEqual(w.lost_row.words, ["ベンチ"])
+            self.assertEqual(w.lost_row.words, ["ブランコ"])
             chip = w.lost_row.flow.itemAt(0).widget()
             self.assertIn("タグ", chip.toolTip())
-            with mock.patch("atelier.panels.word_panel.QInputDialog.getText", return_value=("bench", True)):
+            with mock.patch("atelier.panels.word_panel.QInputDialog.getText", return_value=("swing", True)):
                 chip.click()
             app().processEvents()
             self.assertFalse(w.lost_row.isVisible())
-            self.assertIn("bench", w.ai_panel.preview.text())
+            self.assertIn("swing", w.ai_panel.preview.text())
             # ★ で語を登録（欄で選んだ語）。登録した語のボタンを押すと欄に足す。訳はツールチップ
             cur = w.entry.textCursor()
             cur.setPosition(0)
