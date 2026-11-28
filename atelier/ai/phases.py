@@ -1062,6 +1062,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             tilt_h = hz["tilt"]
             numbers["horizon_tilt"] = hz["tilt"]
         flaws += _background_flaws(st["prompt"], req)
+        if st["kind"] != "person":   # 人物以外の題材の検品（建物の縦線・窓・消失点、空と地面、車輪・足・物の数、文字、模様）
+            from atelier.qc import subject_check
+            sc = subject_check.phase_flaws(img, st["prompt"], req)
+            flaws += sc["flaws"]
+            regions += sc.get("regions", [])
+            numbers.update(sc["numbers"])
         det = pt.detached(img)
         if det.get("readable") and det["count"]:
             flaws.append(f"体から離れている物がある（{det['count']} 個）")
@@ -1321,6 +1327,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                     flaws.append(f"遠近の収束が無い（線の角度の差 {vn['angle']} 度）")
                     if vn.get("box"):
                         regions.append((vn["box"], "perspective"))
+            from atelier.qc import subject_check
+            sc = subject_check.phase_flaws(img, st["prompt"])
+            flaws += sc["flaws"]
+            regions += sc.get("regions", [])
+            numbers.update(sc["numbers"])
             # 全画面の風景・物は紙の縁が無く、縮めて見るが読めない。ゴミ・タイヤ・対称・遠近の検品が回っていれば、仕上げは読める
             return {"flaws": flaws, "regions": regions, "numbers": numbers, "readable": True}
         res = checks.hands(img, st["prompt"])

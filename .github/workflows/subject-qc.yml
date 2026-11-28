@@ -1,0 +1,57 @@
+# 人物以外の題材の検品を、模型で描いた絵で確かめる。題材ごとに頼み 2 つを 1 回ずつ描き、題材の検品と頼んだ物の検品の結果と絵を
+# artifact とログ（SUBJECT の行）に出す。合否は付けない（目で見つけた崩れと、検品が見つけた崩れを並べる）。
+name: subject-qc
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 種
+        default: "7"
+  push:
+    branches: ["claude/FEAT-qc-coverage-**"]
+    paths:
+      - "atelier/qc/subject_check.py"
+      - "atelier/qc/research_check.py"
+      - "atelier/bench/subject_bench.py"
+      - ".github/workflows/subject-qc.yml"
+permissions:
+  contents: read
+concurrency:
+  group: subject-qc-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  subject:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        subject: [person, animal, vehicle, building, landscape, interior, object, text, pattern, background]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 置き場を空ける
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h / | tail -1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 部品
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image onnxruntime rapidocr_onnxruntime
+      - name: 題材ごとに描いて検品する
+        env:
+          LLM_HOME: ${{ runner.temp }}/llm
+          ATELIER_HOME: ${{ runner.temp }}/cd
+          ATELIER_FETCH: "1"
+          BENCH_MODEL: cagliostrolab/animagine-xl-4.0
+          BENCH_SUBJECT: ${{ matrix.subject }}
+          BENCH_SEED: ${{ inputs.seed || '7' }}
+          BENCH_STEPS: "14"
+          BENCH_SIZE: 768x768
+        run: python -u -m atelier.bench.subject_bench subject-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: subject-qc-${{ matrix.subject }}
+          path: subject-out
+          retention-days: 7

@@ -255,3 +255,8 @@ CodeFormer（S-Lab License 1.0、商用不可）は配布に合わないので�
 12 ガリレイドンナ https://www.galileidonna.tv/sp/special/index.html 、13 Pentagram https://www.pentagram.com/work/ 、
 14 nendo https://www.nendo.jp/jp/works/ 、15 Fonts In Use https://fontsinuse.com/ 、16 山田くんとLv999の恋をする（同じ頁の縦の並び）
 - 画像はリポジトリに置いていない。見たのは数字を取るためだけで、配置を写していない
+
+## 人物以外の題材の検品（`docs/knowledge/subject-qc.md`）
+
+- RapidOCR（rapidocr_onnxruntime、Apache-2.0）: 文字とロゴの絵で、頼んだ文字が読めるかを見る。入っていなければ読めないと返す
+- pytesseract（Apache-2.0）と Tesseract OCR（Apache-2.0）: RapidOCR が無いときの文字の読み

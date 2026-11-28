@@ -389,3 +389,4 @@
 | F24 | 拡張だけの Setup が Release にある拡張は、AtelIer のインストーラーで既定で入れる（外すこともできる）（2026-11-23） | 直した | packaging/installer.nsi、tests/test_extensions.py |
 | F25 | 精度優先が人を描ける模型で一度も通らない。下塗りで色がほとんど乗らない不具合を直す（線画の紙が灰色だと、線画と読まれず、描き重ねも灰色の絵から始まっていた）（2026-11-28） | 直した | atelier/ai/phase_tools.py、atelier/ai/phases.py、tests/test_phases.py |
 | F26 | 精度優先が人を描ける模型で壊れた絵（灰色の紙、破線、色は一部だけ）しか出さない。絵を目で見て直ったと確かめてから出す。描く工程を速く確かめる Actions を作る（2026-11-28） | 直した | atelier/ai/phases.py、atelier/ai/phase_tools.py、atelier/bench/phase_bench.py、.github/workflows/precise-fast.yml、tests/test_phases.py |
+| F27 | AtelIer は人物だけを描くツールではない。検品と描く道具を人物以外（動物、乗り物、建物と街、風景、室内、物、文字とロゴ、模様、背景だけの絵）に広げ、表に無い題材は思考の模型がその場で調べて確かめる項目を作り、それで検品する（2026-11-28） | 一部 | atelier/qc/subject_check.py、atelier/qc/research_check.py、atelier/ai/subject_parts.py、tests/test_subject_check.py |
