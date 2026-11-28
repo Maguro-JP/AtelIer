@@ -88,11 +88,8 @@ PHASES = [
     ("仕上げ", "全体の崩れ", "縮めて見る、反転して見る、タイヤの丸み、左右対称、遠近の収束", "手・足・顔・体の崩れの数、縮めた明るさの差、顔の反転の差（asym）、タイヤの丸み、対称、遠近の線の角度"),
 ]
 NAMES = [p[0] for p in PHASES]
-THUMB_SCALE = 1.0     # サムネイルの大きさ（描く大きさの割合）。同じ種・同じ大きさならアタリが同じ構図になるので縮めない
-THUMB_STEPS = 0.5     # サムネイルの描く工程の数の割合。サムネイルはラフ（20 点で十分）なので軽く描く。
-                      # 昔は半分にすると、アタリが同じ種で描き直して同じ構図を 2 度描き（214 秒）、色も変わった。
-                      # 今のアタリはサムネイルの絵そのものに描き重ねるので、2 度描きにはならない。
-                      # 0.25 ではぼやけたので 0.5（利用者の指示: 序盤に時間をかけない。かけるのは線画以降、特に清書以降）
+# サムネイルは土台（頼みの言葉そのままの 1 枚。工程の数は減らさない）から抜くので、サムネイルだけの大きさ・工程の数の割合は持たない。
+# 前はラフを半分の工程の数で別に描き、土台もアタリの頭で描いていた（ゼロから 2 枚）。今はゼロから描くのは土台の 1 枚だけで、序盤は前より短い
 EARLY_STEPS = 0.5     # アタリの描く速さ（工程の数の割合）。アタリはラフで、線画や清書と同じレベルまで仕上げない
 LINE_STEPS = 0.8      # 線画の描く速さ。清書以降（下塗り・光源・影・ディテール・仕上げ）は割合 1.0 で時間をかける
 LINE_STRENGTH = 0.6   # 下描き: アタリの線に沿う強さ（T2I-Adapter の効き。0.8 では霞みと枠が出た）
@@ -659,14 +656,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         # 前は「鉛筆のラフ」の言葉を足して別の絵を白紙から描かせ、その線に色を描き重ねていた。白い紙の線からの描き重ねは
         # 紙の白を動かせず、最後まで灰色の紙に破線の絵になった（検証 46089737769）。土台と別の構図になるので、土台の色も使えなかった。
         # ラフ・線・色を同じ土台から出すと、線と色の位置がずれず、最後の絵が AI モードの絵より崩れない
-        tw, th = (w, h)
         s = st["seed"] + v * 1000
         words = []
         stop()
-        say(f"サムネイルを描いています（{tw}x{th}）")
+        say(f"サムネイルを描いています（{w}x{h}）")
         tell(st["prompt"])
         words.append(st["prompt"])
-        raw = painter.paint(st["prompt"], s, on_step=on_step, size=(tw, th))   # 土台。途中の絵も描けた絵もキャンバスに出さない
+        raw = painter.paint(st["prompt"], s, on_step=on_step, size=(w, h))   # 土台。途中の絵も描けた絵もキャンバスに出さない
         st["base_raw"], st["base"] = raw, None   # 土台の検品はアタリの頭で行う（paint_base）
         img = pt.rough_from(raw)
         memo["thumbs"][(st["prompt"], s)] = img   # アタリはこの絵に描き重ねる（描き直さない）
@@ -891,8 +887,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         if can_refine:
             strength, under = BASE_COLOR, base_in
             base_img = (st.get("base") or {}).get("image")
-            if base_img is not None and base_img.size == img.size and pt.line_like(base_in):
-                under = pt.over_lines(base_img, base_in)
+            if base_img is not None and base_img.size == img.size:
+                # 線が線画らしくないとき（鉛筆の画材の指定などで灰色の面が多い）は、乗算で絵が沈むので線は敷かず、土台の色だけから描き重ねる
+                under = pt.over_lines(base_img, base_in) if pt.line_like(base_in) else base_img
                 strength = BASE_OVER
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
