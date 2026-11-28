@@ -1965,16 +1965,84 @@ def _strokes(line):
     return strokes
 
 
-def stroke_erase(image, mask, dark=None):
-    """囲み（mask）の中の線だけを、消しゴムでなぞって消す。アプリの消しゴム（paint.brush.stamp の erase）で
-    線の芯に沿ってストロークを引き、消しゴムが通った所だけを、周りの色で埋める（紙なら紙、色の上なら色）。
-    消しゴムの通らない所と囲みの外は 1 画素も変えない。返すのは (絵, ストロークの数, 消した画素の数)"""
+ERASER_SPACING = 0.1   # 消しゴムの点の間隔（太さに対する割合。paint.brush の Brush の既定と同じ）
+
+
+def _eraser_dabs(path, size, spacing=ERASER_SPACING):
+    """ストローク 1 本で消しゴムの点を置く所（点の絵の左上の位置）。paint.brush.stamp と同じ並べ方で、
+    区切りごとに前の区切りから持ち越した距離（carry）で間隔をそろえる"""
+    import math
+    step = max(0.5, size * spacing)
+    d = max(1, int(round(size)))
+    half = (d + 2) / 2
+    pts = [(x + 0.5, y + 0.5) for x, y in path]
+    if len(pts) == 1:
+        pts = pts * 2
+    out, carry = [], 0.0
+    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+        dist = math.hypot(bx - ax, by - ay)
+        t = carry
+        if dist == 0:
+            out.append((ax - half, ay - half))
+            t = step
+        while t <= dist:
+            out.append((ax + (bx - ax) * t / dist - half, ay + (by - ay) * t / dist - half))
+            t += step
+        carry = t - dist
+    return out, d
+
+
+def _rub_numpy(h, w, strokes, sizes):
+    """消しゴムの点を numpy で押す道（Qt が無い機械でも同じ所を消す）。点は直径 d の円で、
+    Qt の点の絵（d+2 の四角の真ん中の円、縁はなめらか）の濃さが半分を超える画素と同じ所にする"""
+    import math
     import numpy as np
-    from PIL import Image
+    rubbed = np.zeros((h, w), bool)
+    for path, size in zip(strokes, sizes):
+        dabs, d = _eraser_dabs(path, size)
+        r = d / 2
+        for left, top in dabs:
+            ox, oy = int(math.floor(left + 0.5)), int(math.floor(top + 0.5))   # Qt は点の絵の左上を整数に丸めて置く
+            cx, cy = ox + r + 1, oy + r + 1
+            x0, x1 = max(0, int(cx - r - 1)), min(w, int(cx + r + 2))
+            y0, y1 = max(0, int(cy - r - 1)), min(h, int(cy + r + 2))
+            if x0 >= x1 or y0 >= y1:
+                continue
+            yy, xx = np.mgrid[y0:y1, x0:x1]
+            rubbed[y0:y1, x0:x1] |= (xx + 0.5 - cx) ** 2 + (yy + 0.5 - cy) ** 2 < r * r
+    return rubbed
+
+
+def _rub_qt(h, w, strokes, sizes):
+    """消しゴムの点を、アプリの消しゴム（paint.brush.stamp の erase）で押す道"""
+    import numpy as np
     from PySide6.QtCore import QPointF
     from PySide6.QtGui import QColor, QImage
-    from scipy import ndimage
     from atelier.paint.brush import Brush, Dabs, stamp
+    layer = QImage(w, h, QImage.Format_ARGB32)
+    layer.fill(QColor(0, 0, 0, 255))   # 消しゴムの通った所だけ透ける板
+    eraser = Brush("消しゴム", hardness=1.0, flow=1.0, spacing=ERASER_SPACING, size_pressure=False)
+    dabs = Dabs()
+    for path, size in zip(strokes, sizes):
+        carry = 0.0
+        pts = [QPointF(x + 0.5, y + 0.5) for x, y in path]
+        if len(pts) == 1:
+            pts = pts * 2
+        for a, b in zip(pts, pts[1:]):
+            _r, carry = stamp(layer, eraser, dabs, a, b, size, QColor(0, 0, 0), 1.0, carry, erase=True)
+    alpha = np.frombuffer(layer.constBits(), np.uint8, count=layer.sizeInBytes()).reshape(h, layer.bytesPerLine())[:, : w * 4]
+    return alpha.reshape(h, w, 4)[..., 3] < 128
+
+
+def stroke_erase(image, mask, dark=None, way=None):
+    """囲み（mask）の中の線だけを、消しゴムでなぞって消す。線の芯に沿ってストロークを引き、消しゴムの点が
+    通った所だけを、周りの色で埋める（紙なら紙、色の上なら色）。消しゴムの通らない所と囲みの外は 1 画素も変えない。
+    点はアプリの消しゴム（paint.brush.stamp の erase）で押す。Qt の絵が作れない機械（libEGL が無いなど）では、
+    numpy で同じ所に押す道を使う（どちらの道でも同じ画素を消すことを試験で止めている）。
+    way は "qt" か "numpy"（試験で道を選ぶ）。返すのは (絵, ストロークの数, 消した画素の数)"""
+    import numpy as np
+    from PIL import Image
+    from scipy import ndimage
     im = image.convert("RGB")
     m = np.asarray(mask.convert("L").resize(im.size)) > 0
     lum = luminance(im)
@@ -1986,22 +2054,18 @@ def stroke_erase(image, mask, dark=None):
         return im, 0, 0
     width = ndimage.distance_transform_edt(dark)
     strokes = _strokes(dark)
+    sizes = [2.0 * max(1.0, float(max(width[y, x] for x, y in path))) + 2.0 for path in strokes]
     w, h = im.size
-    layer = QImage(w, h, QImage.Format_ARGB32)
-    layer.fill(QColor(0, 0, 0, 255))   # 消しゴムの通った所だけ透ける板
-    eraser = Brush("消しゴム", hardness=1.0, flow=1.0, spacing=0.1, size_pressure=False)
-    dabs = Dabs()
-    for path in strokes:
-        size = 2.0 * max(1.0, float(max(width[y, x] for x, y in path))) + 2.0
-        carry = 0.0
-        pts = [QPointF(x + 0.5, y + 0.5) for x, y in path]
-        if len(pts) == 1:
-            pts = pts * 2
-        for a, b in zip(pts, pts[1:]):
-            _r, carry = stamp(layer, eraser, dabs, a, b, size, QColor(0, 0, 0), 1.0, carry, erase=True)
-    ptr = layer.constBits()
-    alpha = np.frombuffer(ptr, np.uint8, count=layer.sizeInBytes()).reshape(h, layer.bytesPerLine())[:, : w * 4].reshape(h, w, 4)[..., 3]
-    rubbed = (alpha < 128) & m
+    if way == "numpy":
+        rub = _rub_numpy(h, w, strokes, sizes)
+    elif way == "qt":
+        rub = _rub_qt(h, w, strokes, sizes)
+    else:
+        try:
+            rub = _rub_qt(h, w, strokes, sizes)
+        except Exception:   # noqa: BLE001  Qt の絵が作れない（libEGL が無いなど）。同じ所を numpy で押す
+            rub = _rub_numpy(h, w, strokes, sizes)
+    rubbed = rub & m
     if not rubbed.any():
         return im, len(strokes), 0
     out = erase_fill(im, Image.fromarray((rubbed * 255).astype(np.uint8)))   # 消しゴムの通った所を、通らなかった周りの色で埋める
