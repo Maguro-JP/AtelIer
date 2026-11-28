@@ -155,6 +155,28 @@ class BundleTest(unittest.TestCase):
         left = sorted(t for t in tops if f'"$INSTDIR\\{t}"' not in macro)
         self.assertEqual(left, [], "RemoveAppFiles で消さない最上位の物")
 
+    def test_word_strings_do_not_pull_scripts(self):
+        """語の文字列（"ベンチ": "bench"）が台本の名前と同じでも配る一覧に入れず、読み込む台本は全部入れる"""
+        import ast
+        out = subprocess.run([sys.executable, str(ROOT / "packaging" / "bundle_list.py")], capture_output=True, text=True, check=True).stdout
+        have = set(out.splitlines())
+        self.assertNotIn("README.md", have)
+        self.assertNotIn("tools/gen/bench.py", have)
+        gen = {p.stem for p in (ROOT / "tools" / "gen").glob("*.py")}
+        need = set()
+        for f in (ROOT / "atelier").rglob("*.py"):
+            for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                if isinstance(n, ast.Import):
+                    need |= {a.name.split(".")[0] for a in n.names}
+                elif isinstance(n, ast.ImportFrom) and n.module and not n.level:
+                    need.add(n.module.split(".")[0])
+                elif isinstance(n, ast.Call) and n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str):
+                    fn = n.func
+                    if (fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "")) in ("_gen", "import_module", "__import__"):
+                        need.add(n.args[0].value.split(".")[0])
+        lost = sorted(f"tools/gen/{m}.py" for m in need & gen if f"tools/gen/{m}.py" not in have)
+        self.assertEqual(lost, [], "atelier が読み込む台本が配る一覧から抜けた")
+
     def test_build_uses_bundle_list(self):
         """build.sh が手で並べた一覧に戻っていないこと"""
         sh = (ROOT / "packaging" / "build.sh").read_text(encoding="utf-8")

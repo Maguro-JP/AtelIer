@@ -6,7 +6,8 @@
 抜けたまま配り、配った版で検品・おまかせ・仕上げ・キャラクターデザインが import で落ちた。手元には全部あるので試験では気付けない。
 そこで atelier/ の全部の .py から始めて、次を辿れるだけ辿る:
 - import 文（tools/gen は sys.path に足して読むので、`import measure` は tools/gen/measure.py にも当てる）
-- 文字列の定数のうち tools/gen の台本の名前と同じ物（importlib や _gen("retouch") で読む物）
+- 呼び出しの最初の引数の文字列のうち tools/gen の台本の名前と同じ物（importlib や _gen("retouch") で読む物）。
+  ほかの文字列（語の表の "bench" など）は台本の名前と同じでも辿らない（README.md まで配り、アンインストールで残った）
 - `ROOT / "styles" / "x.json"` の形の割り算の鎖と、"casts/body-plans.json" の形の文字列で、リポジトリにあるファイル
 多めに入れる分には困らない。足りない分は tests/test_bundle.py が配る中身だけで動かして見つける。
 """
@@ -22,6 +23,8 @@ GEN = "tools/gen"
 # 配らない物（試験と、アプリが読まない物）
 SKIP_PREFIX = ("tests/",)
 ALWAYS = ("VERSION", "LICENSE")
+# 台本の名前を文字列で受けて読み込む呼び出し（finishers の _gen など）。ほかの呼び出しの文字列は読み込みではない
+IMPORT_CALLS = {"_gen", "import_module", "__import__", "_own_ready", "_own_why"}
 
 
 def tracked() -> set[str]:
@@ -74,8 +77,6 @@ def refs(path: str, files: set[str], gen_mods: set[str]) -> set[str]:
             found.add(s)
         elif f"{here}/{s}" in files:   # Path(__file__).parent / "traits.json"
             found.add(f"{here}/{s}")
-        elif s in gen_mods:
-            found.add(f"{GEN}/{s}.py")
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -91,7 +92,15 @@ def refs(path: str, files: set[str], gen_mods: set[str]) -> set[str]:
                 path_like("/".join(parts))
                 for i in range(len(parts)):
                     path_like("/".join(parts[i:]))
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+        elif isinstance(node, ast.Call):
+            # 台本の名前は、呼び出しに渡した文字列（_gen("retouch")、import_module("edit")）のときだけ読み込みとみなす。
+            # 語の表の値（"ベンチ": "bench"）が台本の名前と同じでも、読み込みではないので辿らない
+            fn = node.func
+            called = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "")
+            for a in node.args[:1] if called in IMPORT_CALLS else ():
+                if isinstance(a, ast.Constant) and isinstance(a.value, str) and a.value.split(".")[0] in gen_mods:
+                    module(a.value)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
             path_like(node.value)
     found.discard(path)
     return found
