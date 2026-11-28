@@ -18,7 +18,7 @@ LINE_CONTRAST_LEAST = 40   # 線の強弱で暗くする画素は、紙（明る
 LINE_PIECE_LEAST = 12     # 線の強弱で暗くする塊の最小の画素数。これより小さい点は紙の目やハッチングの粒で、太らせると破線になる（私の推測）
 LINE_WEIGHT_LEAST = 0.45   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（細い 1 画素の線は 0.32、太らせると 0.6。私の推測）   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（外の輪郭が細く薄い。私の推測）
 LINE_MAX_GAP_MOST = 0.25   # 外の輪郭のうち、線の無い所が続く一番長い区間がこれを超えたら、線が途中でずれている（私の推測）
-OUTLINE_GROW = 0.004       # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、1216 画素なら 5 画素。私の推測）
+OUTLINE_GROW = 0.0015      # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、768 画素なら 1 画素、1216 画素なら 2 画素。私の推測）。0.004（768 画素で 3 画素）では線が 8 画素になり、顔の幅 130 画素の全身の絵で輪郭が潰れて見えた（検証 46127844791）
 DUST_MAX_PIXELS = 64       # ゴミ: 塊の画素数がこれ以下ならゴミ（私の推測）
 DUST_SIZE_MOST = 0.05      # ゴミ: 塊の長い辺が短い辺のこの割合以下（ただし 3 画素以上）ならゴミ（私の推測）
 DUST_PATTERN_MIN = 8       # ゴミ: 同じくらいの大きさの小さい塊がこれ以上あれば、ゴミではなく模様（星・雪・質感）（私の推測）
@@ -242,6 +242,16 @@ def weight_lines(image, r=None):
             keep = np.zeros(n + 1, bool)
             keep[1:] = sizes >= LINE_PIECE_LEAST
             hit = keep[lab]
+    if hit.any() and line_like(image):
+        # 線画（白い紙に線だけの絵）では、選んだ線を、同じ線のつながった残りまで広げる。「線の中で暗い方から 3 割」だけだと、濃さにむらのある線では
+        # 濃い所だけが飛び飛びに選ばれて太り、輪郭が太い破線になった（検証 46127844791 の線画。1 本の線の途中だけが
+        # 太くなった）。外の輪郭の帯の中で、紙よりはっきり暗く、選んだ所につながっている画素を同じ線として扱う
+        # （色や灰色の面のある絵では広げない。面の縁まで線として暗くしてしまう）
+        from scipy import ndimage
+        same = outer & m & (lum <= paper - LINE_CONTRAST_LEAST)
+        lab, n = ndimage.label(same, structure=np.ones((3, 3), bool))
+        if n:
+            hit = np.isin(lab, np.unique(lab[hit & (lab > 0)])) & (lab > 0)
     a[hit] *= OUTER_DARK
     r = outline_radius(image) if r is None else max(1, int(r))
     # 既に十分太い線は、これ以上太らせない。太らせる直しを繰り返すたびに太り続けて、
@@ -352,6 +362,35 @@ def whiten_paper(image):
     if paper >= 235 or paper < 100:
         return image   # 紙が既に白い、または暗い面ばかりで紙が読めない
     return Image.fromarray(np.clip(a * (255.0 / paper), 0, 255).astype("uint8"))
+
+
+def line_loss(line, image) -> float:
+    """線のレイヤーの線のうち、絵の中で埋もれた（近くに暗い画素が無い）割合。線が無ければ 0"""
+    core = line_pixels(line)
+    if not core.any():
+        core = luminance(line) < 128   # 線の芯が塊と読まれて外れたとき（太い帯だけの線画）は、暗い画素の全部で見る
+    total = int(core.sum())
+    if not total:
+        return 0.0
+    r = max(2, round(min(image.size) / 32))   # この近さに暗い画素があれば、線はそこにある
+    present = _dilate(luminance(image) < 80, r)
+    return float((core & ~present).sum()) / total
+
+
+def line_fattening(line, before, after) -> float:
+    """描き重ねで線が太った分。線のレイヤーの線のすぐ外側（線から 2 画素より遠く 6 画素まで）で、
+    描き重ねる前（before）には暗くなかったのに、描き重ねた後（after）に暗くなった画素の数を、線の画素の数で割る。
+    暗い面（黒い髪や服）は前にも後にもあるので数に入らない。線が無ければ 0"""
+    if line.size != after.size:
+        line = line.convert("RGB").resize(after.size)
+    dark_l = luminance(line) < 128
+    total = int(dark_l.sum())
+    if not total:
+        return 0.0
+    ring = _dilate(dark_l, 6) & ~_dilate(dark_l, 2)
+    was = luminance(before.convert("RGB").resize(after.size)) < 128
+    now = luminance(after) < 128
+    return float((ring & now & ~was).sum()) / total
 
 
 def strip_own_lines(color, line):

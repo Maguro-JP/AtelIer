@@ -104,7 +104,8 @@ def run_draws(out: Path, painter, prompt: str, seed: int, size) -> dict:
             continue
         img = Image.open(r["image"]).convert("RGB")
         shutil.copy(r["image"], each / Path(r["image"]).name)
-        rows.append({"phase": r["phase"], "seconds": r["seconds"], "file": Path(r["image"]).name, **picture_numbers(img)})
+        made = {k: v for k, v in (r.get("numbers") or {}).items() if isinstance(v, (int, float, str))}   # 描く工程が残した数字（線の埋もれ・太りなど）
+        rows.append({"phase": r["phase"], "seconds": r["seconds"], "file": Path(r["image"]).name, **picture_numbers(img), "made": made})
     got["image"].save(each / "final.png")
     rows.append({"phase": "最後の絵", "seconds": secs, "file": "final.png", **picture_numbers(got["image"])})
     t = time.perf_counter()

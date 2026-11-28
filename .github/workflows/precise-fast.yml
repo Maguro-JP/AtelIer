@@ -1,4 +1,4 @@
-# 精度優先の描く工程が絵を壊していないかを、速く見る（目安 20 分）。
+# 精度優先の描く工程が絵を壊していないかを、速く見る（小さい組は目安 20 分、precise-real と同じ大きさの組は 約 30 分。2 つを並べて流す）。
 # precise-real は検品と直しを最後まで回すので 1 回 2〜5 時間かかり、描く工程の直しを確かめるには遅すぎた。
 # ここでは人を描ける模型で、描く工程（サムネイル・アタリ・線画・下塗り・影・ディテール）だけを 1 回ずつ流し、
 # 工程ごとの絵と数字（線の途切れ、彩度、紙の明るさ）を artifact とログ（DRAWS の行）に出す。
@@ -28,7 +28,19 @@ concurrency:
 jobs:
   precise-fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 小さい組: 大きさと歩数を絞って速く見る（640x960、12 歩）
+          - name: small
+            size: 640x960
+            steps: "12"
+          # 同じ大きさの組: precise-real と同じ大きさ・歩数（768x1152、15 歩）
+          - name: same
+            size: 768x1152
+            steps: "15"
     steps:
       - uses: actions/checkout@v4
       - name: 置き場を空ける
@@ -47,15 +59,14 @@ jobs:
           ATELIER_FETCH: "1"
           BENCH_MODEL: cagliostrolab/animagine-xl-4.0
           BENCH_PROMPT: ${{ inputs.prompt || '1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer' }}
-          # precise-real と同じ大きさ・歩数（768x1152、15 歩）。絞っていない
-          BENCH_STEPS: "15"
-          BENCH_SIZE: 768x1152
+          BENCH_STEPS: ${{ matrix.steps }}
+          BENCH_SIZE: ${{ matrix.size }}
           BENCH_SEED: ${{ inputs.seed || '7' }}
           BENCH_WAYS: draws
         run: python -u -m atelier.bench.phase_bench fast-out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: precise-fast
+          name: precise-fast-${{ matrix.name }}
           path: fast-out
           retention-days: 7

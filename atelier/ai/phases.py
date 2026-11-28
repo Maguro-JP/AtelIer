@@ -109,6 +109,7 @@ TONE_CRUSH = 0.85     # ディテール: 描き重ねでコントラストが元
 DETAIL_CRUSH = 0.7    # ディテール: 描き重ねで質感の密度が元のこの割合を切ったら、細部が潰れたとみて採用しない（私の推測）
 COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれより多ければ、色が散っている（私の推測）
 COVERAGE_MOST = 0.10  # 下塗り: 主役の輪郭の内側で紙の色のままの割合がこれを超えたら、塗り残し（私の推測）
+LINE_FAT_MOST = 0.5    # 下塗り: 描き重ねで線のすぐ外側に増えた暗い画素が、線の画素のこの割合を超えたら、線が太ったとみる（私の推測）
 LINE_LOSS_MOST = 0.02  # 色・仕上げの工程の出口: 清書の線のうち、合成で暗く残っていない割合がこれを超えたら埋もれ（私の推測）
 DIFF_MIN = 0.5       # 前の絵との画素の差の平均（0〜255）がこれ未満なら「変わらなかった」として数えない（私の推測）
 MEND = (0.45, 0.5, 0.55, 0.6, 0.65, 0.7)   # 囲みの直しの強さ。上げる幅は小さくする（FIXES と同じ理由。一気に変えない）
@@ -884,13 +885,14 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         # 白い紙の線画からの描き重ねは、紙の白をほとんど動かせず、色が乗らない（検証 46089737769 で
         # 彩度 6.4・紙の明るさ 170 のまま。強さ 0.6 でも同じ）。土台（頼みの言葉そのままの絵）の色を
         # 線の下に敷き、その上に描き重ねる。色の位置は土台、線の位置は清書で、同じ絵から出ている
+        over_base, under = False, base_in
         if can_refine:
-            strength, under = BASE_COLOR, base_in
+            strength = BASE_COLOR
             base_img = (st.get("base") or {}).get("image")
             if base_img is not None and base_img.size == img.size:
                 # 線が線画らしくないとき（鉛筆の画材の指定などで灰色の面が多い）は、乗算で絵が沈むので線は敷かず、土台の色だけから描き重ねる
                 under = pt.over_lines(base_img, base_in) if pt.line_like(base_in) else base_img
-                strength = BASE_OVER
+                strength, over_base = BASE_OVER, True
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
             words.append(st["prompt"])
@@ -908,6 +910,24 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 say("下塗りの色に粒が出たので、面の色に寄せて平らにします（下塗りはベタ塗り）")
                 color = flat
         line = pt.whiten_paper(st["layers"].get("清書") or img)
+        numbers = {}
+        if over_base and color.size == line.size and pt.line_like(line):
+            # 土台の色と清書の線を敷いた絵に描き重ねた絵は、線も色も初めから持っている。線が埋もれても太ってもいなければ、
+            # 描き重ねた絵をそのまま使う。色の絵の線を消して清書の線を乗せ直す合成（下の道）は、本物の絵では線の周りの色まで
+            # 埋めて、顔と輪郭を潰した（検証 46127844791 の下塗り）。線を消して乗せ直すのは、線が太ったときだけにする
+            lost = pt.line_loss(line, color)
+            fat = pt.line_fattening(line, under, color)
+            numbers.update({"line_lost": round(lost, 3), "line_fat": round(fat, 3)})
+            if fat <= LINE_FAT_MOST:
+                out = color
+                if lost > LINE_LOSS_MOST:   # 線が埋もれただけなら、色の絵は触らずに清書の線を上に乗せる
+                    say(f"下塗りの描き重ねで清書の線が埋もれたので（{lost:.0%}）、清書の線を上に乗せます")
+                    out = pt.over_lines(color, line)
+                st["layers"]["下塗り"] = color
+                for lname, limg in st["layers"].items():
+                    limg.save(keep / f"layer-{4 + 1:02d}-{lname}.png")
+                return {"image": out, "words": words, "numbers": {"layers": list(st["layers"]), **numbers}}
+            say(f"下塗りの描き重ねで線が太ったので（線の外側に増えた暗い画素が線の {fat:.0%}）、色の絵の線を消して清書の線を乗せ直します")
         if pt.line_like(line):
             # 色の絵が自分で描いた線は消してから乗せる。乗算の合成は色の暗さを消せず、
             # 色の線が残ると清書の線と合わさった太さになって、下塗りで線が太く壊れる。
@@ -921,7 +941,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         for lname, limg in st["layers"].items():   # レイヤーはファイルにも残す（表示には出さない。あとで線画が残っているか確かめられる）
             limg.save(keep / f"layer-{4 + 1:02d}-{lname}.png")
         return {"image": out, "words": words,
-                "numbers": {"layers": list(st["layers"])}}
+                "numbers": {"layers": list(st["layers"]), **numbers}}
 
     def d_shadow(v):
         img, lit = st["image"], st.get("light") or {}
