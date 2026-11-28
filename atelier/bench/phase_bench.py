@@ -180,7 +180,8 @@ def run_mends(out: Path, painter, prompt: str, seed: int, size) -> dict:
     ImageDraw.Draw(mask).rectangle(box, fill=255)
     rows = {}
     strength = phases.FIXES[0]
-    for name, (src, clean) in {"before": (one, True), "after": (pt.stroke_erase(one, mask)[0], False)}.items():
+    from atelier.ai.engine import erase as area_erase
+    for name, (src, clean) in {"before": (area_erase(one, mask), False), "after": (pt.stroke_erase(one, mask)[0], False)}.items():
         src.save(d / f"{name}-src.png")
         raw = painter.redraw(prompt, seed, src, mask, strength=strength, clean=clean)
         out_img = phases._inside(raw, one, mask)

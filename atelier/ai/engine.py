@@ -1651,7 +1651,13 @@ class Painter:
             from diffusers import AutoPipelineForInpainting
             self._inpaint = AutoPipelineForInpainting.from_pipe(pipe)   # 読んだ模型の部品をそのまま使う
         if clean:
-            image = erase(image, mask)
+            # 消してから描く。囲みを面で塗りつぶさず、囲みの中の線を消しゴムでなぞって消す（利用者の決まり。
+            # 面で消すと線でない色や形まで消えて物が変わった）。消しゴムが使えないときだけ、面で消す
+            try:
+                from atelier.ai import phase_tools
+                image, _n, _px = phase_tools.stroke_erase(image, mask)
+            except Exception:   # noqa: BLE001
+                image = erase(image, mask)
         # 工程の数 × 強さが 1 に届かないと、diffusers は「the number of pipelinesteps is 0」で止まる。
         # 工程の少ない模型（2 工程）や設定で工程を減らしたとき、顔を整える（0.3）・低い強さで仕上げる（0.25）が毎回落ちたので、
         # 直す工程が少なくとも 1 つ残る数まで増やす

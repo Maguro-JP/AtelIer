@@ -2229,19 +2229,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 # 1 回の直しが重くなる（画素数 2.25 倍）。色の段階の直しは今までどおり広げる。
                                 # 速さも工程ごとに分ける（序盤は軽く、清書以降はそのまま）。
                                 # 途中の絵も出す（on_step）。出さないと、直しの間ずっと筆が止まって見える
-                                src = cur
-                                if clean:
-                                    # 消してから描く。囲みを面で塗りつぶして消さず、囲みの中の線を消しゴムでなぞって消してから描き直す
-                                    # （利用者の決まり。面で消すと、線でない色や形まで消えて物が変わる）
-                                    try:
-                                        src, _n, _px = pt.stroke_erase(cur, m)
-                                    except Exception as e:   # noqa: BLE001  消しゴムが使えなければ、模型の側の消し方に任せる
-                                        say(f"消しゴムでなぞれなかったので、模型の側で消します（{type(e).__name__}）")
-                                        src = None
                                 s0 = steps(stage_steps(i))
                                 try:
-                                    raw = painter.redraw(words, seed, cur if src is None else src, m, strength=strength,
-                                                         clean=clean and src is None, on_step=on_step,
+                                    raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean, on_step=on_step,
                                                          max_scale=1.0 if (i <= 3 or (line_art and i == 4)) else None)
                                 finally:
                                     unsteps(s0)
