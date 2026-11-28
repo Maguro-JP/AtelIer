@@ -4129,3 +4129,114 @@ class AtariLineArtMeasureTest(unittest.TestCase):
             self.assertEqual(r.get("mends", []), [], r)
         self.assertEqual([x for x in got["left"] if x.startswith("アタリ")], [], got["left"])
 
+
+
+def colored_figure(size=(64, 96)):
+    """色の付いた絵（灰色がかった壁、赤い服、肌色の頭、暗い輪郭の線）。頼みの言葉そのままで描いた土台の代わり"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (225, 215, 205))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.3, h * 0.3, w * 0.7, h * 0.95], fill=(200, 40, 40), outline=(40, 20, 20))
+    d.ellipse([w * 0.36, h * 0.05, w * 0.64, h * 0.3], fill=(240, 200, 180), outline=(40, 20, 20))
+    return im
+
+
+class BasePainter(Painter):
+    """土台は色の絵を返し、描き重ねは渡された絵をそのまま返す画家。下塗りの描き重ねに渡された絵を覚える"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+        self.prompts = getattr(self, "prompts", []) + [prompt]
+        return colored_figure(kw.get("size") or (64, 96))
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        self.log.append(("refine", seed, strength))
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
+            self.under = image.copy()
+        return image.copy()
+
+
+class FromBaseTest(unittest.TestCase):
+    """ラフ・線・色を同じ土台（頼みの言葉そのままの絵）から出す。
+    前は「鉛筆のラフ」の言葉で別の絵を白紙から描かせ、その線に色を描き重ねていた。白い紙の線からの描き重ねは
+    紙の白を動かせず、人を描ける模型で、最後まで灰色の紙に破線の絵になった（検証 46089737769: 彩度 6.4、紙の明るさ 170）"""
+
+    def run_base(self, **kw):
+        painter = BasePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0), **kw)
+            from PIL import Image
+            rows = {r["phase"]: r for r in got["phases"]}
+            imgs = {k: Image.open(r["image"]).convert("RGB") for k, r in rows.items() if r.get("image")}
+        return got, painter, rows, imgs
+
+    def test_thumbnail_is_the_rough_of_the_base(self):
+        """サムネイルは土台から抜いた鉛筆のラフ。色が無く、紙は白く、模型には頼みの言葉だけを渡す"""
+        got, painter, rows, imgs = self.run_base()
+        self.assertEqual(painter.prompts, ["1girl, red scarf"])   # ゼロから描くのは土台の 1 枚だけで、頼んでいない言葉を足さない
+        self.assertEqual(rows["サムネイル"]["words"], ["1girl, red scarf"])
+        thumb = imgs["サムネイル"]
+        t = pt.tone(thumb)
+        self.assertLess(t["sat"], 1.0)                 # ラフに色は無い
+        import numpy as np
+        lum = pt.luminance(thumb)
+        self.assertGreaterEqual(float(np.percentile(lum, 60)), 250)   # 紙は白い（灰色の紙にしない）
+        self.assertGreater(float((lum < 150).mean()), 0.02)            # 線がある
+        self.assertNotEqual(list(thumb.getdata()), list(colored_figure().getdata()))   # 土台そのものは工程の絵にしない
+
+    def test_base_coat_is_painted_over_the_base_colors(self):
+        """下塗りの描き重ねは、土台の色を線の下に敷いた絵から始める。白い紙の線画からは始めない"""
+        got, painter, rows, imgs = self.run_base()
+        strengths = [x[2] for x in painter.log if x[0] == "refine"]
+        self.assertIn(phases.BASE_OVER, strengths)
+        self.assertNotIn(phases.BASE_COLOR, strengths)
+        base_sat = pt.tone(colored_figure())["sat"]
+        # 小さな絵（64x96）では線の占める割合が大きいので、土台の 6 割を境にする（前の作りは彩度が土台の 2 割に届かなかった）
+        self.assertGreater(pt.tone(painter.under)["sat"], base_sat * 0.6)     # 描き重ねの土台に色がある
+        self.assertGreater(pt.tone(imgs["下塗り"])["sat"], base_sat * 0.6)    # 下塗りの絵に色が乗っている
+        self.assertGreater(pt.tone(got["image"])["sat"], base_sat * 0.3)      # 最後の絵まで色が残る（偽の画家の直しは絵を明るくして色を薄めるので、境は低く置く）
+        self.assertEqual(rows["下塗り"]["words"], ["1girl, red scarf"])        # 模型に渡す言葉は頼みの訳だけ
+
+    def test_only_draw_runs_draw_steps_only(self):
+        """速い確かめ（only_draw）は、確かめる工程を計画に置かず、描く工程だけを 1 回ずつ流す"""
+        got, painter, rows, imgs = self.run_base(only_draw=True)
+        self.assertEqual({s["kind"] for s in got["plan"]}, {"draw"})
+        self.assertEqual(len([s for s in got["plan"] if s["kind"] == "draw"]), len(phases.DRAWS))
+        self.assertIn("下塗り", imgs)
+
+    def test_lines_from_keeps_outline_closed_and_thin(self):
+        """色の絵から抜いた線は、暗い面に接する所でも途切れず（閉じた輪郭が閉じたまま）、線を太らせない"""
+        import numpy as np
+        from PIL import Image, ImageDraw
+        from scipy import ndimage
+        im = Image.new("RGB", (64, 96), (230, 220, 210))
+        d = ImageDraw.Draw(im)
+        d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))               # 細い輪郭（1 画素）
+        d.rectangle([30, 0, 34, 96], fill=(0, 0, 0))                    # 輪郭を横切る暗い帯
+        line = pt.lines_from(im)
+        a = np.asarray(line.convert("L"))
+        self.assertEqual(int(a.max()), 255)                             # 紙は白
+        self.assertEqual(pt.tone(line)["sat"], 0.0)                     # 色は無い
+        dark = a < 128
+        holes = ndimage.binary_fill_holes(dark) & ~dark
+        self.assertGreater(int(holes.sum()), 500, "閉じた輪郭が、帯に接する所で開いた")
+        run = dark[48, 10:24]                                           # 左の縦の輪郭を横に切る
+        self.assertLessEqual(int(run.sum()), 2, "1 画素の線が太った")
+        self.assertTrue(run.any())
+
+    def test_ink_levels_makes_pen_lines(self):
+        """線をペンの線にそろえる: 灰色の紙は白、薄い線は黒、色の面は紙に戻す。線の無い絵は触らない"""
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (64, 96), (170, 170, 170))                # 灰色の紙
+        d = ImageDraw.Draw(im)
+        d.rectangle([30, 0, 33, 96], fill=(90, 90, 90))                 # 薄い線
+        d.rectangle([40, 40, 60, 60], fill=(200, 30, 40))               # 頼みの色の面（赤いマフラー）
+        out = pt.ink_levels(im)
+        self.assertGreater(out.getpixel((8, 48))[0], 250)               # 紙は白
+        self.assertLess(out.getpixel((31, 48))[0], 30)                  # 線は黒
+        self.assertGreater(out.getpixel((50, 50))[0], 250)              # 色の面は紙に戻る
+        self.assertTrue(pt.line_like(out))
+        blank = Image.new("RGB", (64, 96), (240, 240, 240))
+        self.assertIs(pt.ink_levels(blank), blank)
