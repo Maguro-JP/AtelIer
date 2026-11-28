@@ -271,6 +271,26 @@ def line_like(image) -> bool:
     return mid <= 0.10 and sat <= 15.0
 
 
+def whiten_paper(image):
+    """灰色の紙に描いた線画の紙を白に戻した絵を返す（線画でなければそのまま返す）。
+
+    線画の工程の絵は、紙が明るさ 165 前後の灰色になることがある（実機の検証
+    46030668432）。灰色の紙のままだと、線画らしいかの判定（line_like）が中間の
+    灰色ばかりと読んで線レイヤーを乗せず、下塗りの描き重ねも灰色の絵から始まる
+    ので色がほとんど乗らなかった。紙の明るさ（明るい側 90% の位置）を白に合わせて
+    全体を同じ倍率で明るくする。線の暗さの順は変わらず、線の形も変えない。
+    色の付いた絵や、もともと紙が白い絵は触らない"""
+    import numpy as np
+    from PIL import Image
+    a = _np(image).astype(np.float32)
+    if float((a.max(axis=2) - a.min(axis=2)).mean()) > 15.0:
+        return image   # 色の付いた絵は線画ではない
+    paper = float(np.percentile(luminance(image), 90))
+    if paper >= 235 or paper < 100:
+        return image   # 紙が既に白い、または暗い面ばかりで紙が読めない
+    return Image.fromarray(np.clip(a * (255.0 / paper), 0, 255).astype("uint8"))
+
+
 def strip_own_lines(color, line):
     """色の絵が自分で描いた線を消し、周りの色で埋めた絵を返す。
 

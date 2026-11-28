@@ -2245,6 +2245,35 @@ class LayerBasePainter(Painter):
         return image.copy()
 
 
+class GreyPaperPainter(LayerBasePainter):
+    """線画を灰色の紙（明るさ 165）に描き、下塗りの描き重ねは土台の紙が灰色なら
+    灰色のまま返す画家。実機の検証 46030668432 で、灰色の紙の線画から描き重ねた
+    下塗りに色がほとんど乗らなかったのと同じ壊れ方をさせる"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        im = super().paint(prompt, seed, on_step=on_step, **kw)
+        import numpy as np
+        from PIL import Image
+        a = np.asarray(im).astype(np.float32) * (165.0 / 255.0)
+        return Image.fromarray(a.astype("uint8"))
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        if strength == phases.BASE_COLOR:
+            import numpy as np
+            from PIL import Image
+            self.log.append(("refine", seed, strength))
+            a = np.asarray(image.convert("RGB")).astype(np.float32)
+            paper = float(np.percentile(a.mean(axis=2), 90))
+            self.base_paper = paper
+            if paper < 200:
+                return image.convert("RGB").copy()   # 灰色の土台からは色が乗らない
+            w, h = image.size
+            out = np.zeros((h, w, 3), np.uint8)
+            out[:] = (230, 150, 150)   # 薄い赤の下塗り。線は入っていない
+            return Image.fromarray(out)
+        return super().refine(prompt, seed, image, strength=strength, on_step=on_step, on_preview=on_preview)
+
+
 class LayerTest(unittest.TestCase):
     """レイヤー管理: 線画をレイヤーに残し、清書して、色は別レイヤーに塗る"""
 
@@ -2273,6 +2302,35 @@ class LayerTest(unittest.TestCase):
         """下塗りの記録に、残したレイヤー（ラフ・線画・清書・下塗り）が出る"""
         got, rows, img = self.run_layered()
         self.assertEqual(rows["下塗り"]["numbers"].get("layers"), ["ラフ", "線画", "清書", "下塗り"])
+
+    def test_grey_paper_line_art_still_gets_color(self):
+        """線画の紙が灰色でも、下塗りに色が乗り、線は残る（検証 46030668432 の不具合）"""
+        painter = GreyPaperPainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0))
+            rows = {r["phase"]: r for r in got["phases"]}
+            self.assertGreaterEqual(painter.base_paper, 235, "描き重ねの土台の紙が灰色のまま")
+            self.assertTrue(rows["下塗り"].get("image"), "下塗りの絵が線画から変わっていない")
+            from PIL import Image
+            img = Image.open(rows["下塗り"]["image"]).convert("RGB")
+        r, g, b = img.getpixel((8, 48))
+        self.assertGreater(r - g, 40, "線の無い所に色が乗っていない")
+        self.assertLess(img.getpixel((32, 48))[0], 60, "線が色に埋もれている")
+        self.assertEqual(rows["下塗り"]["words"], ["1girl, red scarf"], "模型に渡す言葉が変わった")
+
+    def test_whiten_paper_keeps_white_and_color(self):
+        """紙を白に戻すのは灰色の紙の線画だけ。白い紙の線画と色の絵は触らない"""
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (64, 96), "white")
+        ImageDraw.Draw(im).rectangle([30, 0, 34, 96], fill=(0, 0, 0))
+        self.assertIs(pt.whiten_paper(im), im)
+        scene = car_side_scene((64, 96))
+        self.assertIs(pt.whiten_paper(scene), scene)
+        grey = Image.new("RGB", (64, 96), (165, 165, 165))
+        ImageDraw.Draw(grey).rectangle([30, 0, 34, 96], fill=(20, 20, 20))
+        self.assertFalse(pt.line_like(grey))
+        self.assertTrue(pt.line_like(pt.whiten_paper(grey)))
 
     def test_line_like_gate(self):
         """上に乗せてよいのは本物の線画だけ。色の付いた絵は線レイヤーにしない"""
