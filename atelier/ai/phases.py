@@ -1642,15 +1642,20 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             regs = [[list(b), t] for b, t in res.get("regions", []) if t == kind]
             if regs:
                 return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs, "op": "erase", "what": kind})]
-        if i == 2 and k == 0:
-            # アタリのずれは描き直さず、絵そのものを動かして直す（利用者の決まり）。動かして直らなければ、次の手（k=1 から）は今までの直し
+        if i == 2 and k == 0 and st.get("image") is not None:
+            # アタリのずれは描き直さず、絵そのものを動かして直す（利用者の決まり）。動かせる物が無い絵と、
+            # 動かして直らなかったとき（次の手 k=1 から）は、今までの直しに進む
             fl = " ".join(flaws)
-            if item == "位置ずれ":
-                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "reattach"})]
-            if item == "重心と等身" and "重心" in fl:
-                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "lean"})]
-            if item == "画面の重さ":
-                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "recenter"})]
+            op = ("reattach" if item == "位置ずれ" else "lean" if item == "重心と等身" and "重心" in fl
+                  else "recenter" if item == "画面の重さ" else None)
+            if op is not None:
+                tool = {"reattach": pt.reattach, "lean": pt.lean_fix, "recenter": pt.recenter}[op]
+                try:
+                    movable = bool(tool(st["image"])[1])
+                except Exception:   # noqa: BLE001  動かせるか分からない絵は、今までの直しにする
+                    movable = False
+                if movable:
+                    return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": op})]
         if item == "位置ずれ":
             regs = [[list(b), t] for b, t in res.get("regions", []) if t == "part"]
             if i == 3 and k == 0:
@@ -2224,9 +2229,19 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 # 1 回の直しが重くなる（画素数 2.25 倍）。色の段階の直しは今までどおり広げる。
                                 # 速さも工程ごとに分ける（序盤は軽く、清書以降はそのまま）。
                                 # 途中の絵も出す（on_step）。出さないと、直しの間ずっと筆が止まって見える
+                                src = cur
+                                if clean:
+                                    # 消してから描く。囲みを面で塗りつぶして消さず、囲みの中の線を消しゴムでなぞって消してから描き直す
+                                    # （利用者の決まり。面で消すと、線でない色や形まで消えて物が変わる）
+                                    try:
+                                        src, _n, _px = pt.stroke_erase(cur, m)
+                                    except Exception as e:   # noqa: BLE001  消しゴムが使えなければ、模型の側の消し方に任せる
+                                        say(f"消しゴムでなぞれなかったので、模型の側で消します（{type(e).__name__}）")
+                                        src = None
                                 s0 = steps(stage_steps(i))
                                 try:
-                                    raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean, on_step=on_step,
+                                    raw = painter.redraw(words, seed, cur if src is None else src, m, strength=strength,
+                                                         clean=clean and src is None, on_step=on_step,
                                                          max_scale=1.0 if (i <= 3 or (line_art and i == 4)) else None)
                                 finally:
                                     unsteps(s0)

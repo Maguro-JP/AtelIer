@@ -153,6 +153,62 @@ def run_draws(out: Path, painter, prompt: str, seed: int, size, way: str = "draw
             "mends": mends, "left": list(got.get("left") or [])}
 
 
+def run_mends(out: Path, painter, prompt: str, seed: int, size) -> dict:
+    """直しの段を本物の模型で比べる: 同じ絵・同じ囲み・同じ種で、前（囲みを面で消してから描く）と
+    後（囲みの中の線を消しゴムでなぞって消してから描く）を描き、囲みの外の変化と囲みの中の線の鋭さを測る。
+    アタリのずれの直し（角度を変える・ずらす・切り貼り）も、1 回描きから抜いたラフに掛けて残す"""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    from atelier.ai import phase_tools as pt
+    from atelier.ai import phases
+    d = out / "mends"
+    d.mkdir(parents=True, exist_ok=True)
+    w, h = size
+    t = time.perf_counter()
+    one = painter.paint(prompt, seed, size=(w, h))
+    one.save(d / "one.png")
+    m = pt.silhouette(one)
+    ys, xs = np.nonzero(m)
+    if len(xs) < 50:
+        return {"way": "mends", "readable": False}
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+    # 頭の所（人の形の上 18%、横は人の形の中ほど）を直す囲みにする（検品の模型を使わずに、毎回同じ所を比べる）
+    hh = int((y1 - y0) * 0.18)
+    cx = int(xs[ys < y0 + hh].mean()) if (ys < y0 + hh).any() else (x0 + x1) // 2
+    box = (max(0, cx - hh // 2 - 8), y0, min(w, cx + hh // 2 + 8), y0 + hh)
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rectangle(box, fill=255)
+    rows = {}
+    strength = phases.FIXES[0]
+    for name, (src, clean) in {"before": (one, True), "after": (pt.stroke_erase(one, mask)[0], False)}.items():
+        src.save(d / f"{name}-src.png")
+        raw = painter.redraw(prompt, seed, src, mask, strength=strength, clean=clean)
+        out_img = phases._inside(raw, one, mask)
+        out_img.save(d / f"{name}.png")
+        a, b = np.asarray(one).astype(int), np.asarray(out_img).astype(int)
+        inside = np.asarray(mask) > 0
+        lum = pt.luminance(out_img)
+        gy, gx = np.gradient(lum)
+        rows[name] = {"outside_changed": int(((a != b).any(2) & ~inside).sum()),
+                      "inside_diff": round(float(np.abs(a - b)[inside].mean()), 2),
+                      "inside_sharp": round(float(np.hypot(gx, gy)[inside].mean()), 2),
+                      "sat": pt.tone(out_img)["sat"]}
+    rough = pt.rough_from(one)
+    rough.save(d / "rough.png")
+    moves = {}
+    for name, tool in (("lean", pt.lean_fix), ("recenter", pt.recenter), ("reattach", pt.reattach)):
+        got, amount = tool(rough)
+        got.save(d / f"rough-{name}.png")
+        moves[name] = {"amount": amount if not hasattr(amount, "item") else amount.item(),
+                       "balance": (pt.balance(got) or {}).get("balance"), "weight_x": pt.thumb_weight(got)["weight_x"],
+                       "detached": pt.detached(got).get("count")}
+    moves["rough"] = {"balance": (pt.balance(rough) or {}).get("balance"), "weight_x": pt.thumb_weight(rough)["weight_x"],
+                      "detached": pt.detached(rough).get("count")}
+    row = {"way": "mends", "seconds": round(time.perf_counter() - t, 1), "box": list(box), "redraw": rows, "moves": moves}
+    print("MENDS " + json.dumps(row, ensure_ascii=False, default=float), flush=True)
+    return row
+
+
 def run(out: Path):
     from atelier.ai.engine import Painter, Studio
     from atelier.qc import hand_check as handcheck
@@ -170,7 +226,7 @@ def run(out: Path):
     pose_files = dict(twostage.PARTS)[twostage.POSE]
     fetches = (lambda: snapshot_download(twostage.POSE, cache_dir=str(HUB), allow_patterns=pose_files),
                lambda: requestcheck._tagger(True), lambda: handcheck.ensure_models(True), lambda: handcheck.ensure_feet_model(True))
-    if set(ways) <= {"draws", "pixels"}:   # 速い確かめは重い検品をしない。体の点の部品だけを、画素の検品の組のときに取る
+    if set(ways) <= {"draws", "pixels", "mends"}:   # 速い確かめは重い検品をしない。体の点の部品だけを、画素の検品の組のときに取る
         fetches = fetches[:1] if "pixels" in ways else ()
     for fetch in fetches:
         try:
@@ -180,6 +236,10 @@ def run(out: Path):
     result = {"model": model, "prompt": prompt, "seed": seed, "steps": steps, "size": [w, h], "runs": []}
     painter = Painter(model, steps=steps)
     for way in ways:
+        if way == "mends":
+            result["runs"].append(run_mends(out, painter, prompt, seed, (w, h)))
+            (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
+            continue
         if way in ("draws", "pixels"):
             result["runs"].append(run_draws(out, painter, prompt, seed, (w, h), way))
             (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")

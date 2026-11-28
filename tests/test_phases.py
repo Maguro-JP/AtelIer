@@ -769,6 +769,8 @@ class NewChecksFlowTest(unittest.TestCase):
             from PIL import Image
             self.assertEqual(pt.dust(Image.open(row["image"]))["count"], 0)
 
+    @mock.patch.object(pt, "reattach", lambda im: (im.convert("RGB"), 0))   # 切り貼りでは動かせない離れた物として見る
+    @mock.patch.object(pt, "stroke_erase", lambda im, m, dark=None: (im.convert("RGB"), 0, 0))   # 消しゴムでも消せない物として見る
     def test_detached_part_carried_not_redrawn(self):
         """位置ずれ: 体から離れた物を崩れとし、直す工程が回る。偽の模型では消せないので、残った崩れとして次へ進む（全体の描き直しはしない）。残った崩れがあるので complete は偽だが、最後の工程まで進む"""
         C, _seen = checks(always_bad=False)
@@ -2170,6 +2172,7 @@ class DegradationGuardTest(unittest.TestCase):
         self.assertTrue(any("構図の直し" in m for m in said), said)   # 守り（keep_tone）が構図の直しにも掛かった
         self.assertTrue(all(not m["changed"] for m in mends), mends)   # 霞んだ絵は採られなかった
 
+    @mock.patch.object(pt, "reattach", lambda im: (im.convert("RGB"), 0))   # 切り貼りでは動かせない離れた物として見る
     def test_detached_growth_is_reverted(self):
         """位置ずれの直しで離れた物が増えたら、文に埋まった数を見て直す前の絵に戻す。
         前は文の数（いつも 1 本）だけを見ていたので、2 個 → 124 個に増えても戻らなかった"""
@@ -2918,6 +2921,8 @@ class CarriedFlawGuardTest(unittest.TestCase):
     """持ち越した崩れは、その項目を実際に測った工程の確かめでだけ外す。
     項目名だけが工程の並びにあって検品が測っていない場合は、消えたことにしない"""
 
+    @mock.patch.object(pt, "reattach", lambda im: (im.convert("RGB"), 0))   # 切り貼りでは動かせない離れた物として見る
+    @mock.patch.object(pt, "stroke_erase", lambda im, m, dark=None: (im.convert("RGB"), 0, 0))   # 消しゴムでも消せない物として見る
     def test_uncovered_phase_does_not_clear_carried_flaw(self):
         from atelier.ai import phase_plan
         patched = [list(x) for x in phase_plan.PHASE_ITEMS]
