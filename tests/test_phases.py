@@ -2773,7 +2773,7 @@ class EraseFillTest(unittest.TestCase):
         self.assertTrue((hole[:, 0] == 200).any() and (hole[:, 2] == 200).any())   # 両側の色が写っている
 
     def test_layer_files_are_saved(self):
-        """レイヤーはファイルにも残る（線画レイヤーには線だけ、下塗りレイヤーには色だけ）。
+        """レイヤーはファイルにも残る（線画レイヤーには線だけ、下塗りレイヤーは土台から描き重ねた色の絵そのもの）。
         あとから見て、線画が残っていることを確かめられるようにする"""
         painter = LayerBasePainter()
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
@@ -2783,7 +2783,7 @@ class EraseFillTest(unittest.TestCase):
             line = Image.open(Path(d) / "k" / "layer-05-線画.png").convert("RGB")
             color = Image.open(Path(d) / "k" / "layer-05-下塗り.png").convert("RGB")
         self.assertLess(line.getpixel((32, 48))[0], 60)      # 線画レイヤーの線は黒いまま
-        self.assertGreater(color.getpixel((32, 48))[0], 180)   # 下塗りレイヤーに線は無い（色だけ）
+        self.assertGreater(color.getpixel((8, 48))[0], 180)   # 下塗りレイヤーは色の絵（線の無い所に色がある）
 
 
 class LineStagesTest(unittest.TestCase):
