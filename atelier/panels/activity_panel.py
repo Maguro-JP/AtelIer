@@ -240,13 +240,14 @@ class ActivityPanel(QWidget):
 
     def status(self, msg: str, step: int | None = None, total: int | None = None):
         import re
-        from atelier.ai.phases import WORDS_NOTE
+        from atelier.ai.phases import COMPLEMENT_NOTE, WORDS_NOTE
         from atelier.ui.phase_display import relabel
         shown = relabel(msg)
         if shown is None:   # 描かない工程（目的）は見せない。番号は描く工程だけで数える
             return
         msg = shown
-        if msg.startswith(WORDS_NOTE):
+        if msg.startswith((WORDS_NOTE, COMPLEMENT_NOTE)):
+            # AI の補完の指示も、利用者の頼みの言葉とは別に詳細にだけ積む
             # 模型に渡す言葉は今の文を置き換えず、詳細のツールチップにだけ積む（会話にも出さない）
             self.words_log.append((f"工程 {self.phase[0]}/{self.phase[1]}「{self.phase[2]}」: " if self.phase else "") + msg)
             self.detail.setToolTip("\n".join(self.words_log[-12:]))

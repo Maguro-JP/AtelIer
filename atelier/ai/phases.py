@@ -138,6 +138,7 @@ def fix_words(regions):
         if w and w not in seen:
             seen.append(w)
     return ", ".join(seen)
+COMPLEMENT_NOTE = "AI の補完の指示: "   # 思考の模型が足した言葉。利用者の頼みの言葉とは別に、詳細にだけ出す
 WORDS_NOTE = "模型に渡す言葉: "   # この頭の知らせは会話に出さず、進み具合の欄の詳細にだけ置く（atelier/panels/activity_panel.py）
 GO, REDO, WORDS = "go", "redo", "words"   # 工程の確かめの答え
 
@@ -457,7 +458,7 @@ DRAWS = (1, 2, 3, 4, 6, 8)   # 描く工程のある工程（サムネイル、�
 
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
          confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None, answer=None,
-         resume: bool = False, on_base=None, only_draw: bool = False) -> dict:
+         resume: bool = False, on_base=None, only_draw: bool = False, thinker_model="auto") -> dict:
     """計画（atelier/ai/phase_plan.py の工程の並び）に沿って 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録,
     "history": 全部の記録, "plan": 工程の並び, "left": [], "checked": True, "complete": True, "backs": 戻った回数,
     "total": 累計の工程の数, "need": 要る工程の数}。
@@ -477,6 +478,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     from atelier.ai import phase_items as items
     from atelier.ai.phase_plan import Plan, step
     from atelier.files import pause_keep as pausekeep
+    from atelier.ai import thinker
+    think_model = thinker_model   # 思考の模型。"auto" は言葉の模型があれば使い、None は決まった手順だけ
     keep.mkdir(parents=True, exist_ok=True)
     pv = {"on_preview": on_preview} if on_preview is not None else {}   # 描いている途中の絵を窓に渡す
     can_line, can_fix = abilities(painter)
@@ -2180,8 +2183,21 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                     fw = fix_words(how.get("regions"))
                                     if fw:
                                         words = f"{fw}, {line_words(i)}" if i <= 3 else fw
+                                # 考える役（atelier/ai/thinker.py）: 思考の模型が、この囲みを直す AI の補完の指示を決める。
+                                # 利用者の指示（頼みの言葉）が主で、補完はこの囲みの描き直しにだけ足す。頼みの言葉と記録の words には混ぜない
+                                hint = None
+                                if how.get("mask") != "pen":
+                                    hint = how.get("hint") or thinker.complement(
+                                        st["prompt"], names[i], item, s.get("flaws", []), how.get("missing") or [],
+                                        how.get("regions") or [], st.get("negative") or (), model=think_model)
+                                    how["hint"] = hint
+                                    if hint.get("source") == "thinker" and hint.get("strength") and how.get("mask") != "regions":
+                                        strength = hint["strength"]
+                                sent = thinker.merge(words, hint["words"]) if hint and hint.get("words") else words
                                 say(f"崩れた所の囲みの中だけを直しています（強さ {strength}）: " + "、".join(s.get("flaws", [])[:3]))
                                 tell(words)
+                                if sent != words:
+                                    say(f"{COMPLEMENT_NOTE}{hint['words']}")
                                 # 線の段階（〜線画。線画モードの「線の仕上げ」も）の直しは、絵を広げずに
                                 # 描く。線だけの絵に細部の画素数を稼ぐ広げは要らず、広げた分だけ
                                 # 1 回の直しが重くなる（画素数 2.25 倍）。色の段階の直しは今までどおり広げる。
@@ -2189,7 +2205,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 # 途中の絵も出す（on_step）。出さないと、直しの間ずっと筆が止まって見える
                                 s0 = steps(stage_steps(i))
                                 try:
-                                    raw = painter.redraw(words, seed, cur, m, strength=strength, clean=clean, on_step=on_step,
+                                    raw = painter.redraw(sent, seed, cur, m, strength=strength, clean=clean, on_step=on_step,
                                                          max_scale=1.0 if (i <= 3 or (line_art and i == 4)) else None)
                                 finally:
                                     unsteps(s0)
@@ -2224,11 +2240,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 attempted = True
                         if attempted:
                             s.update({"strength": strength, "diff": dd["mean"], "outside": dd["outside"], "inside": dd["inside"],
-                                      "words": [words], "changed": (dd["mean"] or 0) >= DIFF_MIN})
+                                      "words": [words], "changed": (dd["mean"] or 0) >= DIFF_MIN,
+                                      **({"complement": how["hint"]} if how.get("hint") else {})})
                             mrow = {"phase": names[i], "mend": "赤ペン" if how.get("mask") == "pen" else k + 1, "item": item,
                                     "strength": strength, "found": list(s.get("flaws", [])), "diff": dd["mean"], "outside": dd["outside"],
                                     "inside": dd["inside"], "words": [words], "readable": True, "image": None, "changed": s["changed"],
                                     "visit": visits[i], **({"pen": True} if how.get("mask") == "pen" else {}),
+                                    **({"complement": how["hint"]} if how.get("hint") else {}),
                                     **({"full": True} if full else {})}
                             row["mends"].append(mrow)
                             if s["changed"]:
@@ -2386,6 +2404,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
            "asked": asked, "backs": backs, "total": total, "need": plan.need(), "fixes": fixes,
            "remaining": [f for fl in remaining.values() for f in fl],
            "base": {"severity": base_sev, "flaws": list(base_rec.get("flaws", [])), "kind": base_rec.get("kind")},
-           "final_severity": final_sev, "final_check": final_check}
+           "final_severity": final_sev, "final_check": final_check,
+           # 利用者の指示（頼みの言葉）と AI の補完の指示を、別の欄として並べて残す
+           "request_words": prompt, "complements": [dict(m["complement"], phase=m["phase"], item=m["item"])
+                                                    for r in history for m in (r.get("mends") or []) if m.get("complement")]}
     (keep / "phases.json").write_text(json.dumps(out, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     return {"image": st["image"], **out, "blocked": None, "unresolved": unresolved}

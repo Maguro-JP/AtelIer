@@ -1,0 +1,51 @@
+# 考える役（atelier/ai/thinker.py）の確かめ。風景と人物の頼みを 1 回ずつ描き、頼んだ物の検品で見つけた間違いだけを、
+# AI の補完の指示で囲みの中だけ描き直す。前と後の絵（before-after/）と、頼みの言葉・補完の言葉（thinker.json）を artifact に出す。
+name: thinker-bench
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 種
+        default: "7"
+  push:
+    branches: ["claude/FEAT-thinker-**"]
+    paths:
+      - "atelier/ai/thinker.py"
+      - "atelier/bench/thinker_bench.py"
+      - ".github/workflows/thinker-bench.yml"
+permissions:
+  contents: read
+concurrency:
+  group: thinker-bench-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  thinker-bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: 置き場を空ける
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h / | tail -1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 部品
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image onnxruntime pandas
+      - name: 描いて、間違いだけを補完で直す
+        env:
+          LLM_HOME: ${{ runner.temp }}/llm
+          ATELIER_HOME: ${{ runner.temp }}/cd
+          ATELIER_FETCH: "1"
+          BENCH_MODEL: cagliostrolab/animagine-xl-4.0
+          BENCH_STEPS: "15"
+          BENCH_SIZE: 768x768
+          BENCH_SEED: ${{ inputs.seed || '7' }}
+        run: python -u -m atelier.bench.thinker_bench thinker-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: thinker-bench
+          path: thinker-out
+          retention-days: 7
