@@ -4241,3 +4241,94 @@ class FromBaseTest(unittest.TestCase):
         self.assertTrue(pt.line_like(out))
         blank = Image.new("RGB", (64, 96), (240, 240, 240))
         self.assertIs(pt.ink_levels(blank), blank)
+
+    def test_base_coat_keeps_the_painted_picture_when_lines_are_fine(self):
+        """線が埋もれても太ってもいない描き重ねは、そのまま下塗りの絵にする。色の絵の線を消して清書の線を乗せ直す合成は、
+        本物の絵で線の周りの色まで埋めて顔と輪郭を潰した（検証 46127844791）"""
+        got, painter, rows, imgs = self.run_base(only_draw=True)
+        self.assertEqual(list(imgs["下塗り"].getdata()), list(painter.under.getdata()))
+        self.assertLessEqual(rows["下塗り"]["numbers"]["line_lost"], phases.LINE_LOSS_MOST)
+        self.assertLessEqual(rows["下塗り"]["numbers"]["line_fat"], phases.LINE_FAT_MOST)
+
+    def test_line_fattening_counts_only_new_dark_next_to_lines(self):
+        """線の太りは、描き重ねで線のすぐ外側に増えた暗い画素で測る。前からある暗い面（黒い服）は数えない"""
+        from PIL import Image, ImageDraw
+        line = Image.new("RGB", (64, 96), "white")
+        ImageDraw.Draw(line).rectangle([30, 0, 32, 96], fill=(0, 0, 0))            # 3 画素の線
+        before = Image.new("RGB", (64, 96), (230, 200, 180))
+        ImageDraw.Draw(before).rectangle([33, 0, 64, 96], fill=(30, 30, 60))       # 線の右は初めから黒い服
+        ImageDraw.Draw(before).rectangle([30, 0, 32, 96], fill=(0, 0, 0))
+        self.assertEqual(pt.line_fattening(line, before, before), 0.0)             # 変わらなければ 0（黒い服は数えない）
+        fat = before.copy()
+        ImageDraw.Draw(fat).rectangle([22, 0, 29, 96], fill=(20, 20, 20))          # 線の左に 8 画素太った
+        self.assertGreater(pt.line_fattening(line, before, fat), phases.LINE_FAT_MOST)
+
+
+class LineWeightContinuityTest(unittest.TestCase):
+    """線の強弱は、1 本の線の濃い所だけを太らせない。濃さにむらのある輪郭で、濃い所だけが飛び飛びに太って
+    太い破線になった（検証 46127844791 の線画）"""
+
+    def uneven_outline(self):
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (128, 192), "white")
+        d = ImageDraw.Draw(im)
+        for k, y in enumerate(range(30, 160, 10)):   # 左右の輪郭を 10 画素ごとに、濃い・薄いを交互に描く
+            shade = 20 if k % 2 == 0 else 150
+            d.rectangle([40, y, 41, y + 9], fill=(shade, shade, shade))
+            d.rectangle([86, y, 87, y + 9], fill=(shade, shade, shade))
+        d.rectangle([40, 28, 87, 29], fill=(20, 20, 20))
+        d.rectangle([40, 160, 87, 161], fill=(20, 20, 20))
+        return im
+
+    def test_uneven_line_is_weighted_as_one_line(self):
+        import numpy as np
+        im = self.uneven_outline()
+        self.assertTrue(pt.line_like(im))
+        out, hit = pt.weight_lines(im)
+        self.assertGreater(hit, 0)
+        lum = pt.luminance(out)
+        widths = [int((lum[y, 30:52] < 200).sum()) for y in range(32, 158)]   # 左の輪郭の、行ごとの線の幅
+        self.assertGreaterEqual(min(widths), 3, "薄い所が太らずに残った（太い破線になる）")
+        self.assertLessEqual(max(widths) - min(widths), 1, widths)            # 濃い所も薄い所も同じ幅で太る
+        self.assertTrue(np.all(lum[32:158, 20:30] > 250))                     # 線から離れた紙は変えない
+
+
+class ShadeSecondSmoothTest(unittest.TestCase):
+    """影の 2 段目は、色の付いた背景のある絵に段を付けない。前は人物の真ん中の縦の線と明るさのしきい値で切り、
+    髪・顔・服の真ん中に縦の段が、壁のなだらかな明るさの上に縁の輪が出た"""
+
+    def scene(self):
+        import numpy as np
+        from PIL import Image
+        h, w = 192, 128
+        yy, xx = np.mgrid[0:h, 0:w]
+        wall = 100 + 90 * np.exp(-(((xx - w / 2) / 60.0) ** 2 + ((yy - h / 2) / 95.0) ** 2))   # 真ん中が明るい壁
+        a = np.stack([wall * 1.1, wall, wall * 0.8], axis=2)
+        a[40:160, 44:84] = (40, 45, 80)                                                         # 紺の服（真ん中に立つ人）
+        return Image.fromarray(np.clip(a, 0, 255).astype("uint8"))
+
+    def test_no_vertical_step_and_no_ring(self):
+        import numpy as np
+        im = self.scene()
+        self.assertGreater(float(pt.silhouette(im).mean()), pt.SHADE2_SCENE)   # 紙の無い絵（背景のある絵）
+        out, hit = pt.shade_second(im, {"readable": True, "dx": -30.0, "dy": 0.0})
+        self.assertGreater(hit, 0)
+        ratio = pt.luminance(out).astype(float) / np.maximum(pt.luminance(im).astype(float), 1.0)
+        step_x = np.abs(np.diff(ratio, axis=1))
+        step_y = np.abs(np.diff(ratio, axis=0))
+        inside = (slice(46, 154), slice(46, 82))                                 # 服の中（縁は除く）
+        self.assertLess(float(step_x[inside].max()), 0.05, "服の真ん中に縦の段が付いた")
+        wall_rows = (slice(0, 36), slice(4, 124))                                # 服より上の壁
+        self.assertLess(float(step_x[wall_rows].max()), 0.05, "壁に縁の段が付いた")
+        self.assertLess(float(step_y[wall_rows].max()), 0.05, "壁に縁の段が付いた")
+        self.assertLess(float(ratio[100, 80]), float(ratio[100, 48]))            # 影の側（右）の方が暗い
+
+    def test_subject_mask_keeps_the_background(self):
+        import numpy as np
+        im = self.scene()
+        subject = np.zeros((192, 128), bool)
+        subject[40:160, 44:84] = True
+        out, hit = pt.shade_second(im, {"readable": True, "dx": -30.0, "dy": 0.0}, subject=subject)
+        a, b = np.asarray(im).astype(int), np.asarray(out).astype(int)
+        self.assertEqual(int(np.abs(a - b)[~subject].max()), 0)                  # 人物の形が分かるときは、背景を変えない
+        self.assertGreater(int(np.abs(a - b)[subject].max()), 0)
