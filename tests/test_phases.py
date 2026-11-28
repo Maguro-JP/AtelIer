@@ -2241,8 +2241,13 @@ class LayerBasePainter(Painter):
             import numpy as np
             from PIL import Image
             w, h = image.size
-            grad = np.tile(np.linspace(195, 230, w, dtype=np.uint8), (h, 1))   # 薄い色（右が明るい）。線は入っていない
-            return Image.fromarray(np.stack([grad, grad, grad], axis=2))
+            grad = np.tile(np.linspace(195, 230, w, dtype=np.uint8), (h, 1))   # 薄い色（右が明るい）
+            out = np.stack([grad, grad, grad], axis=2)
+            if strength == phases.BASE_OVER:   # 線のある土台からの描き重ねは、土台の線を残す（本物の描き重ねと同じ）
+                a = np.asarray(image.convert("RGB"))
+                dark = a.mean(axis=2) < 80
+                out[dark] = a[dark]
+            return Image.fromarray(out)
         return image.copy()
 
 
@@ -2269,7 +2274,10 @@ class GreyPaperPainter(LayerBasePainter):
                 return image.convert("RGB").copy()   # 灰色の土台からは色が乗らない
             w, h = image.size
             out = np.zeros((h, w, 3), np.uint8)
-            out[:] = (230, 150, 150)   # 薄い赤の下塗り。線は入っていない
+            out[:] = (230, 150, 150)   # 薄い赤の下塗り
+            if strength == phases.BASE_OVER:   # 線のある土台からの描き重ねは、土台の線を残す
+                dark = a.mean(axis=2) < 80
+                out[dark] = a[dark].astype(np.uint8)
             return Image.fromarray(out)
         return super().refine(prompt, seed, image, strength=strength, on_step=on_step, on_preview=on_preview)
 
