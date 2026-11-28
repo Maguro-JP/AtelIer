@@ -118,7 +118,7 @@ jobs:
           $lost = $mine | Where-Object { -not (Test-Path $_) }
           if ($lost) { throw "アンインストールが利用者の物を消した: $($lost -join ', ')" }
           $extra = Get-ChildItem -Force "C:\Program Files\AtelIer" | Where-Object { $_.Name -ne "mine" }
-          if ($extra) { $extra | Select-Object FullName; throw "インストール先にアプリの物が残った" }
+          if ($extra) { foreach ($e in $extra) { Write-Host "残った: $($e.FullName)" }; throw "インストール先にアプリの物が残った: $(($extra | ForEach-Object Name) -join ', ')" }
           foreach ($f in $mine) { Remove-Item -Force $f }
           Remove-Item -Recurse -Force "C:\Program Files\AtelIer", "C:\ProgramData\AtelIer\extensions\sample"
           # ユーザーのデータと設定（C:\ProgramData\AtelIer）は、更新や入れ直しで消さないため残す決まり

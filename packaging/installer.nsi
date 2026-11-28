@@ -48,6 +48,7 @@ SetCompressor /SOLID lzma
 
 
 ; アプリが入れた物だけを消す。並びは build.sh が SRC に置く最上位の名前（bundle_list.py の最上位と python）と同じにする。
+; 一覧が辿って足した最上位の物（tools/gen/bench.py の README.md の道から入った README.md など）も消す。並びの抜けは tests/test_bundle.py が見る
 ; インストール先そのものは /r で消さない（利用者が置いた物を巻き込むため）。空になったときだけ消す
 !macro RemoveAppFiles
   ${If} ${FileExists} "$INSTDIR\VERSION"
@@ -61,6 +62,7 @@ SetCompressor /SOLID lzma
     RMDir /r "$INSTDIR\styles"
     Delete "$INSTDIR\VERSION"
     Delete "$INSTDIR\LICENSE"
+    Delete "$INSTDIR\README.md"
   ${EndIf}
 !macroend
 
