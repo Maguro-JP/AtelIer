@@ -1820,3 +1820,192 @@ def vanishing(image) -> dict:
         point = (round(float(x), 1), round(float(y), 1))
     box = _lines_box(image, dg[:2])
     return {"readable": True, "angle": round(float(angle), 1), "point": point, "box": box}
+
+
+# ---- アタリのずれを、描き直さずに絵そのものを動かして直す（ずらす・角度を変える・切り貼り） ----
+LEAN_MOST = 12.0   # 重心の直しで回す角度の上限（度）。これより大きく傾いた体は、回すと形が崩れる（私の推測）
+
+
+def lean_fix(image):
+    """重心のずれを、体を足の中心のまわりに回して直す（角度を変える）。描き直さない。
+    返すのは (絵, 回した角度)。読めない・ずれが無ければ (image, 0.0)"""
+    import math
+    import numpy as np
+    from PIL import Image
+    im = image.convert("RGB")
+    m = silhouette(im)
+    ys, xs = np.nonzero(m)
+    if len(xs) < 50:
+        return im, 0.0
+    y1 = int(ys.max())
+    y0 = y1 - max(2, int((y1 - ys.min()) * 0.08))
+    feet = xs[ys >= y0]
+    mid = (feet.min() + feet.max()) / 2.0
+    cx, cy = float(xs.mean()), float(ys.mean())
+    if y1 - cy < 4:
+        return im, 0.0
+    angle = math.degrees(math.atan2(cx - mid, y1 - cy))   # 重心が足より右なら正（左回りに戻す）
+    angle = max(-LEAN_MOST, min(LEAN_MOST, angle))
+    if abs(angle) < 0.5:
+        return im, 0.0
+    # 体だけを切り出して回し、紙の上に置き直す（切って貼る。元の所は先に紙に戻す＝消してから描く）
+    rgba = im.convert("RGBA")
+    a = np.asarray(rgba).copy()
+    a[..., 3] = (m * 255).astype(np.uint8)
+    body = Image.fromarray(a).rotate(angle, resample=Image.BICUBIC, center=(mid, y1))
+    ba = np.asarray(body)
+    out = np.asarray(im).copy()
+    paper = np.array(paper_color(im), np.uint8)
+    out[m] = paper   # 消してから
+    alpha = ba[..., 3:4].astype(np.float32) / 255.0
+    out = (out * (1 - alpha) + ba[..., :3] * alpha).astype(np.uint8)   # 描く
+    return Image.fromarray(out), round(angle, 2)
+
+
+def recenter(image):
+    """画面の重さの片寄りを、絵の中身をずらして直す（範囲を選んで移す）。描き直さない。
+    返すのは (絵, 横にずらした画素)。中身が無ければ (image, 0)"""
+    import numpy as np
+    from PIL import Image
+    im = image.convert("RGB")
+    m = silhouette(im)
+    ys, xs = np.nonzero(m)
+    if len(xs) < 50:
+        return im, 0
+    w = im.width
+    lum = 255.0 - luminance(im)
+    total = float(lum.sum()) or 1.0
+    cx = float((lum * np.arange(w)[None, :]).sum() / total)
+    dx = int(round(w / 2.0 - cx))
+    # はみ出さない範囲だけ動かす（体を切らない）
+    dx = max(-int(xs.min()), min(int(w - 1 - xs.max()), dx))
+    if dx == 0:
+        return im, 0
+    a = np.asarray(im)
+    moved = np.roll(a, dx, axis=1)
+    mm = np.roll(m, dx, axis=1)
+    out = np.empty_like(a)
+    out[:] = np.array(paper_color(im), np.uint8)   # 消してから
+    out[mm] = moved[mm]                            # 描く
+    return Image.fromarray(out), dx
+
+
+def reattach(image):
+    """主役から離れた塊（離れた手・足・物）を、主役に触れる所まで動かして貼り直す（切り貼り）。描き直さない。
+    元の所は先に紙に戻す（消してから描く）。返すのは (絵, 動かした塊の数)"""
+    import numpy as np
+    from PIL import Image
+    got = _components(image)
+    if got is None:
+        return image.convert("RGB"), 0
+    lab, sizes, big = got
+    if not big:
+        return image.convert("RGB"), 0
+    from scipy import ndimage
+    im = image.convert("RGB")
+    a = np.asarray(im).copy()
+    paper = np.array(paper_color(im), np.uint8)
+    body = lab == big
+    dist, inds = ndimage.distance_transform_edt(~body, return_indices=True)
+    h, w = lab.shape
+    targets = {tuple(b) for b in detached(image).get("boxes", [])}   # 位置ずれの検品が離れた物と見た塊だけを動かす
+    objs = ndimage.find_objects(lab)
+    moved = 0
+    for k in range(1, len(sizes) + 1):
+        sl = objs[k - 1]
+        if k == big or sl is None or (sl[1].start, sl[0].start, sl[1].stop, sl[0].stop) not in targets:
+            continue
+        piece = lab == k
+        d = dist[piece]
+        j = int(np.argmin(d))
+        if d[j] <= 1.5:
+            continue
+        py, px = np.nonzero(piece)
+        ty, tx = inds[0][py[j], px[j]], inds[1][py[j], px[j]]
+        dy, dx = int(ty - py[j]), int(tx - px[j])
+        # 触れる 1 画素手前まで動かす
+        n = max(abs(dy), abs(dx))
+        dy, dx = int(round(dy * (n - 1) / n)), int(round(dx * (n - 1) / n))
+        pix = a[py, px].copy()
+        a[py, px] = paper                                    # 消してから
+        ny, nx = np.clip(py + dy, 0, h - 1), np.clip(px + dx, 0, w - 1)
+        a[ny, nx] = pix                                      # 描く
+        moved += 1
+    return Image.fromarray(a), moved
+
+
+def mask_array(mask, size):
+    """L の囲みの絵を、真偽の配列にする（size の大きさに合わせる）"""
+    import numpy as np
+    return np.asarray(mask.convert("L").resize(size)) > 0
+
+
+# ---- 消しゴム: 面で塗りつぶさず、消す線を消しゴムのストロークでなぞる ----
+def _strokes(line):
+    """線の画素（真の所）の芯を、つながった点の列（ストローク）に分ける。返すのは [[(x, y), ...], ...]"""
+    import numpy as np
+    from skimage.morphology import skeletonize
+    sk = skeletonize(line)
+    left = set(zip(*np.nonzero(sk)))
+    strokes = []
+    nb = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+    while left:
+        # 端（隣が 1 つの点）から始めると、1 本の線が 1 本のストロークになる
+        start = next((p for p in left if sum((p[0] + dy, p[1] + dx) in left for dy, dx in nb) <= 1), next(iter(left)))
+        path, cur = [start], start
+        left.discard(start)
+        while True:
+            nxt = next(((cur[0] + dy, cur[1] + dx) for dy, dx in nb if (cur[0] + dy, cur[1] + dx) in left), None)
+            if nxt is None:
+                break
+            left.discard(nxt)
+            path.append(nxt)
+            cur = nxt
+        strokes.append([(x, y) for y, x in path])
+    return strokes
+
+
+def stroke_erase(image, mask, dark=None):
+    """囲み（mask）の中の線だけを、消しゴムでなぞって消す。アプリの消しゴム（paint.brush.stamp の erase）で
+    線の芯に沿ってストロークを引き、消しゴムが通った所だけを、周りの色で埋める（紙なら紙、色の上なら色）。
+    消しゴムの通らない所と囲みの外は 1 画素も変えない。返すのは (絵, ストロークの数, 消した画素の数)"""
+    import numpy as np
+    from PIL import Image
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor, QImage
+    from scipy import ndimage
+    from atelier.paint.brush import Brush, Dabs, stamp
+    im = image.convert("RGB")
+    m = np.asarray(mask.convert("L").resize(im.size)) > 0
+    lum = luminance(im)
+    if dark is None:
+        dark = m & (lum < min(200.0, float(np.median(lum)) - 40.0))
+    else:
+        dark = dark & m
+    if not dark.any():
+        return im, 0, 0
+    width = ndimage.distance_transform_edt(dark)
+    strokes = _strokes(dark)
+    w, h = im.size
+    layer = QImage(w, h, QImage.Format_ARGB32)
+    layer.fill(QColor(0, 0, 0, 255))   # 消しゴムの通った所だけ透ける板
+    eraser = Brush("消しゴム", hardness=1.0, flow=1.0, spacing=0.1, size_pressure=False)
+    dabs = Dabs()
+    for path in strokes:
+        size = 2.0 * max(1.0, float(max(width[y, x] for x, y in path))) + 2.0
+        carry = 0.0
+        pts = [QPointF(x + 0.5, y + 0.5) for x, y in path]
+        if len(pts) == 1:
+            pts = pts * 2
+        for a, b in zip(pts, pts[1:]):
+            _r, carry = stamp(layer, eraser, dabs, a, b, size, QColor(0, 0, 0), 1.0, carry, erase=True)
+    ptr = layer.constBits()
+    alpha = np.frombuffer(ptr, np.uint8, count=layer.sizeInBytes()).reshape(h, layer.bytesPerLine())[:, : w * 4].reshape(h, w, 4)[..., 3]
+    rubbed = (alpha < 128) & m
+    if not rubbed.any():
+        return im, len(strokes), 0
+    out = erase_fill(im, Image.fromarray((rubbed * 255).astype(np.uint8)))   # 消しゴムの通った所を、通らなかった周りの色で埋める
+    o = np.asarray(out).copy()
+    a0 = np.asarray(im)
+    o[~rubbed] = a0[~rubbed]   # 消しゴムの通らない所は 1 画素も変えない
+    return Image.fromarray(o), len(strokes), int(rubbed.sum())

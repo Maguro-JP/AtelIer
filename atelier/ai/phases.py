@@ -1642,6 +1642,15 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             regs = [[list(b), t] for b, t in res.get("regions", []) if t == kind]
             if regs:
                 return [step("mend", i, item, flaws=list(flaws), k=k, how={"mask": "regions", "regions": regs, "op": "erase", "what": kind})]
+        if i == 2 and k == 0:
+            # アタリのずれは描き直さず、絵そのものを動かして直す（利用者の決まり）。動かして直らなければ、次の手（k=1 から）は今までの直し
+            fl = " ".join(flaws)
+            if item == "位置ずれ":
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "reattach"})]
+            if item == "重心と等身" and "重心" in fl:
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "lean"})]
+            if item == "画面の重さ":
+                return [step("mend", i, item, flaws=list(flaws), k=k, how={"op": "recenter"})]
         if item == "位置ずれ":
             regs = [[list(b), t] for b, t in res.get("regions", []) if t == "part"]
             if i == 3 and k == 0:
@@ -1992,7 +2001,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                         how = {"mask": "boxes", "regions": how["regions"]}
                         op = None
                     if op in ("rotate", "thicken", "erase", "shine", "mirror", "detail", "detail_retry", "erase_detached",
-                              "blotch", "cover", "posterize"):
+                              "blotch", "cover", "posterize", "reattach", "lean", "recenter"):
                         # 模型で描き直さない直し（純粋な操作）。直す工程には、必ず対応する検品がある
                         tried = None
                         dd = None
@@ -2001,7 +2010,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                      "shine": "光を付ける", "mirror": "鏡写し",
                                      "detail": "質感を締める", "detail_retry": "弱く描き直す",
                                      "erase_detached": "欠片を消す", "blotch": "斑点を消す",
-                                     "cover": "塗り残しを埋める", "posterize": "色を寄せる"}[op]
+                                     "cover": "塗り残しを埋める", "posterize": "色を寄せる",
+                                     "reattach": "切り貼りで寄せる", "lean": "角度を変える", "recenter": "ずらす"}[op]
                         if cur is None:
                             s["status"] = "skipped"
                             queue_fix(i, item, s.get("flaws", []), {}, k, why="絵がありません")
@@ -2027,6 +2037,14 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                             dd = diff(cur, tried)
                             dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵全体の操作なので、外も中も全体の差
                             changed = (dd["mean"] or 0) >= DIFF_MIN
+                        elif op in ("reattach", "lean", "recenter"):
+                            # アタリのずれを、絵そのものを動かして直す（切り貼り・角度・ずらし）。元の所は先に消してから置く
+                            tool = {"reattach": pt.reattach, "lean": pt.lean_fix, "recenter": pt.recenter}[op]
+                            say(f"アタリのずれを描き直さずに、絵を動かして直しています（{mend_name}）: " + "、".join(s.get("flaws", [])[:3]))
+                            tried, _amount = tool(cur)
+                            dd = diff(cur, tried)
+                            dd["outside"], dd["inside"] = dd["mean"], dd["mean"]   # 絵を動かす操作なので、外も中も全体の差
+                            changed = bool(_amount)
                         elif op == "mirror":
                             say(f"左右対称になるよう、鏡写しで直しています: " + "、".join(s.get("flaws", [])[:3]))
                             tried, _hit = pt.mirror_fix(cur)
@@ -2042,9 +2060,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 dd["outside"], dd["inside"] = dd["mean"], dd["mean"]
                                 changed = False
                             else:
-                                tried = pt.erase_fill(cur, mask)
+                                tried, _n, _px = pt.stroke_erase(cur, mask, dark=pt.mask_array(mask, cur.size))   # 面で塗りつぶさず、欠片の線を消しゴムでなぞって消す
                                 dd = diff(cur, tried, mask)
-                                changed = (dd["inside"] or 0) >= 10
+                                changed = _px > 0
                         elif op == "detail":
                             say(f"質感を締め直しています: " + "、".join(s.get("flaws", [])[:3]))
                             tried = pt.enhance_detail(cur)
@@ -2106,8 +2124,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                 s["status"] = "skipped"
                                 queue_fix(i, item, s.get("flaws", []), {}, k, why="囲めない崩れです")
                             else:
-                                import numpy as np
-                                tried = pt.erase_fill(cur, mask)
+                                if how.get("what") == "dust":
+                                    tried, _n, _px = pt.stroke_erase(cur, mask, dark=pt.mask_array(mask, cur.size))   # ゴミの線を消しゴムでなぞって消す（面で塗りつぶさない）
+                                else:
+                                    tried = pt.erase_fill(cur, mask)   # 色のにじみは線ではないので、周りの色で埋める
                                 dd = diff(cur, tried, mask)
                                 # 小さなゴミは全体の差が小さいので、囲みの中の差で変わったかを見る
                                 changed = (dd["inside"] or 0) >= 10
