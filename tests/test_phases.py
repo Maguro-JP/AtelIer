@@ -376,11 +376,11 @@ class PhasesTest(unittest.TestCase):
     def test_thumbnail_direct_and_reused(self):
         got, painter, *_ = self.run_phases(always_bad=False)
         paints = [x for x in painter.log if x[0] == "paint" and not x[3]]   # 下描きの線に沿う描き（base あり）は除く
-        # サムネイルは工程の数を減らさずに 1 枚を直接描き、そのままアタリにする（同じ構図を 2 度描かない）。
-        # もう 1 枚は土台の一発の絵（画面には出さない。アタリはサムネイルを使い回すので、土台のために描き直しはしない）
-        self.assertEqual(len(paints), 2, painter.log)
-        # 土台の一発の絵は今までどおり 20、サムネイル（ラフ）は序盤なので半分の 10 で軽く描く
-        self.assertEqual(sorted(x[2] for x in paints), [10, 20])
+        # ゼロから描くのは土台の一発の絵の 1 枚だけ（画面には出さない）。サムネイルはその絵から抜いたラフで、そのままアタリにする。
+        # 前は「鉛筆のラフ」の言葉で別の 1 枚を描いていた。土台と別の構図になり、線に土台の色を敷けなかった（検証 46089737769）
+        self.assertEqual(len(paints), 1, painter.log)
+        # 土台の一発の絵は工程の数を減らさない（AI モードの 1 枚と同じ描き方）
+        self.assertEqual(sorted(x[2] for x in paints), [20])
         self.assertIn("picked", got["phases"][1]["numbers"])
 
     def test_back_to_draft_fixes_regions_only_and_stronger(self):
@@ -394,9 +394,10 @@ class PhasesTest(unittest.TestCase):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=5))
         self.assertTrue(got["complete"])
         # 下描き（アタリの中。最初は最大 4 枚描いて一番良い物を選ぶ）と線画のペンなぞりは refine で描き重ねる。
-        # 下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗り BASE_COLOR）
+        # 下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗りは土台の色を敷いた絵への描き重ねで BASE_OVER）
         self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 5, painter.log)
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 1, painter.log)
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_OVER), 1, painter.log)
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 0, painter.log)   # 白い紙の線画には描き重ねない（色が乗らない）
         fixes = [m["strength"] for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", [])]
         self.assertGreaterEqual(len(fixes), 1, got["history"])
         self.assertEqual(fixes, sorted(fixes))   # 直しを重ねるたびに強くする
@@ -1657,7 +1658,7 @@ class NoWholeRedrawTest(unittest.TestCase):
         self.assertFalse(any(m.get("whole") for r in got["history"] for m in r["mends"]))
         for m in getattr(painter, "masks", []):   # 模型に渡した囲みは、どれも絵の半分以下（全体の描き直しにしない）
             self.assertLessEqual(float((np.asarray(m.convert("L")) > 0).mean()), phases.GROW_MOST)
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 2)   # ゼロから描いたのはサムネイルと土台の一発の絵だけ（土台は画面に出さず、作業中の絵を描き直すものではない）
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 1)   # ゼロから描いたのは土台の一発の絵だけ（サムネイルは土台から抜く。土台は画面に出さず、作業中の絵を描き直すものではない）
 
     def test_people_unenclosable_is_carried_not_redrawn(self):
         import numpy as np
@@ -2236,7 +2237,7 @@ class LayerBasePainter(Painter):
 
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
         self.log.append(("refine", seed, strength))
-        if strength == phases.BASE_COLOR:
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             import numpy as np
             from PIL import Image
             w, h = image.size
@@ -2250,15 +2251,14 @@ class GreyPaperPainter(LayerBasePainter):
     灰色のまま返す画家。実機の検証 46030668432 で、灰色の紙の線画から描き重ねた
     下塗りに色がほとんど乗らなかったのと同じ壊れ方をさせる"""
 
-    def paint(self, prompt, seed, on_step=None, **kw):
-        im = super().paint(prompt, seed, on_step=on_step, **kw)
-        import numpy as np
-        from PIL import Image
-        a = np.asarray(im).astype(np.float32) * (165.0 / 255.0)
-        return Image.fromarray(a.astype("uint8"))
-
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
-        if strength == phases.BASE_COLOR:
+        if "monochrome" in prompt:   # 線の工程（ラフ・ペン）の描き重ねが、紙を灰色にする
+            import numpy as np
+            from PIL import Image
+            self.log.append(("refine", seed, strength))
+            a = np.asarray(image.convert("RGB")).astype(np.float32) * (165.0 / 255.0)
+            return Image.fromarray(a.astype("uint8"))
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             import numpy as np
             from PIL import Image
             self.log.append(("refine", seed, strength))
@@ -2358,7 +2358,7 @@ class ThickColorPainter(Painter):
 
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
         self.log.append(("refine", seed, strength))
-        if strength == phases.BASE_COLOR:
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             import numpy as np
             from PIL import Image, ImageDraw
             w, h = image.size
@@ -2449,7 +2449,7 @@ class ColoringPainter(Painter):
 
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
         self.log.append(("refine", seed, strength))
-        if strength == phases.BASE_COLOR:
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             return self.base_color(image.size)
         return image.copy()
 
@@ -2792,9 +2792,11 @@ class LineStagesTest(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
         rows = {r["phase"]: r for r in got["phases"]}
-        thumb_words = " ".join(rows["サムネイル"]["words"])
-        self.assertIn("pencil", thumb_words)           # ラフは鉛筆でさっと描く
-        self.assertNotIn("clean lines", thumb_words)   # ラフは、きれいに清書された線画ではない
+        # サムネイルは頼みの言葉そのままで土台を描き、ラフはその絵から抜く（頼んでいない言葉を足さない）
+        self.assertEqual(rows["サムネイル"]["words"], ["1girl, red scarf"])
+        rough_words = " ".join(rows["アタリ"]["words"])
+        self.assertIn("pencil", rough_words)           # ラフ（アタリ）は鉛筆でさっと描く
+        self.assertNotIn("clean lines", rough_words)   # ラフは、きれいに清書された線画ではない
         line_words = " ".join(rows["線画"]["words"])
         self.assertIn("inked", line_words)             # 線画はペンで描く
         # ペンなぞりは描き重ね（refine）でする。下描きの描き重ねと合わせて 2 回
@@ -2814,7 +2816,7 @@ class LineStagesTest(unittest.TestCase):
                     return image.copy()
                 a = np.asarray(image.convert("RGB")).astype(int)
                 lum = a.mean(axis=2)
-                a[lum < 80] = (170, 170, 170)   # 線だけを薄い灰色にする（模型の描き重ねで線が霞む崩れ）
+                a[lum < 150] = (190, 190, 190)   # 線だけを薄い灰色にする（模型の描き重ねで線が霞む崩れ）
                 return Image.fromarray(a.astype("uint8"))
 
         painter = FadingPainter()
@@ -2822,11 +2824,12 @@ class LineStagesTest(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
             rows = {r["phase"]: r for r in got["phases"]}
-            # アタリの描き重ねは絵を変えない偽物なので、線の土台はサムネイルの絵で比べる
-            ink_atari = pt.ink_share(Image.open(rows["サムネイル"]["image"]))
+            # アタリの描き重ねは絵を変えない偽物なので、線の土台はサムネイルの絵で比べる。
+            # ラフは鉛筆の薄さ（明るさ 100 前後）なので、線の画素は明るさ 150 未満で数える
+            rough_lines = float((pt.luminance(Image.open(rows["サムネイル"]["image"])) < 150).mean())
             ink_lines = pt.ink_share(Image.open(rows["線画"]["image"]))
-        self.assertGreater(ink_atari, 0.02)
-        self.assertGreaterEqual(ink_lines, ink_atari * 0.6)
+        self.assertGreater(rough_lines, 0.02)
+        self.assertGreaterEqual(ink_lines, rough_lines * 0.6)   # 霞んだ線も、ペンの濃さ（明るさ 80 未満）に戻っている
 
 
 class PhaseBrushTest(unittest.TestCase):

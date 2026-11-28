@@ -30,7 +30,11 @@ HORIZON_TILT_MOST = 2.0    # 画角: 地平線の傾きがこれ（度）を超�
 BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこれ以上なら色がはみ出している（私の推測）
 BLEED_MOST = 0.005         # 色のにじみ: はみ出した色の画素が絵全体のこの割合を超えたらにじんでいる（私の推測）
 LINE_FROM_LOW = 2.0       # 線を抜く: 周りより暗い分（0〜255）がこれ以下なら紙（色のむらを線にしない。私の推測）
-LINE_FROM_HIGH = 10.0     # 線を抜く: 周りより暗い分がこれ以上なら線の黒（832x1216 の色の絵で、外の輪郭の途切れ 0.26・一番長い途切れ 0.013）
+LINE_FROM_HIGH = 10.0     # 線を抜く: 周りより暗い分がこれ以上なら線の黒（832x1216 の色の絵で、外の輪郭の途切れ 0.195・一番長い途切れ 0.007）
+INK_SAT_FROM = 30.0       # 線をそろえる: 色の濃さ（RGB の最大と最小の差）がこれを超えた所から紙に戻し始める（私の推測）
+INK_SAT_SPAN = 40.0       # 線をそろえる: 色の濃さがこの幅だけ上がると、完全に紙に戻す（私の推測）
+LINE_THIN_LOW = 30.0      # 線を抜く: 細い線を埋めた絵との差がこれ以下なら紙（私の推測）
+LINE_THIN_HIGH = 90.0     # 線を抜く: 細い線を埋めた絵との差がこれ以上なら線の黒（私の推測）
 ROUGH_DARKNESS = 0.6      # ラフを抜く: 鉛筆の線の濃さ（ペンの黒を 1 として。私の推測）
 ROUGH_COARSE = 1.6        # ラフを抜く: ぼかしの幅の倍率（細部を拾わない。私の推測）
 # 暗い画素の左右の割合は髪・服の色にも左右されるので、極端な場合（3 割未満）だけ見る（私の推測）
@@ -268,7 +272,7 @@ def lines_from(image, darkness: float = 1.0, coarse: float = 1.0):
     最後まで灰色の紙に破線の絵になった（検証 46089737769。彩度 6.4、紙の明るさ 170）。
     線は土台の色の絵から抜く。線と色が同じ絵から出るので、線の位置と色の位置がずれない。
     ぼかしの幅の違う 2 枚の差（周りより暗い分）を線の濃さにする。暗い面（黒い髪や服）は
-    面の中では差が出ないので、塗りつぶされずに縁だけが線になる。
+    面の中では差が出ないので、塗りつぶされずに縁だけが線になる。細い線は別に拾って合わせる。
     darkness は線の濃さ（1 でペンの黒、小さくすると鉛筆の薄さ）。coarse はぼかしの幅の
     倍率（大きくすると細部を拾わない粗い線）"""
     import numpy as np
@@ -277,14 +281,42 @@ def lines_from(image, darkness: float = 1.0, coarse: float = 1.0):
     a = np.asarray(image.convert("RGB"), np.float32)
     lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
     s = max(0.8, min(image.size) / 900.0) * coarse
-    darker = ndimage.gaussian_filter(lum, s * 2.56) - ndimage.gaussian_filter(lum, s)
-    ink = np.clip((darker - LINE_FROM_LOW) / (LINE_FROM_HIGH - LINE_FROM_LOW), 0, 1) * min(max(darkness, 0.0), 1.0)
+    darker = ndimage.gaussian_filter(lum, s * 2.56) - ndimage.gaussian_filter(lum, s * 0.6)   # 狭い方のぼかしを細くして、線の隣の画素まで線にしない（線を太らせない）
+    ink = np.clip((darker - LINE_FROM_LOW) / (LINE_FROM_HIGH - LINE_FROM_LOW), 0, 1)
+    # 細い線は、周りを明るい側へ埋めた絵との差でも拾う。ぼかしの差だけだと、暗い面（髪・太い線）に
+    # 接する所で周りも暗くなって差が出ず、線が接ぎ目で途切れる（閉じた輪郭が開く）
+    r = max(1, round(min(image.size) / 300 * coarse))
+    smooth = ndimage.gaussian_filter(lum, s * 0.6)
+    thin = ndimage.grey_closing(smooth, size=(2 * r + 1, 2 * r + 1)) - smooth
+    ink = np.maximum(ink, np.clip((thin - LINE_THIN_LOW) / (LINE_THIN_HIGH - LINE_THIN_LOW), 0, 1))
+    ink = ink * min(max(darkness, 0.0), 1.0)
     return Image.fromarray((255 * (1 - ink)).astype("uint8")).convert("RGB")
 
 
 def rough_from(image):
     """色の絵から、鉛筆のラフ（薄く粗い線）を白い紙の上に抜いた絵を返す。構図を写すだけで、細部は拾わない"""
     return lines_from(image, darkness=ROUGH_DARKNESS, coarse=ROUGH_COARSE)
+
+
+def ink_levels(image):
+    """線画をペンの線にそろえる: 紙を白、一番濃い線を黒にし、色の付いた所は紙に戻す。線の形は変えない。
+
+    線画の工程の描き重ねは、線を鉛筆の薄さのまま残したり、紙を灰色にしたり、頼みの色（赤いマフラーなど）を
+    面で塗ったりする（検証 46089737769 の線画）。線のレイヤーは色の上に乗算で乗せるので、薄い線は色に埋もれ、
+    灰色の紙と色の面は絵全体を暗く沈める。線のレイヤーに残すのは、色の無い暗い線だけにする。
+    紙と線の明るさの差が小さい絵（線の無い絵）は触らない"""
+    import numpy as np
+    from PIL import Image
+    a = _np(image).astype(np.float32)
+    lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
+    sat = a.max(axis=2) - a.min(axis=2)
+    v = lum + (255.0 - lum) * np.clip((sat - INK_SAT_FROM) / INK_SAT_SPAN, 0, 1)   # 色の付いた所は紙に戻す
+    paper = float(np.percentile(v, 90))
+    ink = float(np.percentile(v, 0.5))
+    if paper - ink < LINE_CONTRAST_LEAST:
+        return image
+    out = np.clip((v - ink) / (paper - ink), 0, 1) * 255.0
+    return Image.fromarray(out.astype("uint8")).convert("RGB")
 
 
 def line_like(image) -> bool:

@@ -70,7 +70,7 @@ def request_medium(prompt):
             return kind
     return None
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
-BASE_OVER = 0.5    # 下塗り: 土台の色を線の下に敷いた絵に描き重ねる強さ（色と線の位置を残して塗り直す。私の推測）
+BASE_OVER = 0.52   # 下塗り: 土台の色を線の下に敷いた絵に描き重ねる強さ（色と線の位置を残して塗り直す。私の推測。直しの強さの段と重ならない値にして、記録で見分ける）
 BASE_GRAIN_MOST = 0.02   # 下塗り: 色の粒（ブツブツ）の割合がこれを超えたら、面の色に寄せて平らにする
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
 BASE_TAG = "atelier_base"     # 土台の絵の印。土台は on_base の専用の渡し口で窓へ渡す（preview には流さない）。この印は、万一 preview に土台が混ざっても窓が出さないための受け止め用に残す
@@ -849,6 +849,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             if ink_before > 0 and ink_after < ink_before * LINE_INK_KEEP:
                 say(f"ペンなぞりで線が薄くなったので（濃い線 {ink_before:.1%} → {ink_after:.1%}）、土台の線の暗さを戻します")
                 img = pt.over_lines(img, base_line)
+        if img is not None and pen_brush in ("pen", "gpen"):
+            img = pt.ink_levels(img)   # ペンの線にそろえる（紙は白、線は黒、色の面は紙に戻す）。線のレイヤーは色の上に乗せるので、薄い線・灰色の紙・色の面を残さない
         # 清書: 線の強弱を付け、残ったゴミを塊そのものだけ消して、線を仕上げる
         say("清書しています（線の強弱を付け、ゴミを消す）")
         cleaned, hit, dust_count = clean_lines(img, clean_brush)
@@ -885,12 +887,12 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             base_in = img
         # 白い紙の線画からの描き重ねは、紙の白をほとんど動かせず、色が乗らない（検証 46089737769 で
         # 彩度 6.4・紙の明るさ 170 のまま。強さ 0.6 でも同じ）。土台（頼みの言葉そのままの絵）の色を
-        # 平らにして線の下に敷き、その上に描き重ねる。色の位置は土台、線の位置は清書で、同じ絵から出ている
+        # 線の下に敷き、その上に描き重ねる。色の位置は土台、線の位置は清書で、同じ絵から出ている
         if can_refine:
             strength, under = BASE_COLOR, base_in
             base_img = (st.get("base") or {}).get("image")
             if base_img is not None and base_img.size == img.size and pt.line_like(base_in):
-                under = pt.over_lines(pt.flatten_base(base_img), base_in)
+                under = pt.over_lines(base_img, base_in)
                 strength = BASE_OVER
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
