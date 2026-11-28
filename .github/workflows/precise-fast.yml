@@ -60,7 +60,7 @@ jobs:
       - name: 部品
         run: |
           pip install -q torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image PySide6
       - name: 描く工程だけを 1 回ずつ流す
         env:
           LLM_HOME: ${{ runner.temp }}/llm
@@ -72,6 +72,7 @@ jobs:
           BENCH_SIZE: ${{ matrix.size }}
           BENCH_SEED: ${{ inputs.seed || '7' }}
           BENCH_WAYS: ${{ matrix.ways }}
+          QT_QPA_PLATFORM: offscreen
         run: python -u -m atelier.bench.phase_bench fast-out
       - uses: actions/upload-artifact@v4
         if: always()
