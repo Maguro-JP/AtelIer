@@ -2932,6 +2932,29 @@ class WeightLinesScopeTest(unittest.TestCase):
         self.assertGreater(pt.lines(out)["weight"], pt.lines(sk)["weight"])
 
 
+    def test_speckled_rough_is_not_turned_into_dashes(self):
+        """紙の目やハッチングの粒が散った鉛筆のラフに線の強弱を掛けても、粒を暗くして
+        太らせない。粒を太らせると線が破線に崩れ、次の工程がその破線をなぞって固まる
+        （検証 46030668432 のアタリでは、細かい暗い塊が 798 から 2476 に増えていた）"""
+        import numpy as np
+        from PIL import Image
+        from scipy import ndimage
+        sk = np.asarray(sketch((256, 384))).copy()
+        rng = np.random.default_rng(0)
+        lum = sk.mean(axis=2)
+        # 人物の内外に、鉛筆の粒のような 1 画素の灰色の点を散らす（それだけでは線の暗さに届かない）
+        spots = (rng.random(lum.shape) < 0.08) & (lum > 200)
+        sk[spots] = 150
+        im = Image.fromarray(sk)
+
+        def small_dark(img):
+            d = np.asarray(img.convert("L")) < 100
+            lab, n = ndimage.label(d, np.ones((3, 3), bool))
+            return n
+
+        out, _ = pt.weight_lines(im)
+        self.assertLessEqual(small_dark(out), small_dark(im))
+
 class WeightLinesWidthEstimateTest(unittest.TestCase):
     """線の強弱（太らせる）を何度重ねても、線が際限なく太くならない。
     太さの見積もりが浅いと、処理のたびに太り続けて極太になる（利用者の指摘）"""

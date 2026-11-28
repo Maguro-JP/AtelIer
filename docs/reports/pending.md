@@ -5,6 +5,7 @@
 | 1 | 2026-11-21 | ルーティンのプロンプトに「PR #1 が開いている間は同じブランチに積む」と足した。スキルの形（毎朝 main から新しいブランチ）に戻すか | PR #1 をマージするまで今のまま | |
 | 2 | 2026-11-21 | CharacterDesigner の側で、キャラクターデザイン以外を消して AtelIer の上に載せ直してよいか（削除を伴う） | AtelIer の拡張の登録口が動いてから、CharacterDesigner に PR を出す | |
 | 3 | 2026-11-22 | PR 待ち: AtelIer の claude/FIX-rules-20261121、CharacterDesigner と FashionDesigner の claude/FIX-atelier-extension-20261121 を PR にしてマージしてよいか | テストを直してから 3 本ともマージする | |
+| 4 | 2026-11-28 | PR 待ち（3 の続き）: claude/FIX-rules-20261121 に、main に無い直しが 19 件残っています（`scripts/unmerged_fixes.py`）。どれも main に無い機能（自由変形、レイヤーフォルダー、タイルの画面、欄の独立したウィンドウなど）に付いた直しか、main で作り直された所の直しで、今の main の壊れた所の直しは見つけていません。機能として PR にしてマージしてよいか | main が大きく変わったので、機能ごとに main から切り直して 1 本ずつ出す | |
 
 ## CharacterDesigner から引き継いだ判断待ち（2026-11-22 に写した）
 
