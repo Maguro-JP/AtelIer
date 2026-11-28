@@ -99,6 +99,49 @@ for t in call("finishers.available", finishers.available) or []:
 for name in ("retouch", "inking", "atmosphere", "materials", "upscale", "detail", "edit", "measure", "normlearn",
              "faceform", "facecheck", "feet", "hands", "bible", "tagger"):
     call(f"finishers._gen {name}", finishers._gen, name)
+# 3. アプリの経路を小さな偽の絵で最後まで通す（模型を使わない所だけ。配る中身から外れた台本を読んでいれば、ここで落ちる）
+from PIL import ImageDraw
+
+def must(label, fn, *a, **k):
+    """模型を使わない経路なので、どんな例外でも落とす（最後まで通ること）"""
+    try:
+        return fn(*a, **k)
+    except BaseException as e:
+        fails.append(f"{label}: {missing_local(e) or type(e).__name__ + ': ' + str(e)[:160]}")
+        return None
+
+pic = Image.new("RGB", (128, 128), (250, 250, 250))
+dr = ImageDraw.Draw(pic)
+dr.ellipse((30, 20, 98, 100), fill=(230, 190, 170), outline=(20, 20, 20), width=3)
+dr.line((0, 127, 64, 60), fill=(0, 0, 0), width=3)
+dr.line((127, 127, 64, 60), fill=(0, 0, 0), width=3)
+from atelier.ai import restyle, post_effects, phase_tools, seam_fix, variety
+from atelier.words import japanese_terms
+for kind in ("lineart", "manga"):   # restyle の線画・漫画風: 描いたあとの処理と、形・線の確かめ
+    out = must(f"restyle.post {kind}", restyle.post, kind, post_effects.lineart(pic) if kind == "lineart" else pic)
+    if out is not None:
+        must(f"restyle.check {kind}", restyle.check, pic, out, kind)
+v = must("phase_tools.vanishing", phase_tools.vanishing, pic)   # 遠近の収束
+if v is not None and not isinstance(v, dict):
+    fails.append("phase_tools.vanishing: dict を返さない")
+mask = Image.new("L", (128, 128), 0); ImageDraw.Draw(mask).rectangle((40, 40, 90, 90), fill=255)
+after = pic.copy(); ImageDraw.Draw(after).rectangle((50, 50, 80, 80), fill=(200, 160, 150))
+must("seam_fix.settle", seam_fix.settle, pic, after, mask)   # 直しの境目合わせと、全体の確かめ
+must("seam_fix.whole_check", seam_fix.whole_check, pic, after, mask)
+t = must("japanese_terms.fix_tags 直しの言葉", japanese_terms.fix_tags, "右手を下げて")
+if t is not None and "right arm down" not in t[0]:
+    fails.append(f"直しの言葉が伝わらない: {t}")
+must("variety.vary ポーズ", variety.vary, "girl, standing", 3)
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6.QtGui import QGuiApplication, QImage, QColor
+from PySide6.QtCore import QPointF
+qapp = QGuiApplication.instance() or QGuiApplication([])
+from atelier.paint import brush as brushmod
+canvas = QImage(64, 64, QImage.Format_ARGB32_Premultiplied); canvas.fill(QColor(255, 255, 255))
+dabs = brushmod.Dabs()
+for b in brushmod.PRESETS:   # ブラシ: 全部の型で 1 本引く
+    must(f"brush.stamp {b.name}", brushmod.stamp, canvas, b, dabs, QPointF(4, 4), QPointF(60, 50), 6.0, QColor(0, 0, 0),
+         1.0, 0.0, b.name == "消しゴム")
 json.dump({"fails": fails, "notes": notes}, open(out_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 '''
 
@@ -176,6 +219,36 @@ class BundleTest(unittest.TestCase):
                         need.add(n.args[0].value.split(".")[0])
         lost = sorted(f"tools/gen/{m}.py" for m in need & gen if f"tools/gen/{m}.py" not in have)
         self.assertEqual(lost, [], "atelier が読み込む台本が配る一覧から抜けた")
+
+    def test_dynamic_loads_are_known(self):
+        """名前を組み立てて読む所（f 文字列の f"{mod}.py"、変数を渡す import_module）を全部挙げ、知らない所が増えたら止める。
+        bundle_list.py は文字列の定数しか辿れないので、組み立てた名前の台本は配る一覧から黙って抜ける"""
+        import ast
+        # finishers: _gen と _own_ready・_own_why の中の ready・why（名前は下の names で一覧に入るかを見る）。
+        # extensions: 拡張のパッケージ（配る中身ではなく、利用者が入れる物）
+        known = {("atelier/ai/finishers.py", f) for f in ("_gen", "_own_ready", "_own_why", "ready", "why")} | \
+                {("atelier/extensions.py", f) for f in ("load_bundled", "load_dropins")}
+        seen, names = set(), set()
+        for f in sorted((ROOT / "atelier").rglob("*.py")):
+            rel = f.relative_to(ROOT).as_posix()
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+            for fn in ast.walk(tree):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for n in ast.walk(fn):
+                    loads = isinstance(n, ast.Call) and (getattr(n.func, "attr", None) or getattr(n.func, "id", None)) in ("import_module", "__import__", "run_path", "spec_from_file_location") \
+                        and n.args and not isinstance(n.args[0], ast.Constant)
+                    script = isinstance(n, ast.JoinedStr) and any(isinstance(v, ast.Constant) and str(v.value).startswith(".py") for v in n.values)
+                    if loads or script:
+                        seen.add((rel, fn.name))
+            for n in ast.walk(tree):   # 組み立てる所に渡す台本の名前
+                if isinstance(n, ast.Call) and getattr(n.func, "id", None) in ("_gen", "_own_ready", "_own_why") and n.args \
+                        and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str):
+                    names.add(n.args[0].value)
+        self.assertEqual(sorted(seen - known), [], "名前を組み立てて読む所が増えた（配る一覧に入るかを確かめて known に足す）")
+        have = set(bundle_files())
+        lost = sorted(m for m in names if (ROOT / "tools" / "gen" / f"{m}.py").exists() and f"tools/gen/{m}.py" not in have)
+        self.assertEqual(lost, [], "名前で読む台本が配る一覧に無い")
 
     def test_build_uses_bundle_list(self):
         """build.sh が手で並べた一覧に戻っていないこと"""
