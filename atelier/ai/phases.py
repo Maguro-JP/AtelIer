@@ -466,7 +466,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     続きから描くのは resume=True のときだけ（窓の「再開」と、聞いて止まった工程への答え）。
     resume でない呼び直しは新しい描画で、残っていた途中は引き継がず白い紙から描く
     （同じ頼み・種の新しい描画が、前の絵の上に描き始める事故があった。利用者の報告、2026-11-27）。
-    only_draw=True は測る台（phase_bench の draws）だけが使う。確かめる工程を計画に置かず、描く工程だけを 1 回ずつ流す
+    only_draw=True は測る台（phase_bench の draws）だけが使う。確かめる工程を計画に置かず（光源の測りだけは残す）、描く工程だけを 1 回ずつ流す
     （描く工程が絵を壊していないかを、検品と直しの繰り返し無しで速く見る）"""
     from PIL import Image
     from atelier.ai.engine import Stopped, emphasize
@@ -494,7 +494,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                           "外の輪郭の途切れ（gap）、線の明るさの差（contrast）、ゴミの数")]
         items_by_phase = {4: ["ゴミ", "線の強弱", "線の途切れ"]}   # 線の仕上げは線の質を上げる工程なので、線の強弱も扱う（通常の線画では扱わない）。線の途切れはここでも最後に見る
     if only_draw:
-        items_by_phase = {i: [] for i in range(len(names))}
+        # 光源だけは測る（画素を数えるだけで模型を使わない）。光の向きが決まらないと、影の工程が何も描かない
+        items_by_phase = {i: (["光の向き"] if names[i] == "光源" else []) for i in range(len(names))}
     w, h = (size or (832, 1216))
     n = len(phase_info)
     st = {"image": None, "prompt": prompt, "thumb": None, "points": {}, "light": {}, "height": 0, "seed": seed,

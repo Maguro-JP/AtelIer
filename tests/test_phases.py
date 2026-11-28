@@ -4200,9 +4200,10 @@ class FromBaseTest(unittest.TestCase):
         self.assertEqual(rows["下塗り"]["words"], ["1girl, red scarf"])        # 模型に渡す言葉は頼みの訳だけ
 
     def test_only_draw_runs_draw_steps_only(self):
-        """速い確かめ（only_draw）は、確かめる工程を計画に置かず、描く工程だけを 1 回ずつ流す"""
+        """速い確かめ（only_draw）は、光源の測りのほかは確かめる工程を計画に置かず、描く工程だけを 1 回ずつ流す"""
         got, painter, rows, imgs = self.run_base(only_draw=True)
-        self.assertEqual({s["kind"] for s in got["plan"]}, {"draw"})
+        checks = [s for s in got["plan"] if s["kind"] != "draw"]
+        self.assertEqual([(s["kind"], s["item"]) for s in checks], [("check", "光の向き")])   # 光源の測りだけは残す（影の工程が要る）
         self.assertEqual(len([s for s in got["plan"] if s["kind"] == "draw"]), len(phases.DRAWS))
         self.assertIn("下塗り", imgs)
 
