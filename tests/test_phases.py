@@ -2671,6 +2671,7 @@ class EraseThenDrawOrderTest(unittest.TestCase):
 class LineIntegrityExitTest(unittest.TestCase):
     """後の工程が清書の線を埋めたら、その工程の出口で清書のレイヤーから戻す
     （利用者の指摘、2026-11-27: 先の工程に行ったら壊れてても修正に戻らない）"""
+    # 線を守るのは線を強調する画風の頼みのときだけ（線は下絵。既定では色で消えてよい）なので、漫画の頼みで見る
 
     def test_lines_buried_by_a_later_mend_are_restored_at_phase_exit(self):
         class Bury(Painter):
@@ -2683,7 +2684,7 @@ class LineIntegrityExitTest(unittest.TestCase):
         painter = Bury()
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
                 mock.patch.object(pt, "shadows", lambda *_a, **_k: {"readable": True, "shade_minus_lit": 5}):
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+            got = phases.draw(painter, "1girl, manga, red scarf", 5, (64, 96), Path(d) / "k",
                               checks=hand_only_checks(bad_times=0))
             line_row = next(r for r in got["phases"] if r["phase"] == "線画")
             from PIL import Image
