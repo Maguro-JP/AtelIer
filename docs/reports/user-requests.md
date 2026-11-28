@@ -390,3 +390,4 @@
 | F25 | 精度優先が人を描ける模型で一度も通らない。下塗りで色がほとんど乗らない不具合を直す（線画の紙が灰色だと、線画と読まれず、描き重ねも灰色の絵から始まっていた）（2026-11-28） | 直した | atelier/ai/phase_tools.py、atelier/ai/phases.py、tests/test_phases.py |
 | F26 | 精度優先が人を描ける模型で壊れた絵（灰色の紙、破線、色は一部だけ）しか出さない。絵を目で見て直ったと確かめてから出す。描く工程を速く確かめる Actions を作る（2026-11-28） | 直した | atelier/ai/phases.py、atelier/ai/phase_tools.py、atelier/bench/phase_bench.py、.github/workflows/precise-fast.yml、tests/test_phases.py |
 | F27 | 塗りを手法（アニメ塗り、厚塗り、水彩、油絵、ガッシュ・アクリル）ごとの人の塗り方に合わせる。大きい面から塗って重ね、消してから描き、線は消しゴムでなぞって消す。まず調べて設計する（2026-11-28） | 設計した（実装はまだ） | docs/knowledge/drawing-phases.md、docs/knowledge/tech/2026-11-28-painting-methods.md |
+| F28 | 描く模型に描かせてもよいが考えて描かせる。描く模型が考えられないなら思考の模型が考える（塗りの段の面・色・光源・筆・囲み・強さを決め、描いた絵を読んで直し方を選ぶ）。まず調べて設計する（2026-11-28） | 設計した（実装はまだ） | docs/knowledge/drawing-phases.md、docs/knowledge/tech/2026-11-28-thinking-role.md |
