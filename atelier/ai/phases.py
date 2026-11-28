@@ -1734,6 +1734,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         img = st.get("image")
         if line is None or img is None or line.size != img.size:
             return
+        if not st.get("base_lines_in_color", True):
+            return   # 色は土台から塗り、線は色の絵が持つ。清書の線を戻すと、位置の合わない粒と太線を焼き付ける（下塗りと同じ）
         # 比べるのは線らしい画素だけ（pt.line_pixels: 線でない暗い塊は、後の直しで
         # 正しく消える物なので参照にしない）。仕上げや艶の描き重ねで線の縁が明るく
         # なったり、回す直しで線が数画素ずれたりするのは、埋もれではない
