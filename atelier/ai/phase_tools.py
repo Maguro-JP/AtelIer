@@ -14,6 +14,8 @@ HEADS = (2.0, 9.5)    # 等身の範囲。外れたら体の比が崩れてい�
 EYE_TILT = 0.25       # 左右の目の高さの差が、目の間の幅のこの割合を超えたら崩れ
 WEIGHT_MOST = 0.35    # サムネイルの画面の重さ（暗い塊）の重心が、真ん中から幅のこの割合より外れたら釣り合いが悪い
 LINE_GAP_MOST = 0.75  # 人物の外の輪郭のうち、線の無い所の割合がこれを超えたら輪郭が途切れている
+LINE_CONTRAST_LEAST = 40   # 線の強弱で暗くする画素は、紙（明るさの 90 パーセント点）よりこれ以上暗い物だけ（私の推測）
+LINE_PIECE_LEAST = 12     # 線の強弱で暗くする塊の最小の画素数。これより小さい点は紙の目やハッチングの粒で、太らせると破線になる（私の推測）
 LINE_WEIGHT_LEAST = 0.45   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（細い 1 画素の線は 0.32、太らせると 0.6。私の推測）   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（外の輪郭が細く薄い。私の推測）
 LINE_MAX_GAP_MOST = 0.25   # 外の輪郭のうち、線の無い所が続く一番長い区間がこれを超えたら、線が途中でずれている（私の推測）
 OUTLINE_GROW = 0.004       # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、1216 画素なら 5 画素。私の推測）
@@ -217,6 +219,21 @@ def weight_lines(image, r=None):
     outer = _dilate(filled, 1) & ~_erode(filled, 2)
     dark = lum <= np.percentile(lum[m], 30)   # 線は一番暗い所。真っ黒な線だけのとき 30 パーセント点が 0 になるので、< ではなく <= で見る
     hit = outer & dark & m
+    # 鉛筆のラフのように、線が薄く紙の目やハッチングと混ざった絵では、30 パーセント点より
+    # 暗い画素が点の散らばりになる。散らばった点をそのまま暗くして周りを太らせると、
+    # 線が破線（点線）に崩れ、次の工程の描き重ねがその破線をなぞって固まる（検証
+    # 46030668432 の線画・下塗り・仕上げ）。線として暗くするのは、紙よりはっきり暗く、
+    # 線らしい長さにつながった塊だけにする
+    paper = float(np.percentile(lum, 90))
+    hit &= lum <= paper - LINE_CONTRAST_LEAST
+    if hit.any():
+        from scipy import ndimage
+        lab, n = ndimage.label(hit, structure=np.ones((3, 3), bool))
+        if n:
+            sizes = ndimage.sum(hit, lab, range(1, n + 1))
+            keep = np.zeros(n + 1, bool)
+            keep[1:] = sizes >= LINE_PIECE_LEAST
+            hit = keep[lab]
     a[hit] *= OUTER_DARK
     r = outline_radius(image) if r is None else max(1, int(r))
     # 既に十分太い線は、これ以上太らせない。太らせる直しを繰り返すたびに太り続けて、
