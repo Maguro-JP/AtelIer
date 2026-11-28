@@ -376,11 +376,11 @@ class PhasesTest(unittest.TestCase):
     def test_thumbnail_direct_and_reused(self):
         got, painter, *_ = self.run_phases(always_bad=False)
         paints = [x for x in painter.log if x[0] == "paint" and not x[3]]   # 下描きの線に沿う描き（base あり）は除く
-        # サムネイルは工程の数を減らさずに 1 枚を直接描き、そのままアタリにする（同じ構図を 2 度描かない）。
-        # もう 1 枚は土台の一発の絵（画面には出さない。アタリはサムネイルを使い回すので、土台のために描き直しはしない）
-        self.assertEqual(len(paints), 2, painter.log)
-        # 土台の一発の絵は今までどおり 20、サムネイル（ラフ）は序盤なので半分の 10 で軽く描く
-        self.assertEqual(sorted(x[2] for x in paints), [10, 20])
+        # ゼロから描くのは土台の一発の絵の 1 枚だけ（画面には出さない）。サムネイルはその絵から抜いたラフで、そのままアタリにする。
+        # 前は「鉛筆のラフ」の言葉で別の 1 枚を描いていた。土台と別の構図になり、線に土台の色を敷けなかった（検証 46089737769）
+        self.assertEqual(len(paints), 1, painter.log)
+        # 土台の一発の絵は工程の数を減らさない（AI モードの 1 枚と同じ描き方）
+        self.assertEqual(sorted(x[2] for x in paints), [20])
         self.assertIn("picked", got["phases"][1]["numbers"])
 
     def test_back_to_draft_fixes_regions_only_and_stronger(self):
@@ -394,9 +394,10 @@ class PhasesTest(unittest.TestCase):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=5))
         self.assertTrue(got["complete"])
         # 下描き（アタリの中。最初は最大 4 枚描いて一番良い物を選ぶ）と線画のペンなぞりは refine で描き重ねる。
-        # 下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗り BASE_COLOR）
+        # 下塗りも refine を使うので、強さで分ける（下描き・線画 REFINE、下塗りは土台の色を敷いた絵への描き重ねで BASE_OVER）
         self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.REFINE), 5, painter.log)
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 1, painter.log)
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_OVER), 1, painter.log)
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "refine" and x[2] == phases.BASE_COLOR), 0, painter.log)   # 白い紙の線画には描き重ねない（色が乗らない）
         fixes = [m["strength"] for r in got["history"] if r["phase"] == "アタリ" for m in r.get("mends", [])]
         self.assertGreaterEqual(len(fixes), 1, got["history"])
         self.assertEqual(fixes, sorted(fixes))   # 直しを重ねるたびに強くする
@@ -1657,7 +1658,7 @@ class NoWholeRedrawTest(unittest.TestCase):
         self.assertFalse(any(m.get("whole") for r in got["history"] for m in r["mends"]))
         for m in getattr(painter, "masks", []):   # 模型に渡した囲みは、どれも絵の半分以下（全体の描き直しにしない）
             self.assertLessEqual(float((np.asarray(m.convert("L")) > 0).mean()), phases.GROW_MOST)
-        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 2)   # ゼロから描いたのはサムネイルと土台の一発の絵だけ（土台は画面に出さず、作業中の絵を描き直すものではない）
+        self.assertEqual(sum(1 for x in painter.log if x[0] == "paint" and not x[3]), 1)   # ゼロから描いたのは土台の一発の絵だけ（サムネイルは土台から抜く。土台は画面に出さず、作業中の絵を描き直すものではない）
 
     def test_people_unenclosable_is_carried_not_redrawn(self):
         import numpy as np
@@ -2236,7 +2237,7 @@ class LayerBasePainter(Painter):
 
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
         self.log.append(("refine", seed, strength))
-        if strength == phases.BASE_COLOR:
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             import numpy as np
             from PIL import Image
             w, h = image.size
@@ -2250,15 +2251,14 @@ class GreyPaperPainter(LayerBasePainter):
     灰色のまま返す画家。実機の検証 46030668432 で、灰色の紙の線画から描き重ねた
     下塗りに色がほとんど乗らなかったのと同じ壊れ方をさせる"""
 
-    def paint(self, prompt, seed, on_step=None, **kw):
-        im = super().paint(prompt, seed, on_step=on_step, **kw)
-        import numpy as np
-        from PIL import Image
-        a = np.asarray(im).astype(np.float32) * (165.0 / 255.0)
-        return Image.fromarray(a.astype("uint8"))
-
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
-        if strength == phases.BASE_COLOR:
+        if "monochrome" in prompt:   # 線の工程（ラフ・ペン）の描き重ねが、紙を灰色にする
+            import numpy as np
+            from PIL import Image
+            self.log.append(("refine", seed, strength))
+            a = np.asarray(image.convert("RGB")).astype(np.float32) * (165.0 / 255.0)
+            return Image.fromarray(a.astype("uint8"))
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             import numpy as np
             from PIL import Image
             self.log.append(("refine", seed, strength))
@@ -2358,7 +2358,7 @@ class ThickColorPainter(Painter):
 
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
         self.log.append(("refine", seed, strength))
-        if strength == phases.BASE_COLOR:
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             import numpy as np
             from PIL import Image, ImageDraw
             w, h = image.size
@@ -2449,7 +2449,7 @@ class ColoringPainter(Painter):
 
     def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
         self.log.append(("refine", seed, strength))
-        if strength == phases.BASE_COLOR:
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
             return self.base_color(image.size)
         return image.copy()
 
@@ -2533,7 +2533,8 @@ class ColoringDefectsTest(unittest.TestCase):
                 size = kw.get("size") or (64, 96)
                 im = Image.new("RGB", size, "white")
                 d = ImageDraw.Draw(im)
-                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))   # 主役の輪郭（閉じている）
+                # 土台は主役の中まで色が塗ってある絵（頼みの言葉そのままの絵）。塗り残しは、土台より紙のままの所が増えたときに数える
+                d.rectangle([16, 12, 48, 84], fill=(205, 175, 155), outline=(0, 0, 0))   # 主役の輪郭（閉じている）
                 d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))
                 return im
 
@@ -2569,7 +2570,7 @@ class ColoringDefectsTest(unittest.TestCase):
                 size = kw.get("size") or (64, 96)
                 im = Image.new("RGB", size, "white")
                 d = ImageDraw.Draw(im)
-                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))
+                d.rectangle([16, 12, 48, 84], fill=(205, 175, 155), outline=(0, 0, 0))   # 土台は中まで色が塗ってある
                 d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))
                 return im
 
@@ -2792,9 +2793,11 @@ class LineStagesTest(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
         rows = {r["phase"]: r for r in got["phases"]}
-        thumb_words = " ".join(rows["サムネイル"]["words"])
-        self.assertIn("pencil", thumb_words)           # ラフは鉛筆でさっと描く
-        self.assertNotIn("clean lines", thumb_words)   # ラフは、きれいに清書された線画ではない
+        # サムネイルは頼みの言葉そのままで土台を描き、ラフはその絵から抜く（頼んでいない言葉を足さない）
+        self.assertEqual(rows["サムネイル"]["words"], ["1girl, red scarf"])
+        rough_words = " ".join(rows["アタリ"]["words"])
+        self.assertIn("pencil", rough_words)           # ラフ（アタリ）は鉛筆でさっと描く
+        self.assertNotIn("clean lines", rough_words)   # ラフは、きれいに清書された線画ではない
         line_words = " ".join(rows["線画"]["words"])
         self.assertIn("inked", line_words)             # 線画はペンで描く
         # ペンなぞりは描き重ね（refine）でする。下描きの描き重ねと合わせて 2 回
@@ -2814,7 +2817,7 @@ class LineStagesTest(unittest.TestCase):
                     return image.copy()
                 a = np.asarray(image.convert("RGB")).astype(int)
                 lum = a.mean(axis=2)
-                a[lum < 80] = (170, 170, 170)   # 線だけを薄い灰色にする（模型の描き重ねで線が霞む崩れ）
+                a[lum < 150] = (190, 190, 190)   # 線だけを薄い灰色にする（模型の描き重ねで線が霞む崩れ）
                 return Image.fromarray(a.astype("uint8"))
 
         painter = FadingPainter()
@@ -2822,11 +2825,12 @@ class LineStagesTest(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
             got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k", checks=C)
             rows = {r["phase"]: r for r in got["phases"]}
-            # アタリの描き重ねは絵を変えない偽物なので、線の土台はサムネイルの絵で比べる
-            ink_atari = pt.ink_share(Image.open(rows["サムネイル"]["image"]))
+            # アタリの描き重ねは絵を変えない偽物なので、線の土台はサムネイルの絵で比べる。
+            # ラフは鉛筆の薄さ（明るさ 100 前後）なので、線の画素は明るさ 150 未満で数える
+            rough_lines = float((pt.luminance(Image.open(rows["サムネイル"]["image"])) < 150).mean())
             ink_lines = pt.ink_share(Image.open(rows["線画"]["image"]))
-        self.assertGreater(ink_atari, 0.02)
-        self.assertGreaterEqual(ink_lines, ink_atari * 0.6)
+        self.assertGreater(rough_lines, 0.02)
+        self.assertGreaterEqual(ink_lines, rough_lines * 0.6)   # 霞んだ線も、ペンの濃さ（明るさ 80 未満）に戻っている
 
 
 class PhaseBrushTest(unittest.TestCase):
@@ -4126,3 +4130,206 @@ class AtariLineArtMeasureTest(unittest.TestCase):
             self.assertEqual(r.get("mends", []), [], r)
         self.assertEqual([x for x in got["left"] if x.startswith("アタリ")], [], got["left"])
 
+
+
+def colored_figure(size=(64, 96)):
+    """色の付いた絵（灰色がかった壁、赤い服、肌色の頭、暗い輪郭の線）。頼みの言葉そのままで描いた土台の代わり"""
+    from PIL import Image, ImageDraw
+    w, h = size
+    im = Image.new("RGB", (w, h), (225, 215, 205))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.3, h * 0.3, w * 0.7, h * 0.95], fill=(200, 40, 40), outline=(40, 20, 20))
+    d.ellipse([w * 0.36, h * 0.05, w * 0.64, h * 0.3], fill=(240, 200, 180), outline=(40, 20, 20))
+    return im
+
+
+class BasePainter(Painter):
+    """土台は色の絵を返し、描き重ねは渡された絵をそのまま返す画家。下塗りの描き重ねに渡された絵を覚える"""
+
+    def paint(self, prompt, seed, on_step=None, **kw):
+        self.log.append(("paint", seed, self.steps, "base" in kw and kw["base"] is not None, kw.get("size")))
+        self.prompts = getattr(self, "prompts", []) + [prompt]
+        return colored_figure(kw.get("size") or (64, 96))
+
+    def refine(self, prompt, seed, image, strength=0.5, on_step=None, on_preview=None):
+        self.log.append(("refine", seed, strength))
+        if strength in (phases.BASE_COLOR, phases.BASE_OVER):
+            self.under = image.copy()
+        return image.copy()
+
+
+class FromBaseTest(unittest.TestCase):
+    """ラフ・線・色を同じ土台（頼みの言葉そのままの絵）から出す。
+    前は「鉛筆のラフ」の言葉で別の絵を白紙から描かせ、その線に色を描き重ねていた。白い紙の線からの描き重ねは
+    紙の白を動かせず、人を描ける模型で、最後まで灰色の紙に破線の絵になった（検証 46089737769: 彩度 6.4、紙の明るさ 170）"""
+
+    def run_base(self, **kw):
+        painter = BasePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
+            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+                              checks=hand_only_checks(bad_times=0), **kw)
+            from PIL import Image
+            rows = {r["phase"]: r for r in got["phases"]}
+            imgs = {k: Image.open(r["image"]).convert("RGB") for k, r in rows.items() if r.get("image")}
+        return got, painter, rows, imgs
+
+    def test_thumbnail_is_the_rough_of_the_base(self):
+        """サムネイルは土台から抜いた鉛筆のラフ。色が無く、紙は白く、模型には頼みの言葉だけを渡す"""
+        got, painter, rows, imgs = self.run_base()
+        self.assertEqual(painter.prompts, ["1girl, red scarf"])   # ゼロから描くのは土台の 1 枚だけで、頼んでいない言葉を足さない
+        self.assertEqual(rows["サムネイル"]["words"], ["1girl, red scarf"])
+        thumb = imgs["サムネイル"]
+        t = pt.tone(thumb)
+        self.assertLess(t["sat"], 1.0)                 # ラフに色は無い
+        import numpy as np
+        lum = pt.luminance(thumb)
+        self.assertGreaterEqual(float(np.percentile(lum, 60)), 250)   # 紙は白い（灰色の紙にしない）
+        self.assertGreater(float((lum < 150).mean()), 0.02)            # 線がある
+        self.assertNotEqual(list(thumb.getdata()), list(colored_figure().getdata()))   # 土台そのものは工程の絵にしない
+
+    def test_base_coat_is_painted_over_the_base_colors(self):
+        """下塗りの描き重ねは、土台の色を線の下に敷いた絵から始める。白い紙の線画からは始めない"""
+        got, painter, rows, imgs = self.run_base()
+        strengths = [x[2] for x in painter.log if x[0] == "refine"]
+        self.assertIn(phases.BASE_OVER, strengths)
+        self.assertNotIn(phases.BASE_COLOR, strengths)
+        base_sat = pt.tone(colored_figure())["sat"]
+        # 小さな絵（64x96）では線の占める割合が大きいので、土台の 6 割を境にする（前の作りは彩度が土台の 2 割に届かなかった）
+        self.assertGreater(pt.tone(painter.under)["sat"], base_sat * 0.6)     # 描き重ねの土台に色がある
+        self.assertGreater(pt.tone(imgs["下塗り"])["sat"], base_sat * 0.6)    # 下塗りの絵に色が乗っている
+        self.assertGreater(pt.tone(got["image"])["sat"], base_sat * 0.3)      # 最後の絵まで色が残る（偽の画家の直しは絵を明るくして色を薄めるので、境は低く置く）
+        self.assertEqual(rows["下塗り"]["words"], ["1girl, red scarf"])        # 模型に渡す言葉は頼みの訳だけ
+
+    def test_only_draw_runs_draw_steps_only(self):
+        """速い確かめ（only_draw）は、光源の測りのほかは確かめる工程を計画に置かず、描く工程だけを 1 回ずつ流す"""
+        got, painter, rows, imgs = self.run_base(only_draw=True)
+        checks = [s for s in got["plan"] if s["kind"] != "draw"]
+        self.assertEqual([(s["kind"], s["item"]) for s in checks], [("check", "光の向き")])   # 光源の測りだけは残す（影の工程が要る）
+        self.assertEqual(len([s for s in got["plan"] if s["kind"] == "draw"]), len(phases.DRAWS))
+        self.assertIn("下塗り", imgs)
+
+    def test_lines_from_keeps_outline_closed_and_thin(self):
+        """色の絵から抜いた線は、暗い面に接する所でも途切れず（閉じた輪郭が閉じたまま）、線を太らせない"""
+        import numpy as np
+        from PIL import Image, ImageDraw
+        from scipy import ndimage
+        im = Image.new("RGB", (64, 96), (230, 220, 210))
+        d = ImageDraw.Draw(im)
+        d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))               # 細い輪郭（1 画素）
+        d.rectangle([30, 0, 34, 96], fill=(0, 0, 0))                    # 輪郭を横切る暗い帯
+        line = pt.lines_from(im)
+        a = np.asarray(line.convert("L"))
+        self.assertEqual(int(a.max()), 255)                             # 紙は白
+        self.assertEqual(pt.tone(line)["sat"], 0.0)                     # 色は無い
+        dark = a < 128
+        holes = ndimage.binary_fill_holes(dark) & ~dark
+        self.assertGreater(int(holes.sum()), 500, "閉じた輪郭が、帯に接する所で開いた")
+        run = dark[48, 10:24]                                           # 左の縦の輪郭を横に切る
+        self.assertLessEqual(int(run.sum()), 2, "1 画素の線が太った")
+        self.assertTrue(run.any())
+
+    def test_ink_levels_makes_pen_lines(self):
+        """線をペンの線にそろえる: 灰色の紙は白、薄い線は黒、色の面は紙に戻す。線の無い絵は触らない"""
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (64, 96), (170, 170, 170))                # 灰色の紙
+        d = ImageDraw.Draw(im)
+        d.rectangle([30, 0, 33, 96], fill=(90, 90, 90))                 # 薄い線
+        d.rectangle([40, 40, 60, 60], fill=(200, 30, 40))               # 頼みの色の面（赤いマフラー）
+        out = pt.ink_levels(im)
+        self.assertGreater(out.getpixel((8, 48))[0], 250)               # 紙は白
+        self.assertLess(out.getpixel((31, 48))[0], 30)                  # 線は黒
+        self.assertGreater(out.getpixel((50, 50))[0], 250)              # 色の面は紙に戻る
+        self.assertTrue(pt.line_like(out))
+        blank = Image.new("RGB", (64, 96), (240, 240, 240))
+        self.assertIs(pt.ink_levels(blank), blank)
+
+    def test_base_coat_keeps_the_painted_picture_when_lines_are_fine(self):
+        """線が埋もれても太ってもいない描き重ねは、そのまま下塗りの絵にする。色の絵の線を消して清書の線を乗せ直す合成は、
+        本物の絵で線の周りの色まで埋めて顔と輪郭を潰した（検証 46127844791）"""
+        got, painter, rows, imgs = self.run_base(only_draw=True)
+        self.assertEqual(list(imgs["下塗り"].getdata()), list(painter.under.getdata()))
+        self.assertLessEqual(rows["下塗り"]["numbers"]["line_lost"], phases.LINE_LOSS_MOST)
+        self.assertLessEqual(rows["下塗り"]["numbers"]["line_fat"], phases.LINE_FAT_MOST)
+
+    def test_line_fattening_counts_only_new_dark_next_to_lines(self):
+        """線の太りは、描き重ねで線のすぐ外側に増えた暗い画素で測る。前からある暗い面（黒い服）は数えない"""
+        from PIL import Image, ImageDraw
+        line = Image.new("RGB", (64, 96), "white")
+        ImageDraw.Draw(line).rectangle([30, 0, 32, 96], fill=(0, 0, 0))            # 3 画素の線
+        before = Image.new("RGB", (64, 96), (230, 200, 180))
+        ImageDraw.Draw(before).rectangle([33, 0, 64, 96], fill=(30, 30, 60))       # 線の右は初めから黒い服
+        ImageDraw.Draw(before).rectangle([30, 0, 32, 96], fill=(0, 0, 0))
+        self.assertEqual(pt.line_fattening(line, before, before), 0.0)             # 変わらなければ 0（黒い服は数えない）
+        fat = before.copy()
+        ImageDraw.Draw(fat).rectangle([22, 0, 29, 96], fill=(20, 20, 20))          # 線の左に 8 画素太った
+        self.assertGreater(pt.line_fattening(line, before, fat), phases.LINE_FAT_MOST)
+
+
+class LineWeightContinuityTest(unittest.TestCase):
+    """線の強弱は、1 本の線の濃い所だけを太らせない。濃さにむらのある輪郭で、濃い所だけが飛び飛びに太って
+    太い破線になった（検証 46127844791 の線画）"""
+
+    def uneven_outline(self):
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (128, 192), "white")
+        d = ImageDraw.Draw(im)
+        for k, y in enumerate(range(30, 160, 10)):   # 左右の輪郭を 10 画素ごとに、濃い・薄いを交互に描く
+            shade = 20 if k % 2 == 0 else 150
+            d.rectangle([40, y, 41, y + 9], fill=(shade, shade, shade))
+            d.rectangle([86, y, 87, y + 9], fill=(shade, shade, shade))
+        d.rectangle([40, 28, 87, 29], fill=(20, 20, 20))
+        d.rectangle([40, 160, 87, 161], fill=(20, 20, 20))
+        return im
+
+    def test_uneven_line_is_weighted_as_one_line(self):
+        import numpy as np
+        im = self.uneven_outline()
+        self.assertTrue(pt.line_like(im))
+        out, hit = pt.weight_lines(im)
+        self.assertGreater(hit, 0)
+        lum = pt.luminance(out)
+        widths = [int((lum[y, 30:52] < 200).sum()) for y in range(32, 158)]   # 左の輪郭の、行ごとの線の幅
+        self.assertGreaterEqual(min(widths), 3, "薄い所が太らずに残った（太い破線になる）")
+        self.assertLessEqual(max(widths) - min(widths), 1, widths)            # 濃い所も薄い所も同じ幅で太る
+        self.assertTrue(np.all(lum[32:158, 20:30] > 250))                     # 線から離れた紙は変えない
+
+
+class ShadeSecondSmoothTest(unittest.TestCase):
+    """影の 2 段目は、色の付いた背景のある絵に段を付けない。前は人物の真ん中の縦の線と明るさのしきい値で切り、
+    髪・顔・服の真ん中に縦の段が、壁のなだらかな明るさの上に縁の輪が出た"""
+
+    def scene(self):
+        import numpy as np
+        from PIL import Image
+        h, w = 192, 128
+        yy, xx = np.mgrid[0:h, 0:w]
+        wall = 100 + 90 * np.exp(-(((xx - w / 2) / 60.0) ** 2 + ((yy - h / 2) / 95.0) ** 2))   # 真ん中が明るい壁
+        a = np.stack([wall * 1.1, wall, wall * 0.8], axis=2)
+        a[40:160, 44:84] = (40, 45, 80)                                                         # 紺の服（真ん中に立つ人）
+        return Image.fromarray(np.clip(a, 0, 255).astype("uint8"))
+
+    def test_no_vertical_step_and_no_ring(self):
+        import numpy as np
+        im = self.scene()
+        self.assertGreater(float(pt.silhouette(im).mean()), pt.SHADE2_SCENE)   # 紙の無い絵（背景のある絵）
+        out, hit = pt.shade_second(im, {"readable": True, "dx": -30.0, "dy": 0.0})
+        self.assertGreater(hit, 0)
+        ratio = pt.luminance(out).astype(float) / np.maximum(pt.luminance(im).astype(float), 1.0)
+        step_x = np.abs(np.diff(ratio, axis=1))
+        step_y = np.abs(np.diff(ratio, axis=0))
+        inside = (slice(46, 154), slice(46, 82))                                 # 服の中（縁は除く）
+        self.assertLess(float(step_x[inside].max()), 0.05, "服の真ん中に縦の段が付いた")
+        wall_rows = (slice(0, 36), slice(4, 124))                                # 服より上の壁
+        self.assertLess(float(step_x[wall_rows].max()), 0.05, "壁に縁の段が付いた")
+        self.assertLess(float(step_y[wall_rows].max()), 0.05, "壁に縁の段が付いた")
+        self.assertLess(float(ratio[100, 80]), float(ratio[100, 48]))            # 影の側（右）の方が暗い
+
+    def test_subject_mask_keeps_the_background(self):
+        import numpy as np
+        im = self.scene()
+        subject = np.zeros((192, 128), bool)
+        subject[40:160, 44:84] = True
+        out, hit = pt.shade_second(im, {"readable": True, "dx": -30.0, "dy": 0.0}, subject=subject)
+        a, b = np.asarray(im).astype(int), np.asarray(out).astype(int)
+        self.assertEqual(int(np.abs(a - b)[~subject].max()), 0)                  # 人物の形が分かるときは、背景を変えない
+        self.assertGreater(int(np.abs(a - b)[subject].max()), 0)

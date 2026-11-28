@@ -1,0 +1,79 @@
+# 精度優先の描く工程が絵を壊していないかを、速く見る（小さい組は目安 20 分、precise-real と同じ大きさの組は 約 30 分。2 つを並べて流す）。
+# precise-real は検品と直しを最後まで回すので 1 回 2〜5 時間かかり、描く工程の直しを確かめるには遅すぎた。
+# ここでは人を描ける模型で、描く工程（サムネイル・アタリ・線画・下塗り・影・ディテール）だけを 1 回ずつ流し、
+# 工程ごとの絵と数字（線の途切れ、彩度、紙の明るさ）を artifact とログ（DRAWS の行）に出す。
+# 同じ頼み・同じ種の 1 回描き（AI モードの初めの 1 枚）も並べる。検品はしないので、合否は付けない（絵を目で見る）。
+name: precise-fast
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 種
+        default: "7"
+      prompt:
+        description: 頼み（英語のタグ）
+        default: "1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer"
+  push:
+    branches: ["claude/HOTFIX-precise-**"]
+    paths:
+      - "atelier/ai/phases.py"
+      - "atelier/ai/phase_tools.py"
+      - "atelier/bench/phase_bench.py"
+      - ".github/workflows/precise-fast.yml"
+permissions:
+  contents: read
+concurrency:
+  group: precise-fast-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  precise-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 小さい組: 大きさと歩数を絞って速く見る（640x960、12 歩）
+          - name: small
+            size: 640x960
+            steps: "12"
+            ways: draws
+          # 画素の検品の組: 画素を数える検品とその直しも流す（模型を使う検品は崩れ無しで通す）。小さい大きさで見る
+          - name: pixels
+            size: 640x960
+            steps: "12"
+            ways: pixels
+          # 同じ大きさの組: precise-real と同じ大きさ・歩数（768x1152、15 歩）
+          - name: same
+            size: 768x1152
+            steps: "15"
+            ways: draws
+    steps:
+      - uses: actions/checkout@v4
+      - name: 置き場を空ける
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h / | tail -1; free -g; nproc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 部品
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image
+      - name: 描く工程だけを 1 回ずつ流す
+        env:
+          LLM_HOME: ${{ runner.temp }}/llm
+          ATELIER_HOME: ${{ runner.temp }}/cd
+          ATELIER_FETCH: "1"
+          BENCH_MODEL: cagliostrolab/animagine-xl-4.0
+          BENCH_PROMPT: ${{ inputs.prompt || '1girl, solo, standing, full body, waving, red scarf, school uniform, looking at viewer' }}
+          BENCH_STEPS: ${{ matrix.steps }}
+          BENCH_SIZE: ${{ matrix.size }}
+          BENCH_SEED: ${{ inputs.seed || '7' }}
+          BENCH_WAYS: ${{ matrix.ways }}
+        run: python -u -m atelier.bench.phase_bench fast-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: precise-fast-${{ matrix.name }}
+          path: fast-out
+          retention-days: 7

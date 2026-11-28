@@ -18,7 +18,7 @@ LINE_CONTRAST_LEAST = 40   # 線の強弱で暗くする画素は、紙（明る
 LINE_PIECE_LEAST = 12     # 線の強弱で暗くする塊の最小の画素数。これより小さい点は紙の目やハッチングの粒で、太らせると破線になる（私の推測）
 LINE_WEIGHT_LEAST = 0.45   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（細い 1 画素の線は 0.32、太らせると 0.6。私の推測）   # 外の輪郭の帯のうち暗い画素の割合がこれ未満なら、線の強弱が無い（外の輪郭が細く薄い。私の推測）
 LINE_MAX_GAP_MOST = 0.25   # 外の輪郭のうち、線の無い所が続く一番長い区間がこれを超えたら、線が途中でずれている（私の推測）
-OUTLINE_GROW = 0.004       # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、1216 画素なら 5 画素。私の推測）
+OUTLINE_GROW = 0.0015      # 外の輪郭を太らせる幅（短い辺の割合。64 画素なら 1 画素、768 画素なら 1 画素、1216 画素なら 2 画素。私の推測）。0.004（768 画素で 3 画素）では線が 8 画素になり、顔の幅 130 画素の全身の絵で輪郭が潰れて見えた（検証 46127844791）
 DUST_MAX_PIXELS = 64       # ゴミ: 塊の画素数がこれ以下ならゴミ（私の推測）
 DUST_SIZE_MOST = 0.05      # ゴミ: 塊の長い辺が短い辺のこの割合以下（ただし 3 画素以上）ならゴミ（私の推測）
 DUST_PATTERN_MIN = 8       # ゴミ: 同じくらいの大きさの小さい塊がこれ以上あれば、ゴミではなく模様（星・雪・質感）（私の推測）
@@ -29,10 +29,21 @@ DETACH_ERASE_MOST = 0.06   # 位置ずれ: 枠の長い辺が短い辺のこの�
 HORIZON_TILT_MOST = 2.0    # 画角: 地平線の傾きがこれ（度）を超えたら傾いている（私の推測）
 BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこれ以上なら色がはみ出している（私の推測）
 BLEED_MOST = 0.005         # 色のにじみ: はみ出した色の画素が絵全体のこの割合を超えたらにじんでいる（私の推測）
+LINE_FROM_LOW = 2.0       # 線を抜く: 周りより暗い分（0〜255）がこれ以下なら紙（色のむらを線にしない。私の推測）
+LINE_FROM_HIGH = 10.0     # 線を抜く: 周りより暗い分がこれ以上なら線の黒（832x1216 の色の絵で、外の輪郭の途切れ 0.195・一番長い途切れ 0.007）
+INK_SAT_FROM = 30.0       # 線をそろえる: 色の濃さ（RGB の最大と最小の差）がこれを超えた所から紙に戻し始める（私の推測）
+INK_SAT_SPAN = 40.0       # 線をそろえる: 色の濃さがこの幅だけ上がると、完全に紙に戻す（私の推測）
+LINE_THIN_LOW = 30.0      # 線を抜く: 細い線を埋めた絵との差がこれ以下なら紙（私の推測）
+LINE_THIN_HIGH = 90.0     # 線を抜く: 細い線を埋めた絵との差がこれ以上なら線の黒（私の推測）
+ROUGH_DARKNESS = 0.6      # ラフを抜く: 鉛筆の線の濃さ（ペンの黒を 1 として。私の推測）
+ROUGH_COARSE = 1.6        # ラフを抜く: ぼかしの幅の倍率（細部を拾わない。私の推測）
 # 暗い画素の左右の割合は髪・服の色にも左右されるので、極端な場合（3 割未満）だけ見る（私の推測）
 OUTER_DARK = 0.65     # 線の強弱: 外の輪郭の線をこの倍率まで暗くする（手前・外側を太く濃く）
 SHADE2 = 0.70         # 影の 2 段目: 影の中の一番暗い所をこの倍率で暗くする。0.82 では変わりが平均 0.20 で DIFF_MIN（0.5）を下回り、影の工程が絵を変えなかったので強くした
 SHADE2_PART = 0.25    # 影の 2 段目にする割合（人物の画素のうち暗い方から）。0.12 では変わる画素が少なく、影の工程が絵を変えなかったので広げた
+SHADE2_SCENE = 0.6       # 影の 2 段目: 紙でない所が絵のこの割合を超えたら、背景のある絵とみて人物の形で切らない（私の推測）
+SHADE2_SIDE_RAMP = 0.15  # 影の 2 段目: 左右の境をなだらかにする幅（人物の幅の割合。私の推測）
+SHADE2_LUM_RAMP = 24.0   # 影の 2 段目: 明るさの境をなだらかにする幅（0〜255。私の推測）
 CATCHLIGHT = 200      # 目の中にこれより明るい画素が無ければ、目の光が無い
 SHRINK = 8            # 縮めて見る倍率
 SHRINK_CONTRAST = 12  # 縮めた絵で人物と紙の明るさの差がこれより小さければ、主役が目立たない
@@ -234,6 +245,16 @@ def weight_lines(image, r=None):
             keep = np.zeros(n + 1, bool)
             keep[1:] = sizes >= LINE_PIECE_LEAST
             hit = keep[lab]
+    if hit.any() and line_like(image):
+        # 線画（白い紙に線だけの絵）では、選んだ線を、同じ線のつながった残りまで広げる。「線の中で暗い方から 3 割」だけだと、濃さにむらのある線では
+        # 濃い所だけが飛び飛びに選ばれて太り、輪郭が太い破線になった（検証 46127844791 の線画。1 本の線の途中だけが
+        # 太くなった）。外の輪郭の帯の中で、紙よりはっきり暗く、選んだ所につながっている画素を同じ線として扱う
+        # （色や灰色の面のある絵では広げない。面の縁まで線として暗くしてしまう）
+        from scipy import ndimage
+        same = outer & m & (lum <= paper - LINE_CONTRAST_LEAST)
+        lab, n = ndimage.label(same, structure=np.ones((3, 3), bool))
+        if n:
+            hit = np.isin(lab, np.unique(lab[hit & (lab > 0)])) & (lab > 0)
     a[hit] *= OUTER_DARK
     r = outline_radius(image) if r is None else max(1, int(r))
     # 既に十分太い線は、これ以上太らせない。太らせる直しを繰り返すたびに太り続けて、
@@ -254,6 +275,61 @@ def weight_lines(image, r=None):
         line_col = np.median(a[hit], axis=0)   # 線の色（暗くした外の輪郭の線の色の中央）
         a[thick] = line_col
     return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum() + thick.sum())
+
+
+def lines_from(image, darkness: float = 1.0, coarse: float = 1.0):
+    """色の絵から、線だけを白い紙の上に抜いた絵を返す（周りより暗い細い所が線になる）。
+
+    精度優先の線の工程は、前は「鉛筆のラフ」の言葉で別の絵を白紙から描かせ、その線に
+    色を描き重ねていた。白い紙の線画からの描き重ねは、紙の白をほとんど動かせず、
+    最後まで灰色の紙に破線の絵になった（検証 46089737769。彩度 6.4、紙の明るさ 170）。
+    線は土台の色の絵から抜く。線と色が同じ絵から出るので、線の位置と色の位置がずれない。
+    ぼかしの幅の違う 2 枚の差（周りより暗い分）を線の濃さにする。暗い面（黒い髪や服）は
+    面の中では差が出ないので、塗りつぶされずに縁だけが線になる。細い線は別に拾って合わせる。
+    darkness は線の濃さ（1 でペンの黒、小さくすると鉛筆の薄さ）。coarse はぼかしの幅の
+    倍率（大きくすると細部を拾わない粗い線）"""
+    import numpy as np
+    from PIL import Image
+    from scipy import ndimage
+    a = np.asarray(image.convert("RGB"), np.float32)
+    lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
+    s = max(0.8, min(image.size) / 900.0) * coarse
+    darker = ndimage.gaussian_filter(lum, s * 2.56) - ndimage.gaussian_filter(lum, s * 0.6)   # 狭い方のぼかしを細くして、線の隣の画素まで線にしない（線を太らせない）
+    ink = np.clip((darker - LINE_FROM_LOW) / (LINE_FROM_HIGH - LINE_FROM_LOW), 0, 1)
+    # 細い線は、周りを明るい側へ埋めた絵との差でも拾う。ぼかしの差だけだと、暗い面（髪・太い線）に
+    # 接する所で周りも暗くなって差が出ず、線が接ぎ目で途切れる（閉じた輪郭が開く）
+    r = max(1, round(min(image.size) / 300 * coarse))
+    smooth = ndimage.gaussian_filter(lum, s * 0.6)
+    thin = ndimage.grey_closing(smooth, size=(2 * r + 1, 2 * r + 1)) - smooth
+    ink = np.maximum(ink, np.clip((thin - LINE_THIN_LOW) / (LINE_THIN_HIGH - LINE_THIN_LOW), 0, 1))
+    ink = ink * min(max(darkness, 0.0), 1.0)
+    return Image.fromarray((255 * (1 - ink)).astype("uint8")).convert("RGB")
+
+
+def rough_from(image):
+    """色の絵から、鉛筆のラフ（薄く粗い線）を白い紙の上に抜いた絵を返す。構図を写すだけで、細部は拾わない"""
+    return lines_from(image, darkness=ROUGH_DARKNESS, coarse=ROUGH_COARSE)
+
+
+def ink_levels(image):
+    """線画をペンの線にそろえる: 紙を白、一番濃い線を黒にし、色の付いた所は紙に戻す。線の形は変えない。
+
+    線画の工程の描き重ねは、線を鉛筆の薄さのまま残したり、紙を灰色にしたり、頼みの色（赤いマフラーなど）を
+    面で塗ったりする（検証 46089737769 の線画）。線のレイヤーは色の上に乗算で乗せるので、薄い線は色に埋もれ、
+    灰色の紙と色の面は絵全体を暗く沈める。線のレイヤーに残すのは、色の無い暗い線だけにする。
+    紙と線の明るさの差が小さい絵（線の無い絵）は触らない"""
+    import numpy as np
+    from PIL import Image
+    a = _np(image).astype(np.float32)
+    lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
+    sat = a.max(axis=2) - a.min(axis=2)
+    v = lum + (255.0 - lum) * np.clip((sat - INK_SAT_FROM) / INK_SAT_SPAN, 0, 1)   # 色の付いた所は紙に戻す
+    paper = float(np.percentile(v, 90))
+    ink = float(np.percentile(v, 0.5))
+    if paper - ink < LINE_CONTRAST_LEAST:
+        return image
+    out = np.clip((v - ink) / (paper - ink), 0, 1) * 255.0
+    return Image.fromarray(out.astype("uint8")).convert("RGB")
 
 
 def line_like(image) -> bool:
@@ -289,6 +365,35 @@ def whiten_paper(image):
     if paper >= 235 or paper < 100:
         return image   # 紙が既に白い、または暗い面ばかりで紙が読めない
     return Image.fromarray(np.clip(a * (255.0 / paper), 0, 255).astype("uint8"))
+
+
+def line_loss(line, image) -> float:
+    """線のレイヤーの線のうち、絵の中で埋もれた（近くに暗い画素が無い）割合。線が無ければ 0"""
+    core = line_pixels(line)
+    if not core.any():
+        core = luminance(line) < 128   # 線の芯が塊と読まれて外れたとき（太い帯だけの線画）は、暗い画素の全部で見る
+    total = int(core.sum())
+    if not total:
+        return 0.0
+    r = max(2, round(min(image.size) / 32))   # この近さに暗い画素があれば、線はそこにある
+    present = _dilate(luminance(image) < 80, r)
+    return float((core & ~present).sum()) / total
+
+
+def line_fattening(line, before, after) -> float:
+    """描き重ねで線が太った分。線のレイヤーの線のすぐ外側（線から 2 画素より遠く 6 画素まで）で、
+    描き重ねる前（before）には暗くなかったのに、描き重ねた後（after）に暗くなった画素の数を、線の画素の数で割る。
+    暗い面（黒い髪や服）は前にも後にもあるので数に入らない。線が無ければ 0"""
+    if line.size != after.size:
+        line = line.convert("RGB").resize(after.size)
+    dark_l = luminance(line) < 128
+    total = int(dark_l.sum())
+    if not total:
+        return 0.0
+    ring = _dilate(dark_l, 6) & ~_dilate(dark_l, 2)
+    was = luminance(before.convert("RGB").resize(after.size)) < 128
+    now = luminance(after) < 128
+    return float((ring & now & ~was).sum()) / total
 
 
 def strip_own_lines(color, line):
@@ -615,7 +720,13 @@ def area_fill(image, mask):
     m = np.asarray(mask.convert("L").resize(im.size)) > 0
     if not m.any():
         return im
-    seeds = ~m & silhouette(im) & (luminance(im) >= 80)
+    lum = luminance(im)
+    seeds = ~m & silhouette(im) & (lum >= 80)
+    # 線のすぐ隣の画素（線の縁のぼけた灰色）も種にしない。線の黒を除いても、縁の灰色が一番近い種になって
+    # 灰色が内側に広がった（色の付いた絵から抜いた線は縁がなだらかで、縁の灰色が残る）
+    clear = seeds & ~_dilate(lum < 80, 1)
+    if clear.any():
+        seeds = clear
     if not seeds.any():
         return erase_fill(im, mask)
     try:
@@ -1125,24 +1236,39 @@ def shadows(image, lit: dict) -> dict:
     return {"readable": True, "shade_share": round(share, 3), "shade_minus_lit": round(brighter, 1)}
 
 
-def shade_second(image, lit: dict, keep=None):
-    """影の 2 段目: 光源と反対の側の、人物の中で一番暗い所だけを一段暗くする。keep（守る所、真の所）は変えない"""
+def shade_second(image, lit: dict, keep=None, subject=None):
+    """影の 2 段目: 光源と反対の側の、人物の中で一番暗い所だけを一段暗くする。keep（守る所、真の所）は変えない。
+    subject は人物の形（部位分けで読めたとき。真の所）。無ければ紙でない所を人物とみる。紙でない所が絵の大半
+    （背景のある絵）なら人物の形は分からないので、形で切らずに絵の全体をなだらかに見る（背景のなだらかな明るさの上に、
+    形の縁が段になって出るのを避ける）。
+    暗くする強さは、左右の境と明るさの境でなだらかに変える。前は人物の真ん中の縦の線と、明るさのしきい値で
+    切っていた。色の付いた背景のある絵では、髪・顔・服の真ん中に縦の段が付き、壁のなだらかな明るさの上に
+    しきい値の縁が粒の輪になって出た（検証 46127844791 の 1 回描きの絵に掛けて見た）。
+    返すのは (絵, 半分より強く暗くした画素の数)"""
     import numpy as np
     from PIL import Image
+    from scipy import ndimage
     a = _np(image).astype(np.float32)
-    lum = luminance(image)
-    m = silhouette(image)
+    lum = luminance(image).astype(np.float32)
+    m = silhouette(image) if subject is None else np.asarray(subject, bool)
     ys, xs = np.nonzero(m)
     if len(xs) < 50 or not lit.get("readable"):
         return image, 0
     cx = xs.mean()
-    cols = np.arange(m.shape[1])[None, :]
-    side = (cols <= cx) if lit["dx"] > 0 else (cols > cx)
-    hit = m & side & (lum <= np.percentile(lum[m], SHADE2_PART * 100))
+    if subject is None and float(m.mean()) > SHADE2_SCENE:
+        m = np.ones_like(m)
+    cols = np.arange(m.shape[1], dtype=np.float32)[None, :]
+    ramp = max(1.0, SHADE2_SIDE_RAMP * float(xs.max() - xs.min() + 1))   # 左右の境をなだらかにする幅（画素）
+    toward = (cx - cols) if lit["dx"] > 0 else (cols - cx)                # 影の側へ進むほど大きい
+    side = np.clip(0.5 + toward / (2.0 * ramp), 0.0, 1.0)
+    edge = float(np.percentile(lum[m], SHADE2_PART * 100))
+    dark = np.clip((edge + SHADE2_LUM_RAMP - lum) / SHADE2_LUM_RAMP, 0.0, 1.0)   # 境より暗い所は 1、境より少し明るい所へなだらかに 0
+    weight = side * dark * m
     if keep is not None:
-        hit &= ~keep
-    a[hit] *= SHADE2
-    return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum())
+        weight = weight * ~keep
+    weight = np.minimum(weight, ndimage.gaussian_filter(weight, max(0.5, min(image.size) / 400.0)) * 2.0)   # 飛び飛びの粒は弱める（面の中は変えない）
+    a *= (1.0 - (1.0 - SHADE2) * weight)[..., None]
+    return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int((weight > 0.5).sum())
 
 
 def eye_boxes(points: dict) -> list[tuple[int, int, int, int]]:
