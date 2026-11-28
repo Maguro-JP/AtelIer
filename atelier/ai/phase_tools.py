@@ -41,6 +41,9 @@ ROUGH_COARSE = 1.6        # ラフを抜く: ぼかしの幅の倍率（細部�
 OUTER_DARK = 0.65     # 線の強弱: 外の輪郭の線をこの倍率まで暗くする（手前・外側を太く濃く）
 SHADE2 = 0.70         # 影の 2 段目: 影の中の一番暗い所をこの倍率で暗くする。0.82 では変わりが平均 0.20 で DIFF_MIN（0.5）を下回り、影の工程が絵を変えなかったので強くした
 SHADE2_PART = 0.25    # 影の 2 段目にする割合（人物の画素のうち暗い方から）。0.12 では変わる画素が少なく、影の工程が絵を変えなかったので広げた
+SHADE2_SCENE = 0.6       # 影の 2 段目: 紙でない所が絵のこの割合を超えたら、背景のある絵とみて人物の形で切らない（私の推測）
+SHADE2_SIDE_RAMP = 0.15  # 影の 2 段目: 左右の境をなだらかにする幅（人物の幅の割合。私の推測）
+SHADE2_LUM_RAMP = 24.0   # 影の 2 段目: 明るさの境をなだらかにする幅（0〜255。私の推測）
 CATCHLIGHT = 200      # 目の中にこれより明るい画素が無ければ、目の光が無い
 SHRINK = 8            # 縮めて見る倍率
 SHRINK_CONTRAST = 12  # 縮めた絵で人物と紙の明るさの差がこれより小さければ、主役が目立たない
@@ -1227,24 +1230,39 @@ def shadows(image, lit: dict) -> dict:
     return {"readable": True, "shade_share": round(share, 3), "shade_minus_lit": round(brighter, 1)}
 
 
-def shade_second(image, lit: dict, keep=None):
-    """影の 2 段目: 光源と反対の側の、人物の中で一番暗い所だけを一段暗くする。keep（守る所、真の所）は変えない"""
+def shade_second(image, lit: dict, keep=None, subject=None):
+    """影の 2 段目: 光源と反対の側の、人物の中で一番暗い所だけを一段暗くする。keep（守る所、真の所）は変えない。
+    subject は人物の形（部位分けで読めたとき。真の所）。無ければ紙でない所を人物とみる。紙でない所が絵の大半
+    （背景のある絵）なら人物の形は分からないので、形で切らずに絵の全体をなだらかに見る（背景のなだらかな明るさの上に、
+    形の縁が段になって出るのを避ける）。
+    暗くする強さは、左右の境と明るさの境でなだらかに変える。前は人物の真ん中の縦の線と、明るさのしきい値で
+    切っていた。色の付いた背景のある絵では、髪・顔・服の真ん中に縦の段が付き、壁のなだらかな明るさの上に
+    しきい値の縁が粒の輪になって出た（検証 46127844791 の 1 回描きの絵に掛けて見た）。
+    返すのは (絵, 半分より強く暗くした画素の数)"""
     import numpy as np
     from PIL import Image
+    from scipy import ndimage
     a = _np(image).astype(np.float32)
-    lum = luminance(image)
-    m = silhouette(image)
+    lum = luminance(image).astype(np.float32)
+    m = silhouette(image) if subject is None else np.asarray(subject, bool)
     ys, xs = np.nonzero(m)
     if len(xs) < 50 or not lit.get("readable"):
         return image, 0
     cx = xs.mean()
-    cols = np.arange(m.shape[1])[None, :]
-    side = (cols <= cx) if lit["dx"] > 0 else (cols > cx)
-    hit = m & side & (lum <= np.percentile(lum[m], SHADE2_PART * 100))
+    if subject is None and float(m.mean()) > SHADE2_SCENE:
+        m = np.ones_like(m)
+    cols = np.arange(m.shape[1], dtype=np.float32)[None, :]
+    ramp = max(1.0, SHADE2_SIDE_RAMP * float(xs.max() - xs.min() + 1))   # 左右の境をなだらかにする幅（画素）
+    toward = (cx - cols) if lit["dx"] > 0 else (cols - cx)                # 影の側へ進むほど大きい
+    side = np.clip(0.5 + toward / (2.0 * ramp), 0.0, 1.0)
+    edge = float(np.percentile(lum[m], SHADE2_PART * 100))
+    dark = np.clip((edge + SHADE2_LUM_RAMP - lum) / SHADE2_LUM_RAMP, 0.0, 1.0)   # 境より暗い所は 1、境より少し明るい所へなだらかに 0
+    weight = side * dark * m
     if keep is not None:
-        hit &= ~keep
-    a[hit] *= SHADE2
-    return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum())
+        weight = weight * ~keep
+    weight = np.minimum(weight, ndimage.gaussian_filter(weight, max(0.5, min(image.size) / 400.0)) * 2.0)   # 飛び飛びの粒は弱める（面の中は変えない）
+    a *= (1.0 - (1.0 - SHADE2) * weight)[..., None]
+    return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int((weight > 0.5).sum())
 
 
 def eye_boxes(points: dict) -> list[tuple[int, int, int, int]]:

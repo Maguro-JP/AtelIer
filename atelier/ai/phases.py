@@ -954,7 +954,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             x0, y0, x1, y1 = (int(max(0, c)) for c in fb)
             keep_m[y0:y1, x0:x1] = True   # 顔に濃い影を足さない
         say("影の 2 段目を、光源と反対の側の暗い所だけに置いています")
-        out, hit = pt.shade_second(img, lit, keep_m)
+        seg = pt.parts(img)   # 人物の形が読めれば、影は人物の中だけに置く（背景に影の段を付けない）
+        subject = (seg > 0) if seg is not None and (seg > 0).sum() >= 50 else None
+        out, hit = pt.shade_second(img, lit, keep_m, subject)
         return {"image": out, "numbers": {"pixels": hit}}
 
     def detail_pass(img, strength, seed):
