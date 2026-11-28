@@ -869,16 +869,22 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         img, words = st["image"], []
         s = st["seed"] + v * 1000
         color = None
+        # 線画の紙が灰色だと、描き重ねは灰色の絵から始まって色がほとんど乗らず、
+        # 線画らしいかの判定も外れて線レイヤーを乗せられなかった（検証 46030668432）。
+        # 紙を白に戻した線画を、描き重ねの土台と乗せる線の両方に使う。模型に渡す言葉は変えない
+        base_in = pt.whiten_paper(img)
+        if not pt.line_like(base_in):
+            base_in = img
         if can_refine:
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
             words.append(st["prompt"])
-            color = painter.refine(st["prompt"], s, img, strength=BASE_COLOR, on_step=on_step)
+            color = painter.refine(st["prompt"], s, base_in, strength=BASE_COLOR, on_step=on_step)
         elif can_line:
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
             words.append(st["prompt"])
-            color = painter.paint(st["prompt"], s, on_step=on_step, base=img, strength=BASE_COLOR, size=(w, h))
+            color = painter.paint(st["prompt"], s, on_step=on_step, base=base_in, strength=BASE_COLOR, size=(w, h))
         if color is None:
             return {"image": img, "words": words, "note": "この模型は描き重ねられないので、線画のまま色を確かめます"}
         if pt.grain(color) > BASE_GRAIN_MOST:   # 色をのせたはずが粒（ブツブツ）だらけのときだけ、面の色に寄せて平らにする（きれいな色は触らない）
@@ -886,7 +892,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             if pt.grain(flat) < pt.grain(color):
                 say("下塗りの色に粒が出たので、面の色に寄せて平らにします（下塗りはベタ塗り）")
                 color = flat
-        line = st["layers"].get("清書") or img
+        line = pt.whiten_paper(st["layers"].get("清書") or img)
         if pt.line_like(line):
             # 色の絵が自分で描いた線は消してから乗せる。乗算の合成は色の暗さを消せず、
             # 色の線が残ると清書の線と合わさった太さになって、下塗りで線が太く壊れる。
