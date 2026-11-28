@@ -390,3 +390,4 @@
 | F25 | 精度優先が人を描ける模型で一度も通らない。下塗りで色がほとんど乗らない不具合を直す（線画の紙が灰色だと、線画と読まれず、描き重ねも灰色の絵から始まっていた）（2026-11-28） | 直した | atelier/ai/phase_tools.py、atelier/ai/phases.py、tests/test_phases.py |
 | F26 | 精度優先が人を描ける模型で壊れた絵（灰色の紙、破線、色は一部だけ）しか出さない。絵を目で見て直ったと確かめてから出す。描く工程を速く確かめる Actions を作る（2026-11-28） | 直した | atelier/ai/phases.py、atelier/ai/phase_tools.py、atelier/bench/phase_bench.py、.github/workflows/precise-fast.yml、tests/test_phases.py |
 - 2026-11-28 アタリのずれを絵をずらす・回す・切り貼りで直す。消してから描く。消しゴムで線をなぞって消す。ストロークで何度も重ねて完成まで描く
+- 2026-11-28 線は下絵として扱い、色で消えてよい。線を残し強めるのは漫画やイラストなど線を強調する画風のときだけ

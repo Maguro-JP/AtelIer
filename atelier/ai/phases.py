@@ -60,6 +60,19 @@ def wants_line_art(prompt) -> bool:
     return any(w in p for w in LINE_ART_WORDS)
 
 
+# 線を残し強める画風の言葉（私の推測）。線は下絵として扱い、色で消えてよい。線を残す・戻す・線の途切れを崩れに数えるのは、
+# 漫画やイラストなど線を強調する画風の頼みのときだけ（利用者の決まり）。線画で終わる頼み（LINE_ART_WORDS）も含む
+STRONG_LINE_WORDS = ("漫画", "マンガ", "まんが", "コミック", "アニメ塗り", "セル画", "ペン画", "線画", "主線", "イラスト調",
+                     "manga", "comic", "anime coloring", "cel shading", "cel-shaded", "ink drawing", "inked",
+                     "thick outline", "bold lines", "lineart", "line art")
+
+
+def wants_strong_lines(prompt) -> bool:
+    """線を残し強める画風の頼みか。既定（False）では、色の工程のあとに線を戻さず、線の途切れを崩れに数えない"""
+    p = (prompt or "").lower()
+    return wants_line_art(prompt) or any(w in p for w in STRONG_LINE_WORDS)
+
+
 def request_medium(prompt):
     """頼みの言葉に画材の指定があれば、その画材（draw_tools の BRUSHES の名前）。無ければ None。
     「鉛筆の画像」のような指定がある場合だけ、その指定の画材で描く（利用者の指示、2026-11-27）。
@@ -485,6 +498,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     # 線画の頼みなら、工程は線画までの 4 つ＋「線の仕上げ」。色の工程は置かず、
     # その分の手間を線の質上げに回す。指定が無ければ通常の 10 工程
     line_art = wants_line_art(prompt)
+    strong_lines = wants_strong_lines(prompt)   # 線を強調する画風のときだけ、色の工程のあとで線を守る
     names = list(NAMES)
     phase_info = list(PHASES)
     items_by_phase = None
@@ -897,7 +911,6 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 # 線は土台の絵が初めから持っている。清書は線のレイヤーとして残し、色の絵には重ねない
                 under = base_img
                 strength, over_base = BASE_OVER, True
-                st["base_lines_in_color"] = False
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
             words.append(st["prompt"])
@@ -1742,8 +1755,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         img = st.get("image")
         if line is None or img is None or line.size != img.size:
             return
-        if not st.get("base_lines_in_color", True):
-            return   # 色は土台から塗り、線は色の絵が持つ。清書の線を戻すと、位置の合わない粒と太線を焼き付ける（下塗りと同じ）
+        if not strong_lines:
+            return   # 線は下絵。色で消えてよい。清書の線を戻すと、位置の合わない粒と太線を焼き付けた（検証 46133315625）
         # 比べるのは線らしい画素だけ（pt.line_pixels: 線でない暗い塊は、後の直しで
         # 正しく消える物なので参照にしない）。仕上げや艶の描き重ねで線の縁が明るく
         # なったり、回す直しで線が数画素ずれたりするのは、埋もれではない
@@ -2342,8 +2355,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     final_check = {"flaws": [], "restored": 0, "dust": None}
     line_layer = st["layers"].get("清書")
     if (st.get("image") is not None and line_layer is not None and line_layer.size == st["image"].size
-            and st.get("base_lines_in_color", True)):
-        # 下塗りが清書の線を使わずに土台から色を塗ったときは、清書の線を戻さない（色の絵の線と位置が合わず、粒と太線になる）
+            and strong_lines):
+        # 線は下絵として扱い、色で消えてよい。線を戻して途切れを数えるのは、線を強調する画風の頼みのときだけ
         fixed, n_px = pt.restore_missing_lines(line_layer, st["image"])
         if n_px:
             say(f"最終チェック: 直しで消えた線（{n_px} 画素）を、清書のレイヤーから戻しました")
@@ -2355,6 +2368,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 final_check["flaws"].append(f"外の輪郭が途切れている（{lm['gap']}）")
             if lm.get("max_gap", 0) > pt.LINE_MAX_GAP_MOST:
                 final_check["flaws"].append(f"線が途中でずれている（途切れが {lm['max_gap']}）")
+    if st.get("image") is not None:
         dd = pt.dust(st["image"])
         if dd.get("readable"):
             final_check["dust"] = dd["count"]

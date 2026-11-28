@@ -4345,3 +4345,36 @@ class ShadeSecondSmoothTest(unittest.TestCase):
         a, b = np.asarray(im).astype(int), np.asarray(out).astype(int)
         self.assertEqual(int(np.abs(a - b)[~subject].max()), 0)                  # 人物の形が分かるときは、背景を変えない
         self.assertGreater(int(np.abs(a - b)[subject].max()), 0)
+
+
+class LinesAreUnderdrawingTest(unittest.TestCase):
+    """線は下絵として扱い、色で消えてよい。線を残し強める（清書の線を戻す・線の途切れを崩れに数える）のは、
+    漫画やイラストなど線を強調する画風の頼みのときだけ（利用者の決まり。検証 46133315625 で、清書の線を
+    色の絵に戻すと黒い太線と粒が焼き付いた）"""
+
+    def run_with(self, prompt):
+        calls = []
+        real = pt.restore_missing_lines
+
+        def spy(source, after):
+            calls.append(1)
+            return real(source, after)
+        painter = LayerBasePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.9, "max_gap": 0.9}), \
+                mock.patch.object(pt, "restore_missing_lines", spy):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=0))
+        return got, calls
+
+    def test_words(self):
+        self.assertFalse(phases.wants_strong_lines("1girl, red scarf"))
+        self.assertTrue(phases.wants_strong_lines("1girl, manga, red scarf"))
+        self.assertTrue(phases.wants_strong_lines("漫画の女の子"))
+
+    def test_default_style_does_not_restore_lines_or_count_gaps(self):
+        got, calls = self.run_with("1girl, red scarf")
+        self.assertEqual(calls, [], "既定の画風で清書の線を色の絵に戻している")
+        self.assertFalse(any("途切れ" in f for f in got.get("final_check", {}).get("flaws", [])), got.get("final_check"))
+
+    def test_manga_keeps_lines(self):
+        got, calls = self.run_with("1girl, manga, red scarf")
+        self.assertTrue(calls, "漫画の頼みで、清書の線を守る処理が呼ばれていない")
