@@ -64,6 +64,7 @@ jobs:
           python-version: "3.12"
       - name: 部品
         run: |
+          sudo apt-get install -y -q libegl1 libgl1 libxkbcommon0 > /dev/null   # 消しゴム（Qt の絵）に要る
           pip install -q torch --index-url https://download.pytorch.org/whl/cpu
           pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image PySide6 ai-edge-litert onnxruntime
       - name: 描く工程だけを 1 回ずつ流す
