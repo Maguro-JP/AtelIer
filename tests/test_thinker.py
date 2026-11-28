@@ -134,3 +134,24 @@ class PhasesRecordTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResearchTest(unittest.TestCase):
+    def test_checklist_shape_checked(self):
+        m = Reply('[{"name": "keys", "kind": "count", "expect": 88}, {"name": "body", "kind": "shape", "expect": "rectangle"},'
+                  ' {"name": "bad", "kind": "mood", "expect": "warm"}, {"name": "x", "kind": "count", "expect": "many"},'
+                  ' {"name": "strings", "kind": "order", "expect": ["low", "high"]}]')
+        r = thinker.research("upright piano", model=m)
+        self.assertEqual([i["name"] for i in r["checklist"]], ["keys", "body", "strings"])
+        self.assertEqual(r["source"], "words_model")
+
+    def test_web_only_with_permission(self):
+        called = []
+        r = thinker.research("rare camera", model=Reply("[]"), ask_web=lambda s: False, fetch=lambda s: called.append(s))
+        self.assertEqual((r["checklist"], called), ([], []))
+        r = thinker.research("rare camera", model=Reply('[{"name": "lens", "kind": "count", "expect": 1}]'),
+                             ask_web=lambda s: True, fetch=lambda s: "text")
+        self.assertEqual(r["source"], "words_model")
+
+    def test_no_model(self):
+        self.assertEqual(thinker.research("torii", model=None)["checklist"], [])

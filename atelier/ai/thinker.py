@@ -229,3 +229,77 @@ def merge(user_words: str, extra: str) -> str:
     have = set(_tags(user_words))
     add = [w for w in _tags(extra) if w not in have]
     return f"{user_words}, {', '.join(add)}" if add and user_words else (user_words or ", ".join(add))
+
+
+# 調べて検品する: 検品の表に無い題材（知らない機材、特定の建物など）を、正しく描けているか確かめる項目を作る。
+# 人物以外の検品（atelier/qc の下）へのつなぎ口は research(subject) -> checklist。項目の形は
+#   {"name": 確かめる物, "kind": count|shape|ratio|order, "expect": 期待（数・形の語・比の数・並びの語の列）, "source": "words_model"|"web"}
+# 調べ方は言葉の模型の知識が先。外へ取りに行くのは、ask_web（利用者にその場で聞く窓）が許したときだけ。
+# 残すのは確かめる項目だけで、描く言葉や既定には積まない（絵の向きを寄せない）
+CHECK_KINDS = ("count", "shape", "ratio", "order")
+MOST_ITEMS = 8
+
+RESEARCH_SYSTEM = ("List facts to verify that a drawing of the given subject is correct. Reply with one JSON array only, each item "
+                   '{"name": "part name", "kind": "count|shape|ratio|order", "expect": number, word, ratio or list of words}. '
+                   "Only physical facts of the real subject (part counts, shapes, proportions, order of parts). No style, mood or colors "
+                   "unless the subject always has that color. If you do not know the subject, reply [].")
+
+
+def parse_checklist(reply, source="words_model") -> list[dict]:
+    """答えの JSON の配列から、形と値の幅に合う項目だけを取る"""
+    m = re.search(r"\[.*\]", str(reply), re.S)
+    if not m:
+        return []
+    try:
+        items = json.loads(m.group(0))
+    except ValueError:
+        return []
+    out = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or it.get("kind") not in CHECK_KINDS or not str(it.get("name", "")).strip():
+            continue
+        e = it.get("expect")
+        k = it["kind"]
+        if k == "count" and not (isinstance(e, int) and not isinstance(e, bool) and 0 <= e <= 100):
+            continue
+        if k == "ratio" and not (isinstance(e, (int, float)) and not isinstance(e, bool) and 0 < float(e) <= 100):
+            continue
+        if k == "shape" and not (isinstance(e, str) and e.strip()):
+            continue
+        if k == "order" and not (isinstance(e, list) and len(e) >= 2 and all(isinstance(x, str) for x in e)):
+            continue
+        out.append({"name": str(it["name"]).strip(), "kind": k, "expect": e, "source": source})
+    return out[:MOST_ITEMS]
+
+
+def research(subject: str, model="auto", ask_web=None, fetch=None) -> dict:
+    """題材を正しく描けているか確かめる項目（checklist）を作る。
+    返す欄: subject・checklist（項目の列）・source（words_model / web / none）・note。
+    ask_web(subject) -> bool は利用者にその場で外へ取りに行く許しを聞く窓。fetch(subject) -> str は許されたときだけ呼ぶ取り手"""
+    subject = str(subject).strip()
+    if not subject:
+        return {"subject": subject, "checklist": [], "source": "none", "note": "題材がありません"}
+    if model == "auto":
+        model = _default_model()
+    items: list[dict] = []
+    note = ""
+    if model is not None:
+        try:
+            items = parse_checklist(model.ask(RESEARCH_SYSTEM, subject, max_tokens=300, one_line=False))
+        except Exception as e:   # 模型が落ちても描く流れを止めない
+            note = f"思考の模型が答えませんでした（{type(e).__name__}）"
+    else:
+        note = "思考の模型がありません"
+    if items:
+        return {"subject": subject, "checklist": items, "source": "words_model", "note": note}
+    if ask_web is not None and fetch is not None and ask_web(subject):
+        try:
+            text = fetch(subject)
+            if model is not None:   # 取ってきた文から項目を作るのも思考の模型。文そのものは残さない
+                items = parse_checklist(model.ask(RESEARCH_SYSTEM, f"{subject}\n\nreference:\n{str(text)[:3000]}",
+                                                  max_tokens=300, one_line=False), source="web")
+        except Exception as e:
+            note = f"外から取れませんでした（{type(e).__name__}）"
+        if items:
+            return {"subject": subject, "checklist": items, "source": "web", "note": note}
+    return {"subject": subject, "checklist": [], "source": "none", "note": note or "確かめる項目を作れませんでした"}
