@@ -108,6 +108,7 @@ FORM_CRUSH = 0.5      # 完成の判定: 最後の絵の質感の密度と鋭さ
 TONE_CRUSH = 0.85     # ディテール: 描き重ねでコントラストが元のこの割合を切ったら、影や濃い細部が潰れたとみて採用しない（私の推測）
 DETAIL_CRUSH = 0.7    # ディテール: 描き重ねで質感の密度が元のこの割合を切ったら、細部が潰れたとみて採用しない（私の推測）
 COLORS_MOST = 14      # 下塗り: 人物の 2% 以上を占める色がこれより多ければ、色が散っている（私の推測）
+COVERAGE_MORE = 0.02  # 下塗り: 紙の色のままの割合が、土台よりこれだけ増えたら塗り残し（白い服や靴下は土台でも紙の色。私の推測）
 COVERAGE_MOST = 0.10  # 下塗り: 主役の輪郭の内側で紙の色のままの割合がこれを超えたら、塗り残し（私の推測）
 LINE_FAT_MOST = 0.5    # 下塗り: 描き重ねで線のすぐ外側に増えた暗い画素が、線の画素のこの割合を超えたら、線が太ったとみる（私の推測）
 LINE_LOSS_MOST = 0.02  # 色・仕上げの工程の出口: 清書の線のうち、合成で暗く残っていない割合がこれを超えたら埋もれ（私の推測）
@@ -1147,17 +1148,41 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 "numbers": numbers, "missing": body.get("missing", []), "show": body.get("show"),
                 "note": body.get("note", ""), "tilt": body.get("tilt"), "readable": bool(m.get("readable"))}
 
-    def m_base(img):
+    def coat_colors(img):
+        """人物（紙でない所）の 2% 以上を占める色の数。紙でない所が少なければ None"""
         import numpy as np
         m = pt.silhouette(img)
         if m.sum() < 50:
-            return {"flaws": [], "readable": False, "numbers": {}}
+            return None
         q = img.convert("RGB").quantize(colors=32, method=Image.MEDIANCUT)
         a = np.asarray(q)[m]
         counts = np.bincount(a.ravel(), minlength=32) / max(a.size, 1)
-        colors = int((counts >= 0.02).sum())
+        return int((counts >= 0.02).sum())
+
+    def coat_base():
+        """土台の絵の、色の数・斑点の数・紙の色のままの割合。下塗りは土台の色から描き重ねた絵なので、
+        土台が初めから持っている分は崩れに数えない。色の数 14・斑点 0・塗り残し 1 割の境は、白い紙の線画に
+        色を置くベタ塗りの物差しで、影まで塗った絵（土台と同じ描き方の絵）では初めから超える
+        （検証 46127844791 の 1 回描きの絵で、色 24・斑点 23。境を超えたとして色を寄せる直しを掛けると、
+        絵が段の付いた塗りに変わり、壁に輪が出た）。同じ土台は 1 回だけ測る"""
+        base_img = (st.get("base") or {}).get("image")
+        if base_img is None:
+            return {"colors": 0, "blotches": 0, "uncolored": 0.0}
+        got = memo.get("coat_base")
+        if got is None or got[0] is not base_img:
+            got = (base_img, {"colors": coat_colors(base_img) or 0, "blotches": pt.blotch_mask(base_img)[1],
+                              "uncolored": pt.coverage_mask(base_img)[1]})
+            memo["coat_base"] = got
+        return got[1]
+
+    def m_base(img):
+        import numpy as np
+        colors = coat_colors(img)
+        if colors is None:
+            return {"flaws": [], "readable": False, "numbers": {}}
+        ref = coat_base()
         p = pt.parts(img)
-        flaws = [f"色が散っている（{colors} 色）"] if colors > COLORS_MOST else []
+        flaws = [f"色が散っている（{colors} 色）"] if colors > max(COLORS_MOST, ref["colors"]) else []
         regions = []
         b = pt.bleed(img)
         if b.get("readable") and b["share"] > pt.BLEED_MOST:
@@ -1165,11 +1190,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             regions += [(box, "bleed") for box in b["boxes"]]
         numbers = {"colors": colors, "parts": None if p is None else int(len(set(np.unique(p).tolist()) - {0}))}
         _bm, blotches = pt.blotch_mask(img)
-        if blotches:
+        if ref["colors"] or ref["blotches"] or ref["uncolored"]:
+            numbers["base"] = dict(ref)   # 土台が初めから持っている分（この分は崩れに数えない）
+        if blotches > ref["blotches"]:
             flaws.append(f"色に斑点がある（{blotches} 個）")   # 粒の物差し（grain）では塊の斑点は測れない。平らにした絵と比べて測る
             numbers["blotches"] = blotches
         _cm, uncolored = pt.coverage_mask(img)
-        if uncolored > COVERAGE_MOST:
+        if uncolored > max(COVERAGE_MOST, ref["uncolored"] + COVERAGE_MORE):
             flaws.append(f"塗り残しがある（主役の {uncolored} が紙の色のまま）")
             numbers["uncolored"] = uncolored
             ys, xs = np.nonzero(np.asarray(_cm.convert("L")) > 0)

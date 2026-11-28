@@ -37,10 +37,17 @@ jobs:
           - name: small
             size: 640x960
             steps: "12"
+            ways: draws
+          # 画素の検品の組: 画素を数える検品とその直しも流す（模型を使う検品は崩れ無しで通す）。小さい大きさで見る
+          - name: pixels
+            size: 640x960
+            steps: "12"
+            ways: pixels
           # 同じ大きさの組: precise-real と同じ大きさ・歩数（768x1152、15 歩）
           - name: same
             size: 768x1152
             steps: "15"
+            ways: draws
     steps:
       - uses: actions/checkout@v4
       - name: 置き場を空ける
@@ -62,7 +69,7 @@ jobs:
           BENCH_STEPS: ${{ matrix.steps }}
           BENCH_SIZE: ${{ matrix.size }}
           BENCH_SEED: ${{ inputs.seed || '7' }}
-          BENCH_WAYS: draws
+          BENCH_WAYS: ${{ matrix.ways }}
         run: python -u -m atelier.bench.phase_bench fast-out
       - uses: actions/upload-artifact@v4
         if: always()

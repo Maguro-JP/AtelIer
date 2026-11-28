@@ -10,6 +10,7 @@
 BENCH_WAYS=draws は速い確かめ（Actions の precise-fast）。精度優先の描く工程だけを、検品と直しの繰り返し無しで 1 回ずつ流し、
 工程ごとの絵と数字（線の途切れ、彩度、紙の明るさ）を draws/ と bench.json とログに出す。同じ頼み・同じ種の 1 回描き
 （AI モードの初めの 1 枚と同じ呼び方）も並べる。描く工程が絵を壊していないかを、数時間の precise-real を待たずに見る。
+BENCH_WAYS=pixels は、それに画素を数える検品とその直し（線、ゴミ、色、影など）を足した確かめ。模型を使う検品は崩れ無しで通す。
 """
 from __future__ import annotations
 
@@ -70,6 +71,34 @@ class NoChecks:
         return {"readable": False}
 
 
+class CleanChecks(NoChecks):
+    """重い検品（頼んだ物・体・手足顔）を「崩れ無し」で通す（BENCH_WAYS=pixels 用）。体の点（骨組み）だけは本物で読む
+    （目の光・顔の反転・影の顔よけが体の点を使う）。画素を数える検品（線、ゴミ、色、影、縮めて見るなど）と、
+    その直しが本物として働く。画素の検品と直しが、描いた絵を壊していないかを、重い検品と直しを待たずに見る"""
+
+    @staticmethod
+    def request(image, prompt):
+        return {"readable": True, "missing": [], "extra": [], "people": [], "body": []}
+
+    @staticmethod
+    def body(image, prompt, tags=None):
+        return {"readable": True, "bad": [], "avoid": []}
+
+    @staticmethod
+    def points(image):
+        from atelier.ai import phases
+        return phases.Checks.points(image)
+
+    @staticmethod
+    def pose(image):
+        from atelier.ai import phases
+        return phases.Checks.pose(image)
+
+    @staticmethod
+    def hands(image, prompt):
+        return {"readable": True, "bad": [], "hands": [], "feet": [], "faces": []}
+
+
 def picture_numbers(image) -> dict:
     """1 枚の絵の数字。sat は彩度の平均、paper は明るい側 90% の位置の明るさ（紙の明るさ）、gap は外の輪郭のうち線の無い割合、
     max_gap は線の無い所が続く一番長い区間、pieces は暗い画素（明るさ 128 未満）の塊の数、piece_len は塊 1 つの画素の数の平均
@@ -86,17 +115,18 @@ def picture_numbers(image) -> dict:
             "max_gap": ln.get("max_gap"), "pieces": int(n), "piece_len": round(float(dark.sum()) / max(int(n), 1), 1)}
 
 
-def run_draws(out: Path, painter, prompt: str, seed: int, size) -> dict:
-    """速い確かめ。描く工程だけを 1 回ずつ流し、工程ごとの絵と数字を残す。1 回描きの絵も同じ数字で並べる"""
+def run_draws(out: Path, painter, prompt: str, seed: int, size, way: str = "draws") -> dict:
+    """速い確かめ。描く工程だけを 1 回ずつ流し（draws）、工程ごとの絵と数字を残す。1 回描きの絵も同じ数字で並べる。
+    pixels は、画素を数える検品とその直しも流す（模型を使う検品は崩れ無しで通す）"""
     from PIL import Image
     from atelier.ai import phases
-    each = out / "draws"
+    each = out / way
     keep = each / "work"
     each.mkdir(parents=True, exist_ok=True)
     based = []
     t = time.perf_counter()
-    got = phases.draw(painter, prompt, seed, size, keep, say=lambda m: print(f"[draws] {m}", flush=True), checks=NoChecks,
-                      only_draw=True, on_base=based.append)
+    got = phases.draw(painter, prompt, seed, size, keep, say=lambda m: print(f"[{way}] {m}", flush=True),
+                      checks=NoChecks if way == "draws" else CleanChecks, only_draw=(way == "draws"), on_base=based.append)
     secs = round(time.perf_counter() - t, 1)
     rows = []
     for r in got["phases"]:
@@ -115,7 +145,12 @@ def run_draws(out: Path, painter, prompt: str, seed: int, size) -> dict:
                  "same_as_base": bool(based), **picture_numbers(one)})
     for r in rows:
         print("DRAWS " + json.dumps(r, ensure_ascii=False), flush=True)
-    return {"way": "draws", "seconds": secs, "rows": rows, "words": [w for r in got["phases"] for w in r.get("words", [])]}
+    mends = [{"phase": r["phase"], "item": m.get("item"), "mend": m.get("mend"), "changed": m.get("changed")}
+             for r in got["history"] for m in r.get("mends", [])]
+    for m in mends:
+        print("MEND " + json.dumps(m, ensure_ascii=False, default=str), flush=True)
+    return {"way": way, "seconds": secs, "rows": rows, "words": [w for r in got["phases"] for w in r.get("words", [])],
+            "mends": mends, "left": list(got.get("left") or [])}
 
 
 def run(out: Path):
@@ -135,7 +170,9 @@ def run(out: Path):
     pose_files = dict(twostage.PARTS)[twostage.POSE]
     fetches = (lambda: snapshot_download(twostage.POSE, cache_dir=str(HUB), allow_patterns=pose_files),
                lambda: requestcheck._tagger(True), lambda: handcheck.ensure_models(True), lambda: handcheck.ensure_feet_model(True))
-    for fetch in (() if ways == ["draws"] else fetches):   # 速い確かめは検品をしないので、検品の部品を取らない
+    if set(ways) <= {"draws", "pixels"}:   # 速い確かめは重い検品をしない。体の点の部品だけを、画素の検品の組のときに取る
+        fetches = fetches[:1] if "pixels" in ways else ()
+    for fetch in fetches:
         try:
             fetch()   # 検品の部品を先に取る（取らないと検品できず、崩れ 0 と読み違える）
         except Exception as e:   # noqa: BLE001
@@ -143,8 +180,8 @@ def run(out: Path):
     result = {"model": model, "prompt": prompt, "seed": seed, "steps": steps, "size": [w, h], "runs": []}
     painter = Painter(model, steps=steps)
     for way in ways:
-        if way == "draws":
-            result["runs"].append(run_draws(out, painter, prompt, seed, (w, h)))
+        if way in ("draws", "pixels"):
+            result["runs"].append(run_draws(out, painter, prompt, seed, (w, h), way))
             (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
             continue
         studio = Studio(Words(), painter, out / way)

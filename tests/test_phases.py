@@ -2533,7 +2533,8 @@ class ColoringDefectsTest(unittest.TestCase):
                 size = kw.get("size") or (64, 96)
                 im = Image.new("RGB", size, "white")
                 d = ImageDraw.Draw(im)
-                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))   # 主役の輪郭（閉じている）
+                # 土台は主役の中まで色が塗ってある絵（頼みの言葉そのままの絵）。塗り残しは、土台より紙のままの所が増えたときに数える
+                d.rectangle([16, 12, 48, 84], fill=(205, 175, 155), outline=(0, 0, 0))   # 主役の輪郭（閉じている）
                 d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))
                 return im
 
@@ -2569,7 +2570,7 @@ class ColoringDefectsTest(unittest.TestCase):
                 size = kw.get("size") or (64, 96)
                 im = Image.new("RGB", size, "white")
                 d = ImageDraw.Draw(im)
-                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))
+                d.rectangle([16, 12, 48, 84], fill=(205, 175, 155), outline=(0, 0, 0))   # 土台は中まで色が塗ってある
                 d.rectangle([size[0] // 2 - 2, 0, size[0] // 2 + 2, size[1]], fill=(0, 0, 0))
                 return im
 

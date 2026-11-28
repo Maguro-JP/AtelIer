@@ -720,7 +720,13 @@ def area_fill(image, mask):
     m = np.asarray(mask.convert("L").resize(im.size)) > 0
     if not m.any():
         return im
-    seeds = ~m & silhouette(im) & (luminance(im) >= 80)
+    lum = luminance(im)
+    seeds = ~m & silhouette(im) & (lum >= 80)
+    # 線のすぐ隣の画素（線の縁のぼけた灰色）も種にしない。線の黒を除いても、縁の灰色が一番近い種になって
+    # 灰色が内側に広がった（色の付いた絵から抜いた線は縁がなだらかで、縁の灰色が残る）
+    clear = seeds & ~_dilate(lum < 80, 1)
+    if clear.any():
+        seeds = clear
     if not seeds.any():
         return erase_fill(im, mask)
     try:
