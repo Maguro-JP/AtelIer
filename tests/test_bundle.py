@@ -146,6 +146,15 @@ class BundleTest(unittest.TestCase):
         res = probe(bundle_files())
         self.assertEqual(res["fails"], [], "配る中身に無い物を読んでいる:\n" + "\n".join(res["fails"]))
 
+    def test_uninstall_removes_every_top_level(self):
+        """配る一覧の最上位の名前は、アンインストールで全部消す（README.md が足されて残り、0.1.32 の試験で落ちた）"""
+        out = subprocess.run([sys.executable, str(ROOT / "packaging" / "bundle_list.py")], capture_output=True, text=True, check=True).stdout
+        tops = {line.split("/")[0] for line in out.splitlines() if line} | {"python"}
+        nsi = (ROOT / "packaging" / "installer.nsi").read_text(encoding="utf-8")
+        macro = nsi.split("!macro RemoveAppFiles", 1)[1].split("!macroend", 1)[0]
+        left = sorted(t for t in tops if f'"$INSTDIR\\{t}"' not in macro)
+        self.assertEqual(left, [], "RemoveAppFiles で消さない最上位の物")
+
     def test_build_uses_bundle_list(self):
         """build.sh が手で並べた一覧に戻っていないこと"""
         sh = (ROOT / "packaging" / "build.sh").read_text(encoding="utf-8")
