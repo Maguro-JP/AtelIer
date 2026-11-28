@@ -74,6 +74,9 @@ for _k, _v in {"紅茶": "tea", "お茶": "tea", "コーヒー": "coffee", "ケ�
                "金魚すくい": "goldfish scooping", "金魚": "goldfish", "船": "ship", "電車": "train", "車": "car", "自転車": "bicycle",
                "前": "", "上": "", "辺": "", "使い": "", "の上": "", "の前": "", "横": "", "隣": "", "中": "",
                "ベッド": "bed", "椅子": "chair", "机": "desk", "階段": "stairs", "橋": "bridge", "庭": "garden", "台所": "kitchen",
+               # 場所の語で、表に無く黙って落ちていた語（夕暮れの教室が教室だけ、公園のベンチがベンチ無し、工場が空の頼み）
+               "夕暮れ": "evening", "放課後": "after school", "ホーム": "platform", "境内": "", "ベンチ": "bench",
+               "商店街": "shopping street, storefront", "工場": "factory", "雪の降る": "snowing", "降る": "", "降": "",
                "学校": "school", "遊園地": "amusement park", "水族館": "aquarium", "ステージ": "stage", "教会": "church", "廃墟": "ruins",
                "雲": "cloud", "虹": "rainbow", "雷": "lightning", "風": "wind", "霧": "fog", "光": "light rays", "影": "shadow",
                "春": "spring (season)", "秋": "autumn", "冬": "winter", "紅葉": "autumn leaves", "向日葵": "sunflower", "ひまわり": "sunflower", "薔薇": "rose", "バラ": "rose",
@@ -329,6 +332,10 @@ def _fix_rules(text: str) -> list[tuple[int, int, str]]:
     for m in re.finditer(rf"({parts}){soft}({'|'.join(_CHANGE)})", text):
         part = _PARTS[m.group(1)]
         take(m, _CHANGE_PART.get((m.group(2), part), f"{_CHANGE[m.group(2)]} {part}"))
+    # 右手を下げて、両手を上げて（部位の向きを変える指示。前は部位も動きも落ち、空の言葉で描き直していた）
+    for m in re.finditer(rf"(右手|左手|両手|右腕|左腕|両腕|手|腕){soft}(上げ|下げ|挙げ)", text):
+        side = {"右手": "right arm", "左手": "left arm", "右腕": "right arm", "左腕": "left arm"}.get(m.group(1), "arms")
+        take(m, f"{side} {'down' if m.group(2) == '下げ' else 'up'}")
     # 目を閉じて、口を開けて
     for m in re.finditer(rf"(目|瞳|口){soft}(閉じ|閉じさせ|つぶ|瞑|開け|開か)", text):
         shut = m.group(2)[0] in "閉つ瞑"
