@@ -60,6 +60,19 @@ def wants_line_art(prompt) -> bool:
     return any(w in p for w in LINE_ART_WORDS)
 
 
+# 線を残し強める画風の言葉（私の推測）。線は下絵として扱い、色で消えてよい。線を残す・戻す・線の途切れを崩れに数えるのは、
+# 漫画やイラストなど線を強調する画風の頼みのときだけ（利用者の決まり）。線画で終わる頼み（LINE_ART_WORDS）も含む
+STRONG_LINE_WORDS = ("漫画", "マンガ", "まんが", "コミック", "アニメ塗り", "セル画", "ペン画", "線画", "主線", "イラスト調",
+                     "manga", "comic", "anime coloring", "cel shading", "cel-shaded", "ink drawing", "inked",
+                     "thick outline", "bold lines", "lineart", "line art")
+
+
+def wants_strong_lines(prompt) -> bool:
+    """線を残し強める画風の頼みか。既定（False）では、色の工程のあとに線を戻さず、線の途切れを崩れに数えない"""
+    p = (prompt or "").lower()
+    return wants_line_art(prompt) or any(w in p for w in STRONG_LINE_WORDS)
+
+
 def request_medium(prompt):
     """頼みの言葉に画材の指定があれば、その画材（draw_tools の BRUSHES の名前）。無ければ None。
     「鉛筆の画像」のような指定がある場合だけ、その指定の画材で描く（利用者の指示、2026-11-27）。
@@ -485,6 +498,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     # 線画の頼みなら、工程は線画までの 4 つ＋「線の仕上げ」。色の工程は置かず、
     # その分の手間を線の質上げに回す。指定が無ければ通常の 10 工程
     line_art = wants_line_art(prompt)
+    strong_lines = wants_strong_lines(prompt)   # 線を強調する画風のときだけ、色の工程のあとで線を守る
     names = list(NAMES)
     phase_info = list(PHASES)
     items_by_phase = None
@@ -892,8 +906,10 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             strength = BASE_COLOR
             base_img = (st.get("base") or {}).get("image")
             if base_img is not None and base_img.size == img.size:
-                # 線が線画らしくないとき（鉛筆の画材の指定などで灰色の面が多い）は、乗算で絵が沈むので線は敷かず、土台の色だけから描き重ねる
-                under = pt.over_lines(base_img, base_in) if pt.line_like(base_in) else base_img
+                # 清書の線は土台の色に乗算しない。清書は土台から抜いた線なので、髪の筋の塊・掌の粒・背景の破線を含み、
+                # 乗算して描き重ねると黒い太線と粒が色の絵に焼き付いた（検証 46133315625 の下塗り。1 回描きには無い）。
+                # 線は土台の絵が初めから持っている。清書は線のレイヤーとして残し、色の絵には重ねない
+                under = base_img
                 strength, over_base = BASE_OVER, True
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
@@ -908,28 +924,27 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             return {"image": img, "words": words, "note": "この模型は描き重ねられないので、線画のまま色を確かめます"}
         if pt.grain(color) > BASE_GRAIN_MOST:   # 色をのせたはずが粒（ブツブツ）だらけのときだけ、面の色に寄せて平らにする（きれいな色は触らない）
             flat = pt.flatten_base(color)
+            # 平らにすると 1〜2 画素の線まで面の色に寄って消える。下塗りは色の絵の線をそのまま使うので、
+            # 線の画素は元の色の絵のままにする（粒だけを平らにする）
+            import numpy as np
+            from PIL import Image as _Image
+            ca, fa = np.asarray(color.convert("RGB")), np.asarray(flat.convert("RGB")).copy()
+            dark = (np.asarray(pt.luminance(color)) < 80) | (np.asarray(pt.luminance(flat)) < 80)   # 線を消す向きも、線を太らせる向きも止める
+            fa[dark] = ca[dark]
+            flat = _Image.fromarray(fa)
             if pt.grain(flat) < pt.grain(color):
                 say("下塗りの色に粒が出たので、面の色に寄せて平らにします（下塗りはベタ塗り）")
                 color = flat
         line = pt.whiten_paper(st["layers"].get("清書") or img)
         numbers = {}
-        if over_base and color.size == line.size and pt.line_like(line):
-            # 土台の色と清書の線を敷いた絵に描き重ねた絵は、線も色も初めから持っている。線が埋もれても太ってもいなければ、
-            # 描き重ねた絵をそのまま使う。色の絵の線を消して清書の線を乗せ直す合成（下の道）は、本物の絵では線の周りの色まで
-            # 埋めて、顔と輪郭を潰した（検証 46127844791 の下塗り）。線を消して乗せ直すのは、線が太ったときだけにする
-            lost = pt.line_loss(line, color)
-            fat = pt.line_fattening(line, under, color)
-            numbers.update({"line_lost": round(lost, 3), "line_fat": round(fat, 3)})
-            if fat <= LINE_FAT_MOST:
-                out = color
-                if lost > LINE_LOSS_MOST:   # 線が埋もれただけなら、色の絵は触らずに清書の線を上に乗せる
-                    say(f"下塗りの描き重ねで清書の線が埋もれたので（{lost:.0%}）、清書の線を上に乗せます")
-                    out = pt.over_lines(color, line)
-                st["layers"]["下塗り"] = color
-                for lname, limg in st["layers"].items():
-                    limg.save(keep / f"layer-{4 + 1:02d}-{lname}.png")
-                return {"image": out, "words": words, "numbers": {"layers": list(st["layers"]), **numbers}}
-            say(f"下塗りの描き重ねで線が太ったので（線の外側に増えた暗い画素が線の {fat:.0%}）、色の絵の線を消して清書の線を乗せ直します")
+        if over_base and color.size == line.size:
+            # 土台から描き重ねた色の絵をそのまま使う（線は色の絵が持つ）。清書の線を乗せ直すと、
+            # 上と同じく粒と太線が焼き付く。線が埋もれたかの数字だけ記録に残す
+            numbers.update({"line_lost": round(pt.line_loss(line, color), 3)})
+            st["layers"]["下塗り"] = color
+            for lname, limg in st["layers"].items():
+                limg.save(keep / f"layer-{4 + 1:02d}-{lname}.png")
+            return {"image": color, "words": words, "numbers": {"layers": list(st["layers"]), **numbers}}
         if pt.line_like(line):
             # 色の絵が自分で描いた線は消してから乗せる。乗算の合成は色の暗さを消せず、
             # 色の線が残ると清書の線と合わさった太さになって、下塗りで線が太く壊れる。
@@ -1740,6 +1755,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         img = st.get("image")
         if line is None or img is None or line.size != img.size:
             return
+        if not strong_lines:
+            return   # 線は下絵。色で消えてよい。清書の線を戻すと、位置の合わない粒と太線を焼き付けた（検証 46133315625）
         # 比べるのは線らしい画素だけ（pt.line_pixels: 線でない暗い塊は、後の直しで
         # 正しく消える物なので参照にしない）。仕上げや艶の描き重ねで線の縁が明るく
         # なったり、回す直しで線が数画素ずれたりするのは、埋もれではない
@@ -2337,7 +2354,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     # 完成にせず、残った崩れとして出す
     final_check = {"flaws": [], "restored": 0, "dust": None}
     line_layer = st["layers"].get("清書")
-    if st.get("image") is not None and line_layer is not None and line_layer.size == st["image"].size:
+    if (st.get("image") is not None and line_layer is not None and line_layer.size == st["image"].size
+            and strong_lines):
+        # 線は下絵として扱い、色で消えてよい。線を戻して途切れを数えるのは、線を強調する画風の頼みのときだけ
         fixed, n_px = pt.restore_missing_lines(line_layer, st["image"])
         if n_px:
             say(f"最終チェック: 直しで消えた線（{n_px} 画素）を、清書のレイヤーから戻しました")
@@ -2349,6 +2368,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                 final_check["flaws"].append(f"外の輪郭が途切れている（{lm['gap']}）")
             if lm.get("max_gap", 0) > pt.LINE_MAX_GAP_MOST:
                 final_check["flaws"].append(f"線が途中でずれている（途切れが {lm['max_gap']}）")
+    if st.get("image") is not None:
         dd = pt.dust(st["image"])
         if dd.get("readable"):
             final_check["dust"] = dd["count"]

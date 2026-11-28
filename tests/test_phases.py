@@ -2241,8 +2241,13 @@ class LayerBasePainter(Painter):
             import numpy as np
             from PIL import Image
             w, h = image.size
-            grad = np.tile(np.linspace(195, 230, w, dtype=np.uint8), (h, 1))   # 薄い色（右が明るい）。線は入っていない
-            return Image.fromarray(np.stack([grad, grad, grad], axis=2))
+            grad = np.tile(np.linspace(195, 230, w, dtype=np.uint8), (h, 1))   # 薄い色（右が明るい）
+            out = np.stack([grad, grad, grad], axis=2)
+            if strength == phases.BASE_OVER:   # 線のある土台からの描き重ねは、土台の線を残す（本物の描き重ねと同じ）
+                a = np.asarray(image.convert("RGB"))
+                dark = a.mean(axis=2) < 80
+                out[dark] = a[dark]
+            return Image.fromarray(out)
         return image.copy()
 
 
@@ -2269,7 +2274,10 @@ class GreyPaperPainter(LayerBasePainter):
                 return image.convert("RGB").copy()   # 灰色の土台からは色が乗らない
             w, h = image.size
             out = np.zeros((h, w, 3), np.uint8)
-            out[:] = (230, 150, 150)   # 薄い赤の下塗り。線は入っていない
+            out[:] = (230, 150, 150)   # 薄い赤の下塗り
+            if strength == phases.BASE_OVER:   # 線のある土台からの描き重ねは、土台の線を残す
+                dark = a.mean(axis=2) < 80
+                out[dark] = a[dark].astype(np.uint8)
             return Image.fromarray(out)
         return super().refine(prompt, seed, image, strength=strength, on_step=on_step, on_preview=on_preview)
 
@@ -2370,7 +2378,7 @@ class ThickColorPainter(Painter):
 
 
 class BaseLineRestoreTest(unittest.TestCase):
-    """下塗りの描き重ねが線を描き直しても、結果の線は清書レイヤーの太さのまま。
+    """下塗りは色の絵の線をそのまま使い、清書の線を重ねない（清書はレイヤーに残す）。
     線レイヤーを乗算で乗せる合成は、色の絵自身の暗さを消せない。色の線が残ると
     線レイヤーの線と合わさった太さになり、下塗りの描く工程で線が太くなって
     壊れる（利用者の目撃、2026-11-27）"""
@@ -2397,16 +2405,11 @@ class BaseLineRestoreTest(unittest.TestCase):
             img = Image.open(rows["下塗り"]["image"]).convert("RGB")
             line_img = Image.open(Path(d) / "k" / "layer-05-清書.png").convert("L")
             runs = self._dark_runs(img)
-        self.assertEqual(runs, [(30, 5)], f"下塗りの結果の線が清書の太さ（5px）でない: {runs}")
-        self.assertLess(img.getpixel((32, 48))[0], 60)      # 線の所は線画の黒が残る
-        self.assertGreater(img.getpixel((8, 48))[0], 180)   # 線の無い所は塗った色が出る
-        # 線の完全性: 結果の暗い所は、清書レイヤーの線と画素単位で一致する
-        # （線が埋もれる・ずれる・欠ける・余分に太る、のどれも無い）
-        import numpy as np
-        out_dark = np.asarray(img.convert("L")) < 100
-        line_dark = np.asarray(line_img) < 100
-        self.assertTrue((out_dark == line_dark).all(),
-                        "下塗りの結果の線が清書レイヤーの線と一致していない（埋もれ・ずれ・欠け・太り）")
+        # 下塗りは土台から描き重ねた色の絵をそのまま使い、清書の線を重ねない。清書を乗算すると、
+        # 本物の絵では髪の塊・掌の粒・背景の破線が色の絵に焼き付いた（検証 46133315625）。
+        # 色の絵の線（15px）が 1 本だけ残り、清書の線（5px、2px ずれ）と合わさった太さにならない
+        self.assertEqual(runs, [(27, 15)], f"下塗りの結果に清書の線が重なっている: {runs}")
+        self.assertLess(line_img.getpixel((32, 48)), 100, "清書のレイヤーが残っていない")
 
 
 def blotchy_image(size):
@@ -2542,7 +2545,9 @@ class ColoringDefectsTest(unittest.TestCase):
                 from PIL import Image, ImageDraw
                 im = Image.new("RGB", size, "white")
                 d = ImageDraw.Draw(im)
-                d.rectangle([16, 12, 48, 48], fill=(205, 175, 155))   # 上半分だけ。下半分は紙のまま
+                # 本物の描き重ねは輪郭の線も描く（下塗りは清書の線を重ねず、色の絵の線をそのまま使う）
+                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))
+                d.rectangle([17, 13, 47, 48], fill=(205, 175, 155))   # 上半分だけ。下半分は紙のまま
                 r = 2
                 for x in (size[0] * 0.45, size[0] * 0.55):
                     d.ellipse([x - r, size[1] * 0.15 - r, x + r, size[1] * 0.15 + r], fill=(255, 255, 255))
@@ -2577,7 +2582,8 @@ class ColoringDefectsTest(unittest.TestCase):
             def base_color(self, size):
                 from PIL import Image, ImageDraw
                 im = Image.new("RGB", size, "white")
-                ImageDraw.Draw(im).rectangle([16, 12, 48, 48], fill=(205, 175, 155))
+                ImageDraw.Draw(im).rectangle([16, 12, 48, 84], outline=(0, 0, 0))   # 色の絵も輪郭の線を描く
+                ImageDraw.Draw(im).rectangle([17, 13, 47, 48], fill=(205, 175, 155))
                 return im
 
             def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
@@ -2595,8 +2601,8 @@ class ColoringDefectsTest(unittest.TestCase):
         self.assertFalse(mends[0].get("changed"), mends)   # 斑点を散らかした描き直しは採用されていない
         self.assertTrue(any(m.get("mend") == "塗り残しを埋める" and m.get("changed") for m in mends), mends)
         self.assertLessEqual(pt.coverage_mask(got["image"])[1], phases.COVERAGE_MOST)
-        for x, y in ((20, 54), (26, 60), (38, 66), (44, 72)):   # 散らかった斑点の位置に黒は無い
-            self.assertGreater(got["image"].getpixel((x, y))[0], 150, (x, y))
+        for x, y in ((20, 54), (26, 60), (38, 66), (44, 72)):   # 散らかった斑点の位置に黒は無い（影 2 段で影の側は 1 段暗くなるので、斑点の黒と分ける境は 100）
+            self.assertGreater(got["image"].getpixel((x, y))[0], 100, (x, y))
 
 
 class DetailAccumulationTest(unittest.TestCase):
@@ -2665,6 +2671,7 @@ class EraseThenDrawOrderTest(unittest.TestCase):
 class LineIntegrityExitTest(unittest.TestCase):
     """後の工程が清書の線を埋めたら、その工程の出口で清書のレイヤーから戻す
     （利用者の指摘、2026-11-27: 先の工程に行ったら壊れてても修正に戻らない）"""
+    # 線を守るのは線を強調する画風の頼みのときだけ（線は下絵。既定では色で消えてよい）なので、漫画の頼みで見る
 
     def test_lines_buried_by_a_later_mend_are_restored_at_phase_exit(self):
         class Bury(Painter):
@@ -2677,7 +2684,7 @@ class LineIntegrityExitTest(unittest.TestCase):
         painter = Bury()
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}), \
                 mock.patch.object(pt, "shadows", lambda *_a, **_k: {"readable": True, "shade_minus_lit": 5}):
-            got = phases.draw(painter, "1girl, red scarf", 5, (64, 96), Path(d) / "k",
+            got = phases.draw(painter, "1girl, manga, red scarf", 5, (64, 96), Path(d) / "k",
                               checks=hand_only_checks(bad_times=0))
             line_row = next(r for r in got["phases"] if r["phase"] == "線画")
             from PIL import Image
@@ -2767,7 +2774,7 @@ class EraseFillTest(unittest.TestCase):
         self.assertTrue((hole[:, 0] == 200).any() and (hole[:, 2] == 200).any())   # 両側の色が写っている
 
     def test_layer_files_are_saved(self):
-        """レイヤーはファイルにも残る（線画レイヤーには線だけ、下塗りレイヤーには色だけ）。
+        """レイヤーはファイルにも残る（線画レイヤーには線だけ、下塗りレイヤーは土台から描き重ねた色の絵そのもの）。
         あとから見て、線画が残っていることを確かめられるようにする"""
         painter = LayerBasePainter()
         with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.0}):
@@ -2777,7 +2784,7 @@ class EraseFillTest(unittest.TestCase):
             line = Image.open(Path(d) / "k" / "layer-05-線画.png").convert("RGB")
             color = Image.open(Path(d) / "k" / "layer-05-下塗り.png").convert("RGB")
         self.assertLess(line.getpixel((32, 48))[0], 60)      # 線画レイヤーの線は黒いまま
-        self.assertGreater(color.getpixel((32, 48))[0], 180)   # 下塗りレイヤーに線は無い（色だけ）
+        self.assertGreater(color.getpixel((8, 48))[0], 180)   # 下塗りレイヤーは色の絵（線の無い所に色がある）
 
 
 class LineStagesTest(unittest.TestCase):
@@ -4248,8 +4255,14 @@ class FromBaseTest(unittest.TestCase):
         本物の絵で線の周りの色まで埋めて顔と輪郭を潰した（検証 46127844791）"""
         got, painter, rows, imgs = self.run_base(only_draw=True)
         self.assertEqual(list(imgs["下塗り"].getdata()), list(painter.under.getdata()))
-        self.assertLessEqual(rows["下塗り"]["numbers"]["line_lost"], phases.LINE_LOSS_MOST)
-        self.assertLessEqual(rows["下塗り"]["numbers"]["line_fat"], phases.LINE_FAT_MOST)
+        self.assertIn("line_lost", rows["下塗り"]["numbers"])   # 清書の線が色の絵にどれだけ無いかは、記録だけに残す
+
+    def test_base_coat_starts_from_the_base_without_line_layer(self):
+        """下塗りの描き重ねの土台は、頼みの言葉そのままの絵（土台）そのもの。清書の線を乗算して敷くと、
+        清書の粒・塊・背景の破線が色の絵に焼き付いた（検証 46133315625）"""
+        got, painter, rows, imgs = self.run_base(only_draw=True)
+        base = colored_figure((64, 96))   # この画家の土台
+        self.assertEqual(list(painter.under.getdata()), list(base.getdata()))
 
     def test_line_fattening_counts_only_new_dark_next_to_lines(self):
         """線の太りは、描き重ねで線のすぐ外側に増えた暗い画素で測る。前からある暗い面（黒い服）は数えない"""
@@ -4333,3 +4346,36 @@ class ShadeSecondSmoothTest(unittest.TestCase):
         a, b = np.asarray(im).astype(int), np.asarray(out).astype(int)
         self.assertEqual(int(np.abs(a - b)[~subject].max()), 0)                  # 人物の形が分かるときは、背景を変えない
         self.assertGreater(int(np.abs(a - b)[subject].max()), 0)
+
+
+class LinesAreUnderdrawingTest(unittest.TestCase):
+    """線は下絵として扱い、色で消えてよい。線を残し強める（清書の線を戻す・線の途切れを崩れに数える）のは、
+    漫画やイラストなど線を強調する画風の頼みのときだけ（利用者の決まり。検証 46133315625 で、清書の線を
+    色の絵に戻すと黒い太線と粒が焼き付いた）"""
+
+    def run_with(self, prompt):
+        calls = []
+        real = pt.restore_missing_lines
+
+        def spy(source, after):
+            calls.append(1)
+            return real(source, after)
+        painter = LayerBasePainter()
+        with TemporaryDirectory() as d, mock.patch.object(pt, "lines", lambda _im: {"readable": True, "gap": 0.9, "max_gap": 0.9}), \
+                mock.patch.object(pt, "restore_missing_lines", spy):
+            got = phases.draw(painter, prompt, 5, (64, 96), Path(d) / "k", checks=hand_only_checks(bad_times=0))
+        return got, calls
+
+    def test_words(self):
+        self.assertFalse(phases.wants_strong_lines("1girl, red scarf"))
+        self.assertTrue(phases.wants_strong_lines("1girl, manga, red scarf"))
+        self.assertTrue(phases.wants_strong_lines("漫画の女の子"))
+
+    def test_default_style_does_not_restore_lines_or_count_gaps(self):
+        got, calls = self.run_with("1girl, red scarf")
+        self.assertEqual(calls, [], "既定の画風で清書の線を色の絵に戻している")
+        self.assertFalse(any("途切れ" in f for f in got.get("final_check", {}).get("flaws", [])), got.get("final_check"))
+
+    def test_manga_keeps_lines(self):
+        got, calls = self.run_with("1girl, manga, red scarf")
+        self.assertTrue(calls, "漫画の頼みで、清書の線を守る処理が呼ばれていない")
