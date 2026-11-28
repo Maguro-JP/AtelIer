@@ -210,6 +210,29 @@ def run_mends(out: Path, painter, prompt: str, seed: int, size) -> dict:
     return row
 
 
+def run_hands(out: Path, painter, prompt: str, seed: int, size) -> dict:
+    """手と足の検品が、線の工程の絵（ラフ・線画）で「読めない」を出しているかを、色の絵（1 回描き）と比べて確かめる。
+    同じ絵から抜いたラフと線なので、色の絵で読める手・足が線の絵で読めなければ、読めないのは絵の崩れではなく検品の側"""
+    from atelier.ai import phase_tools as pt
+    from atelier.qc import hand_check as handcheck
+    d = out / "hands"
+    d.mkdir(parents=True, exist_ok=True)
+    w, h = size
+    one = painter.paint(prompt, seed, size=(w, h))
+    pics = {"one": one, "rough": pt.rough_from(one), "lines": pt.ink_levels(pt.rough_from(one))}
+    rows = {}
+    for name, im in pics.items():
+        im.save(d / f"{name}.png")
+        res = handcheck.check(im, asked=prompt)
+        rows[name] = {"readable": res.get("readable"), "reason": res.get("reason"), "feet_reason": res.get("feet_reason"),
+                      "hands": [{"box": x.get("box"), "bad": x.get("bad"), "missed": x.get("missed", False)} for x in res.get("hands", [])],
+                      "feet": [{"box": x.get("box"), "count": x.get("count"), "bad": x.get("bad"), "sharp": x.get("sharp")}
+                               for x in res.get("feet", [])],
+                      "bad": list(res.get("bad", []))}
+        print(f"HANDS {name} " + json.dumps(rows[name], ensure_ascii=False, default=float), flush=True)
+    return {"way": "hands", "rows": rows}
+
+
 def run(out: Path):
     from atelier.ai.engine import Painter, Studio
     from atelier.qc import hand_check as handcheck
@@ -229,6 +252,8 @@ def run(out: Path):
                lambda: requestcheck._tagger(True), lambda: handcheck.ensure_models(True), lambda: handcheck.ensure_feet_model(True))
     if set(ways) <= {"draws", "pixels", "mends"}:   # 速い確かめは重い検品をしない。体の点の部品だけを、画素の検品の組のときに取る
         fetches = fetches[:1] if "pixels" in ways else ()
+    elif set(ways) <= {"hands"}:   # 手と足の検品の組は、体の点と手・足の模型だけを取る
+        fetches = (fetches[0], fetches[2], fetches[3])
     for fetch in fetches:
         try:
             fetch()   # 検品の部品を先に取る（取らないと検品できず、崩れ 0 と読み違える）
@@ -237,6 +262,10 @@ def run(out: Path):
     result = {"model": model, "prompt": prompt, "seed": seed, "steps": steps, "size": [w, h], "runs": []}
     painter = Painter(model, steps=steps)
     for way in ways:
+        if way == "hands":
+            result["runs"].append(run_hands(out, painter, prompt, seed, (w, h)))
+            (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
+            continue
         if way == "mends":
             result["runs"].append(run_mends(out, painter, prompt, seed, (w, h)))
             (out / "bench.json").write_text(json.dumps(result, ensure_ascii=False, indent=1, default=float), encoding="utf-8")

@@ -45,6 +45,11 @@ jobs:
             size: 640x960
             steps: "12"
             ways: mends
+          # 手と足の組: 1 回描きと、そこから抜いたラフ・線画に、手と足の検品を掛けて「読めない」を比べる
+          - name: hands
+            size: 768x1152
+            steps: "15"
+            ways: hands
           # 同じ大きさの組: precise-real と同じ大きさ・歩数（768x1152、15 歩）
           - name: same
             size: 768x1152
@@ -60,7 +65,7 @@ jobs:
       - name: 部品
         run: |
           pip install -q torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image PySide6
+          pip install -q diffusers transformers accelerate safetensors huggingface_hub pillow numpy scipy scikit-image PySide6 ai-edge-litert onnxruntime
       - name: 描く工程だけを 1 回ずつ流す
         env:
           LLM_HOME: ${{ runner.temp }}/llm
