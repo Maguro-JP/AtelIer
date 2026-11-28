@@ -70,6 +70,7 @@ def request_medium(prompt):
             return kind
     return None
 BASE_COLOR = 0.6   # 下塗り: 線の絵に初めて色をのせるときの描き重ねの強さ（線を残して色を付ける。私の推測）
+BASE_OVER = 0.5    # 下塗り: 土台の色を線の下に敷いた絵に描き重ねる強さ（色と線の位置を残して塗り直す。私の推測）
 BASE_GRAIN_MOST = 0.02   # 下塗り: 色の粒（ブツブツ）の割合がこれを超えたら、面の色に寄せて平らにする
 PHASE_TAG = "atelier_phase"   # 工程の絵に付ける印（Image.info）。窓はこの印のある絵を途中の絵ではなく工程の絵として置く
 BASE_TAG = "atelier_base"     # 土台の絵の印。土台は on_base の専用の渡し口で窓へ渡す（preview には流さない）。この印は、万一 preview に土台が混ざっても窓が出さないための受け止め用に残す
@@ -457,7 +458,7 @@ DRAWS = (1, 2, 3, 4, 6, 8)   # 描く工程のある工程（サムネイル、�
 
 def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, on_step=None, checks=Checks, on_preview=None,
          confirm=None, pause_key: str | None = None, pause_job: dict | None = None, ask=None, answer=None,
-         resume: bool = False, on_base=None) -> dict:
+         resume: bool = False, on_base=None, only_draw: bool = False) -> dict:
     """計画（atelier/ai/phase_plan.py の工程の並び）に沿って 1 枚を描く。返り値は {"image": 最後の絵, "phases": 工程ごとの最後の記録,
     "history": 全部の記録, "plan": 工程の並び, "left": [], "checked": True, "complete": True, "backs": 戻った回数,
     "total": 累計の工程の数, "need": 要る工程の数}。
@@ -466,7 +467,9 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
     pause_key があれば、打ち切られたとき・聞いて止まったときに、計画と位置と土台を atelier/files/pause_keep.py に残す。
     続きから描くのは resume=True のときだけ（窓の「再開」と、聞いて止まった工程への答え）。
     resume でない呼び直しは新しい描画で、残っていた途中は引き継がず白い紙から描く
-    （同じ頼み・種の新しい描画が、前の絵の上に描き始める事故があった。利用者の報告、2026-11-27）"""
+    （同じ頼み・種の新しい描画が、前の絵の上に描き始める事故があった。利用者の報告、2026-11-27）。
+    only_draw=True は測る台（phase_bench の draws）だけが使う。確かめる工程を計画に置かず、描く工程だけを 1 回ずつ流す
+    （描く工程が絵を壊していないかを、検品と直しの繰り返し無しで速く見る）"""
     from PIL import Image
     from atelier.ai.engine import Stopped, emphasize
     from atelier.qc import hand_check as handcheck
@@ -492,6 +495,8 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
                                           "線の途切れ、線の強弱、ゴミ、手・足・顔、頼んだ物",
                                           "外の輪郭の途切れ（gap）、線の明るさの差（contrast）、ゴミの数")]
         items_by_phase = {4: ["ゴミ", "線の強弱", "線の途切れ"]}   # 線の仕上げは線の質を上げる工程なので、線の強弱も扱う（通常の線画では扱わない）。線の途切れはここでも最後に見る
+    if only_draw:
+        items_by_phase = {i: [] for i in range(len(names))}
     w, h = (size or (832, 1216))
     n = len(phase_info)
     st = {"image": None, "prompt": prompt, "thumb": None, "points": {}, "light": {}, "height": 0, "seed": seed,
@@ -597,9 +602,13 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         土台の絵は内側の基準だけに使い、画面に出さない・工程の絵として保存しない（見せるのは白い紙から描き上がる工程の絵だけ）。
         検品一式で測って、崩れの重さを st["base"] に残す。返すのは模型に渡した言葉"""
         stop()
-        say("土台の絵を描いています（頼みの言葉そのままの一発の絵。画面には出さず、工程の基準にします）")
-        tell(st["prompt"])
-        img = painter.paint(st["prompt"], st["seed"], size=(w, h))
+        words = []
+        img = st.pop("base_raw", None)   # サムネイルの工程で描いた土台があれば、それを測るだけ（同じ絵を 2 度描かない）
+        if img is None:
+            say("土台の絵を描いています（頼みの言葉そのままの一発の絵。画面には出さず、工程の基準にします）")
+            tell(st["prompt"])
+            words.append(st["prompt"])
+            img = painter.paint(st["prompt"], st.get("seed_pick", st["seed"]), size=(w, h))
         got = measure_base(img)
         st["base"] = {"image": img, "flaws": [] if got is None else got["flaws"],
                       "severity": None if got is None else got["severity"], "kind": None if got is None else got["kind"]}
@@ -614,7 +623,7 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
             say("土台の絵を検品できませんでした（良くなったかを比べる基準は無しで進めます）")
         else:
             say(f"土台の絵の崩れの重さは {got['severity']} です（最後の絵の重さがこれより小さいことが、仕上がりの条件です）")
-        return [st["prompt"]]
+        return words
 
     def stop():
         if getattr(painter, "stop", False) is True:
@@ -646,26 +655,25 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
 
     # 描く工程。どれも {"image", "words", "note", "numbers"} を返し、測ることも直すこともしない
     def d_thumbs(v):
-        # AI モードと同じ始まり。1 枚を直接描いて構図を決める（前は 2 枚描いて比べ、崩れの少ない方を選んでいた）。
-        # 選ぶ手間を省く代わり、構図は確かめる工程が測り、悪ければ構図から描き直す。線のラフ画として描く（色を付けない）
-        tw, th = (w, h) if THUMB_SCALE >= 1 else (max(256, int(w * THUMB_SCALE) // 8 * 8), max(256, int(h * THUMB_SCALE) // 8 * 8))
-        s0 = steps(THUMB_STEPS)
+        # AI モードと同じ始まり。頼みの言葉そのままで 1 枚を描き（土台。画面には出さない）、その絵から鉛筆のラフを抜いて構図にする。
+        # 前は「鉛筆のラフ」の言葉を足して別の絵を白紙から描かせ、その線に色を描き重ねていた。白い紙の線からの描き重ねは
+        # 紙の白を動かせず、最後まで灰色の紙に破線の絵になった（検証 46089737769）。土台と別の構図になるので、土台の色も使えなかった。
+        # ラフ・線・色を同じ土台から出すと、線と色の位置がずれず、最後の絵が AI モードの絵より崩れない
+        tw, th = (w, h)
         s = st["seed"] + v * 1000
         words = []
-        try:
-            stop()
-            say(f"サムネイルを描いています（{tw}x{th}）")
-            tell(rough_prompt())
-            words.append(rough_prompt())
-            img = painter.paint(rough_prompt(), s, on_step=on_step, size=(tw, th))   # サムネイルは途中の絵もキャンバスに出さない（NO_PREVIEW）
-            if THUMB_SCALE >= 1:
-                memo["thumbs"][(st["prompt"], s)] = img   # アタリはこの絵に描き重ねる（描き直さない）。軽く描いたラフでも構図は同じ種で同じ
-            req = checks.request(img, st["prompt"])   # 構図を測る。崩れは確かめる工程が項目ごとに出す
-            wt = pt.thumb_weight(img)
-            flaws = _people(req) + _missing(req) + (["画面の重さが片寄っている"] if wt["weight_x"] > pt.WEIGHT_MOST else [])
-            rows = [{"seed": s, **wt, "flaws": len(flaws), "score": [len(flaws), wt["weight_x"]]}]
-        finally:
-            unsteps(s0)
+        stop()
+        say(f"サムネイルを描いています（{tw}x{th}）")
+        tell(st["prompt"])
+        words.append(st["prompt"])
+        raw = painter.paint(st["prompt"], s, on_step=on_step, size=(tw, th))   # 土台。途中の絵も描けた絵もキャンバスに出さない
+        st["base_raw"], st["base"] = raw, None   # 土台の検品はアタリの頭で行う（paint_base）
+        img = pt.rough_from(raw)
+        memo["thumbs"][(st["prompt"], s)] = img   # アタリはこの絵に描き重ねる（描き直さない）
+        req = checks.request(img, st["prompt"])   # 構図を測る。崩れは確かめる工程が項目ごとに出す
+        wt = pt.thumb_weight(img)
+        flaws = _people(req) + _missing(req) + (["画面の重さが片寄っている"] if wt["weight_x"] > pt.WEIGHT_MOST else [])
+        rows = [{"seed": s, **wt, "flaws": len(flaws), "score": [len(flaws), wt["weight_x"]]}]
         st["thumb"], st["seed_pick"] = img, s
         say(f"サムネイルを直接描きました（種 {s}、崩れ {len(flaws)}）")
         out = img.resize((w, h))
@@ -875,11 +883,19 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         base_in = pt.whiten_paper(img)
         if not pt.line_like(base_in):
             base_in = img
+        # 白い紙の線画からの描き重ねは、紙の白をほとんど動かせず、色が乗らない（検証 46089737769 で
+        # 彩度 6.4・紙の明るさ 170 のまま。強さ 0.6 でも同じ）。土台（頼みの言葉そのままの絵）の色を
+        # 平らにして線の下に敷き、その上に描き重ねる。色の位置は土台、線の位置は清書で、同じ絵から出ている
         if can_refine:
+            strength, under = BASE_COLOR, base_in
+            base_img = (st.get("base") or {}).get("image")
+            if base_img is not None and base_img.size == img.size and pt.line_like(base_in):
+                under = pt.over_lines(pt.flatten_base(base_img), base_in)
+                strength = BASE_OVER
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])
             words.append(st["prompt"])
-            color = painter.refine(st["prompt"], s, base_in, strength=BASE_COLOR, on_step=on_step)
+            color = painter.refine(st["prompt"], s, under, strength=strength, on_step=on_step)
         elif can_line:
             say("線画に、初めて色を下塗りしています")
             tell(st["prompt"])

@@ -29,6 +29,10 @@ DETACH_ERASE_MOST = 0.06   # 位置ずれ: 枠の長い辺が短い辺のこの�
 HORIZON_TILT_MOST = 2.0    # 画角: 地平線の傾きがこれ（度）を超えたら傾いている（私の推測）
 BLEED_SAT = 60             # 色のにじみ: 紙の上の画素の彩度がこれ以上なら色がはみ出している（私の推測）
 BLEED_MOST = 0.005         # 色のにじみ: はみ出した色の画素が絵全体のこの割合を超えたらにじんでいる（私の推測）
+LINE_FROM_LOW = 2.0       # 線を抜く: 周りより暗い分（0〜255）がこれ以下なら紙（色のむらを線にしない。私の推測）
+LINE_FROM_HIGH = 10.0     # 線を抜く: 周りより暗い分がこれ以上なら線の黒（832x1216 の色の絵で、外の輪郭の途切れ 0.26・一番長い途切れ 0.013）
+ROUGH_DARKNESS = 0.6      # ラフを抜く: 鉛筆の線の濃さ（ペンの黒を 1 として。私の推測）
+ROUGH_COARSE = 1.6        # ラフを抜く: ぼかしの幅の倍率（細部を拾わない。私の推測）
 # 暗い画素の左右の割合は髪・服の色にも左右されるので、極端な場合（3 割未満）だけ見る（私の推測）
 OUTER_DARK = 0.65     # 線の強弱: 外の輪郭の線をこの倍率まで暗くする（手前・外側を太く濃く）
 SHADE2 = 0.70         # 影の 2 段目: 影の中の一番暗い所をこの倍率で暗くする。0.82 では変わりが平均 0.20 で DIFF_MIN（0.5）を下回り、影の工程が絵を変えなかったので強くした
@@ -254,6 +258,33 @@ def weight_lines(image, r=None):
         line_col = np.median(a[hit], axis=0)   # 線の色（暗くした外の輪郭の線の色の中央）
         a[thick] = line_col
     return Image.fromarray(np.clip(a, 0, 255).astype("uint8")), int(hit.sum() + thick.sum())
+
+
+def lines_from(image, darkness: float = 1.0, coarse: float = 1.0):
+    """色の絵から、線だけを白い紙の上に抜いた絵を返す（周りより暗い細い所が線になる）。
+
+    精度優先の線の工程は、前は「鉛筆のラフ」の言葉で別の絵を白紙から描かせ、その線に
+    色を描き重ねていた。白い紙の線画からの描き重ねは、紙の白をほとんど動かせず、
+    最後まで灰色の紙に破線の絵になった（検証 46089737769。彩度 6.4、紙の明るさ 170）。
+    線は土台の色の絵から抜く。線と色が同じ絵から出るので、線の位置と色の位置がずれない。
+    ぼかしの幅の違う 2 枚の差（周りより暗い分）を線の濃さにする。暗い面（黒い髪や服）は
+    面の中では差が出ないので、塗りつぶされずに縁だけが線になる。
+    darkness は線の濃さ（1 でペンの黒、小さくすると鉛筆の薄さ）。coarse はぼかしの幅の
+    倍率（大きくすると細部を拾わない粗い線）"""
+    import numpy as np
+    from PIL import Image
+    from scipy import ndimage
+    a = np.asarray(image.convert("RGB"), np.float32)
+    lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
+    s = max(0.8, min(image.size) / 900.0) * coarse
+    darker = ndimage.gaussian_filter(lum, s * 2.56) - ndimage.gaussian_filter(lum, s)
+    ink = np.clip((darker - LINE_FROM_LOW) / (LINE_FROM_HIGH - LINE_FROM_LOW), 0, 1) * min(max(darkness, 0.0), 1.0)
+    return Image.fromarray((255 * (1 - ink)).astype("uint8")).convert("RGB")
+
+
+def rough_from(image):
+    """色の絵から、鉛筆のラフ（薄く粗い線）を白い紙の上に抜いた絵を返す。構図を写すだけで、細部は拾わない"""
+    return lines_from(image, darkness=ROUGH_DARKNESS, coarse=ROUGH_COARSE)
 
 
 def line_like(image) -> bool:
