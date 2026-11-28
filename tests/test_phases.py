@@ -2370,7 +2370,7 @@ class ThickColorPainter(Painter):
 
 
 class BaseLineRestoreTest(unittest.TestCase):
-    """下塗りの描き重ねが線を描き直しても、結果の線は清書レイヤーの太さのまま。
+    """下塗りは色の絵の線をそのまま使い、清書の線を重ねない（清書はレイヤーに残す）。
     線レイヤーを乗算で乗せる合成は、色の絵自身の暗さを消せない。色の線が残ると
     線レイヤーの線と合わさった太さになり、下塗りの描く工程で線が太くなって
     壊れる（利用者の目撃、2026-11-27）"""
@@ -2397,16 +2397,11 @@ class BaseLineRestoreTest(unittest.TestCase):
             img = Image.open(rows["下塗り"]["image"]).convert("RGB")
             line_img = Image.open(Path(d) / "k" / "layer-05-清書.png").convert("L")
             runs = self._dark_runs(img)
-        self.assertEqual(runs, [(30, 5)], f"下塗りの結果の線が清書の太さ（5px）でない: {runs}")
-        self.assertLess(img.getpixel((32, 48))[0], 60)      # 線の所は線画の黒が残る
-        self.assertGreater(img.getpixel((8, 48))[0], 180)   # 線の無い所は塗った色が出る
-        # 線の完全性: 結果の暗い所は、清書レイヤーの線と画素単位で一致する
-        # （線が埋もれる・ずれる・欠ける・余分に太る、のどれも無い）
-        import numpy as np
-        out_dark = np.asarray(img.convert("L")) < 100
-        line_dark = np.asarray(line_img) < 100
-        self.assertTrue((out_dark == line_dark).all(),
-                        "下塗りの結果の線が清書レイヤーの線と一致していない（埋もれ・ずれ・欠け・太り）")
+        # 下塗りは土台から描き重ねた色の絵をそのまま使い、清書の線を重ねない。清書を乗算すると、
+        # 本物の絵では髪の塊・掌の粒・背景の破線が色の絵に焼き付いた（検証 46133315625）。
+        # 色の絵の線（15px）が 1 本だけ残り、清書の線（5px、2px ずれ）と合わさった太さにならない
+        self.assertEqual(runs, [(27, 15)], f"下塗りの結果に清書の線が重なっている: {runs}")
+        self.assertLess(line_img.getpixel((32, 48)), 100, "清書のレイヤーが残っていない")
 
 
 def blotchy_image(size):
@@ -2542,7 +2537,9 @@ class ColoringDefectsTest(unittest.TestCase):
                 from PIL import Image, ImageDraw
                 im = Image.new("RGB", size, "white")
                 d = ImageDraw.Draw(im)
-                d.rectangle([16, 12, 48, 48], fill=(205, 175, 155))   # 上半分だけ。下半分は紙のまま
+                # 本物の描き重ねは輪郭の線も描く（下塗りは清書の線を重ねず、色の絵の線をそのまま使う）
+                d.rectangle([16, 12, 48, 84], outline=(0, 0, 0))
+                d.rectangle([17, 13, 47, 48], fill=(205, 175, 155))   # 上半分だけ。下半分は紙のまま
                 r = 2
                 for x in (size[0] * 0.45, size[0] * 0.55):
                     d.ellipse([x - r, size[1] * 0.15 - r, x + r, size[1] * 0.15 + r], fill=(255, 255, 255))
@@ -2577,7 +2574,8 @@ class ColoringDefectsTest(unittest.TestCase):
             def base_color(self, size):
                 from PIL import Image, ImageDraw
                 im = Image.new("RGB", size, "white")
-                ImageDraw.Draw(im).rectangle([16, 12, 48, 48], fill=(205, 175, 155))
+                ImageDraw.Draw(im).rectangle([16, 12, 48, 84], outline=(0, 0, 0))   # 色の絵も輪郭の線を描く
+                ImageDraw.Draw(im).rectangle([17, 13, 47, 48], fill=(205, 175, 155))
                 return im
 
             def redraw(self, prompt, seed, image, mask, on_step=None, **kw):
@@ -2595,8 +2593,8 @@ class ColoringDefectsTest(unittest.TestCase):
         self.assertFalse(mends[0].get("changed"), mends)   # 斑点を散らかした描き直しは採用されていない
         self.assertTrue(any(m.get("mend") == "塗り残しを埋める" and m.get("changed") for m in mends), mends)
         self.assertLessEqual(pt.coverage_mask(got["image"])[1], phases.COVERAGE_MOST)
-        for x, y in ((20, 54), (26, 60), (38, 66), (44, 72)):   # 散らかった斑点の位置に黒は無い
-            self.assertGreater(got["image"].getpixel((x, y))[0], 150, (x, y))
+        for x, y in ((20, 54), (26, 60), (38, 66), (44, 72)):   # 散らかった斑点の位置に黒は無い（影 2 段で影の側は 1 段暗くなるので、斑点の黒と分ける境は 100）
+            self.assertGreater(got["image"].getpixel((x, y))[0], 100, (x, y))
 
 
 class DetailAccumulationTest(unittest.TestCase):
