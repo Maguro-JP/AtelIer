@@ -388,3 +388,4 @@
 | F23 | 直す・赤ペン・加工・描き直すのたびに直し方や進め方を選ばせる窓を出さない。食い違いは今書いた頼みを正として聞かずに直し、状態の帯に 1 行だけ出す。聞く窓は初めの 1 回だけにして「次から聞かない」を初めから入れ、設定の「描き方」で決め方を変えられるようにする（2026-11-23） | 直した | atelier/ui/confirm.py、atelier/app/window/ai_drawing.py、atelier/app/window/ai_results.py、atelier/app/settings.py、tests/test_confirm.py |
 | F24 | 拡張だけの Setup が Release にある拡張は、AtelIer のインストーラーで既定で入れる（外すこともできる）（2026-11-23） | 直した | packaging/installer.nsi、tests/test_extensions.py |
 | F25 | 精度優先が人を描ける模型で一度も通らない。下塗りで色がほとんど乗らない不具合を直す（線画の紙が灰色だと、線画と読まれず、描き重ねも灰色の絵から始まっていた）（2026-11-28） | 直した | atelier/ai/phase_tools.py、atelier/ai/phases.py、tests/test_phases.py |
+| F26 | 精度優先が人を描ける模型で壊れた絵（灰色の紙、破線、色は一部だけ）しか出さない。絵を目で見て直ったと確かめてから出す。描く工程を速く確かめる Actions を作る（2026-11-28） | 直した | atelier/ai/phases.py、atelier/ai/phase_tools.py、atelier/bench/phase_bench.py、.github/workflows/precise-fast.yml、tests/test_phases.py |
