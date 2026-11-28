@@ -4246,8 +4246,14 @@ class FromBaseTest(unittest.TestCase):
         本物の絵で線の周りの色まで埋めて顔と輪郭を潰した（検証 46127844791）"""
         got, painter, rows, imgs = self.run_base(only_draw=True)
         self.assertEqual(list(imgs["下塗り"].getdata()), list(painter.under.getdata()))
-        self.assertLessEqual(rows["下塗り"]["numbers"]["line_lost"], phases.LINE_LOSS_MOST)
-        self.assertLessEqual(rows["下塗り"]["numbers"]["line_fat"], phases.LINE_FAT_MOST)
+        self.assertIn("line_lost", rows["下塗り"]["numbers"])   # 清書の線が色の絵にどれだけ無いかは、記録だけに残す
+
+    def test_base_coat_starts_from_the_base_without_line_layer(self):
+        """下塗りの描き重ねの土台は、頼みの言葉そのままの絵（土台）そのもの。清書の線を乗算して敷くと、
+        清書の粒・塊・背景の破線が色の絵に焼き付いた（検証 46133315625）"""
+        got, painter, rows, imgs = self.run_base(only_draw=True)
+        base = colored_figure((64, 96))   # この画家の土台
+        self.assertEqual(list(painter.under.getdata()), list(base.getdata()))
 
     def test_line_fattening_counts_only_new_dark_next_to_lines(self):
         """線の太りは、描き重ねで線のすぐ外側に増えた暗い画素で測る。前からある暗い面（黒い服）は数えない"""

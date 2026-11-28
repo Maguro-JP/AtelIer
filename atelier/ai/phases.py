@@ -912,11 +912,11 @@ def draw(painter, prompt: str, seed: int, size, keep: Path, say=lambda m: None, 
         if pt.grain(color) > BASE_GRAIN_MOST:   # 色をのせたはずが粒（ブツブツ）だらけのときだけ、面の色に寄せて平らにする（きれいな色は触らない）
             flat = pt.flatten_base(color)
             # 平らにすると 1〜2 画素の線まで面の色に寄って消える。下塗りは色の絵の線をそのまま使うので、
-            # 元の色の絵の暗い線の画素は戻す（粒だけを平らにする）
+            # 線の画素は元の色の絵のままにする（粒だけを平らにする）
             import numpy as np
             from PIL import Image as _Image
             ca, fa = np.asarray(color.convert("RGB")), np.asarray(flat.convert("RGB")).copy()
-            dark = np.asarray(pt.luminance(color)) < 80
+            dark = (np.asarray(pt.luminance(color)) < 80) | (np.asarray(pt.luminance(flat)) < 80)   # 線を消す向きも、線を太らせる向きも止める
             fa[dark] = ca[dark]
             flat = _Image.fromarray(fa)
             if pt.grain(flat) < pt.grain(color):
